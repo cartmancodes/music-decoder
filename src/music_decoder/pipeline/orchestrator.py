@@ -28,7 +28,7 @@ from music_decoder.persistence.repositories import (
     NoteRepo,
     TempoEstimateRepo,
 )
-from music_decoder.pipeline.contracts import AudioSource, LoadedAudio
+from music_decoder.pipeline.contracts import AudioSource, LoadedAudio, SeparationResult
 from music_decoder.pipeline.events import StageEventEmitter
 from music_decoder.separation.demucs import isolate_guitar
 from music_decoder.tab_assignment.assigner import assign_tab
@@ -84,7 +84,19 @@ def process_audio(
             s.commit()
 
             with emit("separation") as summary:
-                separation = isolate_guitar(audio)
+                # C4: respect use_demucs toggle; skip separation when user opts out
+                if not job.use_demucs or audio.source.declared_kind == "solo_guitar":
+                    separation = SeparationResult(
+                        guitar_samples=None, sr=audio.sr,
+                        skipped_reason=(
+                            "solo_guitar declared"
+                            if audio.source.declared_kind == "solo_guitar"
+                            else "user_disabled_demucs"
+                        ),
+                        bleed_estimate_db=None,
+                    )
+                else:
+                    separation = isolate_guitar(audio)
                 samples_for_pitch = (
                     separation.guitar_samples if separation.guitar_samples is not None
                     else audio.samples
