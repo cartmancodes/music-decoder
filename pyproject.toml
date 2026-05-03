@@ -15,7 +15,6 @@ dependencies = [
   "alembic>=1.13",
   "librosa>=0.10",
   "basic-pitch>=0.4",
-  "crepe>=0.0.13",
   "demucs>=4.0",
   "pretty_midi>=0.2.10",
   "music21>=9.1",
@@ -41,6 +40,14 @@ dev = [
   "mypy>=1.10",
   "types-PyYAML",
   "freezegun>=1.5",
+]
+# crepe (optional monophonic pitch tracker) ships an old setup.py that imports
+# pkg_resources, which broke in setuptools >= 70. Install via:
+#     pip install "setuptools<70" && pip install --no-build-isolation crepe
+# or `make install-crepe`. Treated as optional so the rest of the project
+# installs cleanly via standard pip.
+crepe = [
+  "crepe>=0.0.13",
 ]
 
 [project.scripts]

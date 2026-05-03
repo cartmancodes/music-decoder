@@ -1,10 +1,14 @@
-.PHONY: install dev test test-fast lint typecheck eval format clean
+.PHONY: install dev install-crepe test test-fast lint typecheck eval format clean
 
 install:
 	pip install -e .
 
 dev:
 	pip install -e ".[dev]"
+
+install-crepe:
+	pip install "setuptools<70"
+	pip install --no-build-isolation -e ".[crepe]"
 
 test:
 	pytest
