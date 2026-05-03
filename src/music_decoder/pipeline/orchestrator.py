@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import traceback
 from datetime import UTC, datetime
 
@@ -16,6 +17,7 @@ from music_decoder.beat_tracking.time_signature import infer_time_signature
 from music_decoder.config.hyperparameters import HyperparameterSet
 from music_decoder.key_detection.api import detect_key
 from music_decoder.logging_setup import get_logger
+from music_decoder.midi_synth.fluidsynth_wrapper import SynthBackend, synthesize_midi_to_wav
 from music_decoder.persistence.models import Job
 from music_decoder.persistence.repositories import (
     JobProgressRepo,
@@ -202,6 +204,20 @@ def process_audio(
                 note_repo.bulk_insert(job_id, note_rows)
                 summary["assigned"] = len(tab_result.tabbed_notes)
                 summary["dropped"] = len(tab_result.notes_dropped)
+            s.commit()
+
+            with emit("midi_synth") as summary:
+                # C2: produce synthesized.wav + source.wav under derived/{job_id}
+                synth_wav = artifacts.path_for(f"derived/{job_id}/synthesized.wav")
+                synthesize_midi_to_wav(
+                    raw_t.post_midi_path, synth_wav, sr=audio.sr,
+                    backend=SynthBackend.SINE,
+                )
+                src_copy = artifacts.path_for(f"derived/{job_id}/source.wav")
+                src_copy.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(audio.source.path, src_copy)
+                summary["synthesized_wav"] = str(synth_wav)
+                summary["source_wav"] = str(src_copy)
             s.commit()
 
             job.status = "succeeded"
