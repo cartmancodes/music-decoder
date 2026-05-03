@@ -29,5 +29,8 @@ format:
 	ruff check --fix src tests
 	ruff format src tests
 
+fixtures:
+	python -c "import mirdata; mirdata.initialize('guitarset', data_home='tests/fixtures/guitarset').download(force_overwrite=False)"
+
 clean:
 	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage
