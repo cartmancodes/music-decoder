@@ -25,12 +25,20 @@ def transcribe_basic_pitch(
     raw_midi_path = output_dir / "raw_basic_pitch.mid"
     post_midi_path = output_dir / "post_basic_pitch.mid"   # post-processing fills it later
 
+    # Prefer CoreML on macOS (avoids TF version-mismatch errors when TF is installed)
+    model_path: Path = ICASSP_2022_MODEL_PATH
+    for suffix in (".mlpackage", ".onnx"):
+        candidate = Path(str(ICASSP_2022_MODEL_PATH) + suffix)
+        if candidate.exists():
+            model_path = candidate
+            break
+
     with tempfile.TemporaryDirectory() as tmp:
         wav_path = Path(tmp) / "input.wav"
         wavfile.write(str(wav_path), audio.sr, (audio.samples * 32767).astype(np.int16))
         _, midi_data, note_events = predict(
             str(wav_path),
-            model_or_model_path=ICASSP_2022_MODEL_PATH,
+            model_or_model_path=model_path,
             onset_threshold=params.onset_threshold,
             frame_threshold=params.frame_threshold,
             minimum_note_length=params.minimum_note_length_ms,
