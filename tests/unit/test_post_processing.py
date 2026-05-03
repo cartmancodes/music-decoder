@@ -7,6 +7,7 @@ from music_decoder.transcription.post_processing import (
     drop_short_notes,
     median_filter_pitch_contour,
     merge_same_pitch,
+    snap_to_beats,
 )
 
 
@@ -55,3 +56,23 @@ def test_median_filter_removes_single_outlier():
 def test_median_filter_window_must_be_odd():
     with pytest.raises(ValueError):
         median_filter_pitch_contour(np.array([60.0, 60.0]), window=4)
+
+
+def test_snap_to_beats_moves_high_confidence_onsets():
+    notes = [
+        _n(0.49, 1.0, pitch=60, conf=0.95),   # close to beat at 0.5
+        _n(0.55, 1.0, pitch=62, conf=0.30),   # low confidence: don't snap
+    ]
+    beats = np.array([0.0, 0.5, 1.0, 1.5])
+    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7,
+                        max_snap_s=0.05)
+    assert out[0].start_s == 0.5
+    assert out[1].start_s == 0.55
+
+
+def test_snap_to_beats_does_not_move_far_onsets():
+    notes = [_n(0.30, 0.50, conf=0.95)]
+    beats = np.array([0.0, 0.5, 1.0])
+    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7,
+                        max_snap_s=0.05)
+    assert out[0].start_s == 0.30   # 0.20s away from nearest beat → no snap

@@ -47,3 +47,31 @@ def median_filter_pitch_contour(
         np.asarray(contour, dtype=float), kernel_size=window
     )
     return result
+
+
+def snap_to_beats(
+    notes: Iterable[TranscribedNote],
+    *,
+    beats: np.ndarray[Any, np.dtype[np.float64]],
+    confidence_threshold: float,
+    max_snap_s: float,
+) -> list[TranscribedNote]:
+    if len(beats) == 0:
+        return list(notes)
+    beat_arr = np.asarray(beats)
+    out: list[TranscribedNote] = []
+    for n in notes:
+        if n.confidence < confidence_threshold:
+            out.append(n)
+            continue
+        diffs = np.abs(beat_arr - n.start_s)
+        idx = int(np.argmin(diffs))
+        if diffs[idx] <= max_snap_s:
+            shift = float(beat_arr[idx]) - n.start_s
+            out.append(TranscribedNote(
+                start_s=float(beat_arr[idx]), end_s=n.end_s + shift,
+                pitch=n.pitch, velocity=n.velocity, confidence=n.confidence,
+            ))
+        else:
+            out.append(n)
+    return out
