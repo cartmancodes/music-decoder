@@ -1,0 +1,8 @@
+# Pinned acceptance thresholds. Lowering any of these requires committing
+# a corresponding update to evaluation_reports/baseline.json with rationale.
+note_f_measure: 0.65
+onset_f_measure: 0.70
+pitch_class_accuracy: 0.75
+key_mirex_score: 0.75
+tab_string_accuracy: 0.55
+regression_tolerance: 0.02
