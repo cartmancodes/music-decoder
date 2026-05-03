@@ -76,3 +76,22 @@ def test_snap_to_beats_does_not_move_far_onsets():
     out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7,
                         max_snap_s=0.05)
     assert out[0].start_s == 0.30   # 0.20s away from nearest beat → no snap
+
+
+def test_apply_post_processing_chains_filters():
+    from music_decoder.config.hyperparameters import PostProcessingParams
+    from music_decoder.transcription.post_processing import apply_post_processing
+
+    notes = [
+        _n(0.0, 0.01, pitch=60, conf=0.9),     # too short → dropped
+        _n(0.49, 0.99, pitch=60, conf=0.95),   # snapped to 0.5
+        _n(0.52, 1.0, pitch=60, conf=0.95),    # merged with previous
+    ]
+    params = PostProcessingParams(
+        median_filter_window=3, min_note_duration_s=0.05,
+        same_pitch_merge_gap_s=0.05,
+        rhythmic_snap_confidence_threshold=0.7,
+    )
+    out = apply_post_processing(notes, params=params, beats=np.array([0.0, 0.5, 1.0]))
+    assert len(out) == 1
+    assert out[0].start_s == 0.5

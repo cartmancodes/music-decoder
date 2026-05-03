@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from scipy.signal import medfilt
 
+from music_decoder.config.hyperparameters import PostProcessingParams
 from music_decoder.pipeline.contracts import TranscribedNote
 
 
@@ -75,3 +76,21 @@ def snap_to_beats(
         else:
             out.append(n)
     return out
+
+
+def apply_post_processing(
+    notes: Iterable[TranscribedNote],
+    *,
+    params: PostProcessingParams,
+    beats: np.ndarray[Any, np.dtype[np.float64]] | None = None,
+) -> list[TranscribedNote]:
+    pipeline = list(notes)
+    pipeline = drop_short_notes(pipeline, min_duration_s=params.min_note_duration_s)
+    pipeline = merge_same_pitch(pipeline, gap_s=params.same_pitch_merge_gap_s)
+    if beats is not None and len(beats) > 0:
+        pipeline = snap_to_beats(
+            pipeline, beats=beats,
+            confidence_threshold=params.rhythmic_snap_confidence_threshold,
+            max_snap_s=0.05,
+        )
+    return pipeline
