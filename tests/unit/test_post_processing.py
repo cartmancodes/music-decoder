@@ -1,9 +1,11 @@
 # tests/unit/test_post_processing.py
+import numpy as np
 import pytest
 
 from music_decoder.pipeline.contracts import TranscribedNote
 from music_decoder.transcription.post_processing import (
     drop_short_notes,
+    median_filter_pitch_contour,
     merge_same_pitch,
 )
 
@@ -41,3 +43,15 @@ def test_merge_same_pitch_does_not_cross_pitches():
     notes = [_n(0.0, 0.5, pitch=60), _n(0.52, 1.0, pitch=62)]
     out = merge_same_pitch(notes, gap_s=0.05)
     assert len(out) == 2
+
+
+def test_median_filter_removes_single_outlier():
+    # A 9-frame contour with one wildly wrong frame
+    contour = np.array([60, 60, 60, 60, 99, 60, 60, 60, 60], dtype=float)
+    out = median_filter_pitch_contour(contour, window=3)
+    assert out[4] == 60.0
+
+
+def test_median_filter_window_must_be_odd():
+    with pytest.raises(ValueError):
+        median_filter_pitch_contour(np.array([60.0, 60.0]), window=4)

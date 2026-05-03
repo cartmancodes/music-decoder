@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
+
+import numpy as np
+from scipy.signal import medfilt
 
 from music_decoder.pipeline.contracts import TranscribedNote
 
@@ -32,3 +36,14 @@ def merge_same_pitch(
         else:
             out.append(n)
     return sorted(out, key=lambda n: n.start_s)
+
+
+def median_filter_pitch_contour(
+    contour: np.ndarray[Any, np.dtype[np.float64]], *, window: int
+) -> np.ndarray[Any, np.dtype[np.float64]]:
+    if window % 2 == 0:
+        raise ValueError("median filter window must be odd")
+    result: np.ndarray[Any, np.dtype[np.float64]] = medfilt(
+        np.asarray(contour, dtype=float), kernel_size=window
+    )
+    return result
