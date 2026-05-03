@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any, cast
 
 import streamlit as st
 
@@ -12,7 +13,9 @@ _TERMINAL = ("succeeded", "failed", "cancelled")
 
 def render() -> None:
     st.header("Job status")
-    ctx = app_context()
+    raw_ctx = app_context()
+    from sqlalchemy.engine import Engine
+    engine = cast(Engine, raw_ctx["engine"])
     qp = st.query_params
     raw_id = qp.get("id")
     if not raw_id:
@@ -23,7 +26,7 @@ def render() -> None:
     except (TypeError, ValueError):
         st.error("Invalid job id.")
         return
-    status = job_status(ctx["engine"], job_id)
+    status = job_status(engine, job_id)
     if status is None:
         st.error(f"Job #{job_id} not found.")
         return
@@ -32,9 +35,10 @@ def render() -> None:
     st.write(f"finished_at: {status['finished_at']}")
     if status["error_class"]:
         st.error(f"{status['error_class']}: {status['error_message']}")
-    if status["progress"]:
+    progress = cast(list[dict[str, Any]], status["progress"])
+    if progress:
         st.markdown("**Stage progress**")
-        for p in status["progress"]:
+        for p in progress:
             ok = "ok" if p["success"] else ("running" if p["success"] is None else "fail")
             st.write(f"- `{p['stage']}` [{ok}] @ {p['started_at']}")
     if status["status"] == "succeeded":
