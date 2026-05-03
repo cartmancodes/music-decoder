@@ -1,0 +1,8 @@
+# config/runtime.yaml
+# Defaults assume macOS user data dir; override via MUSIC_DECODER_* env vars.
+db_path: ~/Library/Application Support/music-decoder/db.sqlite3
+artifact_dir: ~/Library/Application Support/music-decoder/artifacts
+log_level: INFO
+ffmpeg_path: null            # null = autodiscover via PATH
+model_cache_dir: ~/Library/Caches/music-decoder/models
+fixture_dir: tests/fixtures
