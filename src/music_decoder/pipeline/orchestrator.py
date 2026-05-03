@@ -5,6 +5,7 @@ import shutil
 import traceback
 from datetime import UTC, datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -16,6 +17,7 @@ from music_decoder.beat_tracking.beats import track_beats
 from music_decoder.beat_tracking.time_signature import infer_time_signature
 from music_decoder.config.hyperparameters import HyperparameterSet
 from music_decoder.key_detection.api import detect_key
+from music_decoder.key_detection.chroma import compute_chroma_with_hpss
 from music_decoder.logging_setup import get_logger
 from music_decoder.midi_synth.fluidsynth_wrapper import SynthBackend, synthesize_midi_to_wav
 from music_decoder.persistence.models import Job
@@ -34,6 +36,8 @@ from music_decoder.tab_assignment.tuning import get_preset
 from music_decoder.transcription.basic_pitch_wrapper import transcribe_basic_pitch
 from music_decoder.transcription.crepe_wrapper import transcribe_crepe
 from music_decoder.transcription.post_processing import apply_post_processing
+from music_decoder.ui.components.chromagram import render_chromagram_figure
+from music_decoder.ui.components.waveform import render_waveform_figure
 
 _log = get_logger("orchestrator")
 
@@ -167,6 +171,32 @@ def process_audio(
                 )
                 summary["tempo_bpm"] = grid.tempo_bpm
                 summary["ts"] = f"{ts.numerator}/{ts.denominator}"
+            s.commit()
+
+            with emit("visualizations") as summary:
+                # C3: render chromagram + waveform PNGs into derived/{job_id}
+                # TODO: cache chroma if measured to matter
+                chroma = compute_chroma_with_hpss(
+                    samples_for_pitch, sr=audio.sr,
+                    hpss_margin=hyperparameters.key_detection.hpss_margin,
+                )
+                chroma_path = artifacts.path_for(f"derived/{job_id}/chromagram.png")
+                chroma_path.parent.mkdir(parents=True, exist_ok=True)
+                fig = render_chromagram_figure(
+                    chroma.astype(np.float64), sr=audio.sr, hop_length=512,
+                )
+                fig.savefig(chroma_path, dpi=120)
+                plt.close(fig)
+
+                onsets_s = np.array([n.start_s for n in raw_t.notes])
+                wave_path = artifacts.path_for(f"derived/{job_id}/waveform.png")
+                fig2 = render_waveform_figure(
+                    samples_for_pitch.astype(np.float64), sr=audio.sr, onsets_s=onsets_s,
+                )
+                fig2.savefig(wave_path, dpi=120)
+                plt.close(fig2)
+                summary["chromagram_png"] = str(chroma_path)
+                summary["waveform_png"] = str(wave_path)
             s.commit()
 
             with emit("post_processing") as summary:
