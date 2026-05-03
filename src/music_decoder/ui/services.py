@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import json as _json
 from typing import Literal
 
+from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from music_decoder.artifacts.base import ArtifactStore
+from music_decoder.persistence.models import (
+    AccuracyReport,
+    Job,
+    JobProgress,
+    KeyEstimate,
+    Note,
+    TabReference,
+    TempoEstimate,
+)
 from music_decoder.persistence.repositories import JobRepo, UploadRepo
 
 
@@ -44,3 +55,98 @@ def enqueue_upload(
         )
         s.commit()
         return int(job.id)
+
+
+def job_status(engine: Engine, job_id: int) -> dict[str, object] | None:
+    with Session(engine) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return None
+        progress = list(s.execute(
+            select(JobProgress).where(JobProgress.job_id == job_id)
+            .order_by(JobProgress.started_at)
+        ).scalars())
+        return {
+            "id": job.id,
+            "status": job.status,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "error_class": job.error_class,
+            "error_message": job.error_message,
+            "progress": [
+                {
+                    "stage": p.stage,
+                    "started_at": p.started_at.isoformat() if p.started_at else None,
+                    "ended_at": p.ended_at.isoformat() if p.ended_at else None,
+                    "success": p.success, "error": p.error,
+                    "summary": p.summary_json,
+                }
+                for p in progress
+            ],
+        }
+
+
+def load_results(engine: Engine, job_id: int) -> dict[str, object] | None:
+    with Session(engine) as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            return None
+        keys = list(s.execute(select(KeyEstimate).where(KeyEstimate.job_id == job_id)
+                              .order_by(KeyEstimate.scope, KeyEstimate.profile,
+                                        KeyEstimate.rank)).scalars())
+        tempo = s.get(TempoEstimate, job_id)
+        notes = list(s.execute(select(Note).where(Note.job_id == job_id)
+                                .order_by(Note.start_s)).scalars())
+        refs = list(s.execute(select(TabReference).where(TabReference.job_id == job_id)
+                                .order_by(TabReference.created_at)).scalars())
+        report = s.get(AccuracyReport, job_id)
+        return {
+            "job": {
+                "id": job.id, "status": job.status,
+                "transcription_model": job.transcription_model,
+                "requested_tuning": job.requested_tuning,
+                "requested_quality": job.requested_quality,
+                "hyperparameter_set": job.hyperparameter_set,
+            },
+            "keys": [
+                {"scope": k.scope, "profile": k.profile, "rank": k.rank,
+                 "tonic": k.tonic, "mode": k.mode, "correlation": float(k.correlation),
+                 "margin": float(k.margin),
+                 "window_start_s": k.window_start_s, "window_end_s": k.window_end_s}
+                for k in keys
+            ],
+            "tempo": ({
+                "tempo_bpm": float(tempo.tempo_bpm),
+                "beat_times_s": _json.loads(tempo.beat_times_s_json),
+                "downbeat_times_s": _json.loads(tempo.downbeat_times_s_json),
+                "ts_numerator": tempo.ts_numerator,
+                "ts_denominator": tempo.ts_denominator,
+                "ts_confidence": float(tempo.ts_confidence),
+                "ts_assumed": bool(tempo.ts_assumed),
+            } if tempo else None),
+            "notes": [
+                {"start_s": float(n.start_s), "end_s": float(n.end_s),
+                 "pitch": int(n.pitch), "velocity": int(n.velocity),
+                 "confidence": float(n.confidence),
+                 "string": n.string, "fret": n.fret,
+                 "dropped_reason": n.dropped_reason}
+                for n in notes
+            ],
+            "tab_references": [
+                {"source": r.source, "raw_text": r.raw_text,
+                 "similarity_to_prediction": (
+                    float(r.similarity_to_prediction)
+                    if r.similarity_to_prediction is not None else None),
+                 "disagreement_spans": (
+                    _json.loads(r.disagreement_spans_json)
+                    if r.disagreement_spans_json else [])}
+                for r in refs
+            ],
+            "accuracy_report": ({
+                "fixture_name": report.fixture_name,
+                "note_f_measure": report.note_f_measure,
+                "key_mirex_score": report.key_mirex_score,
+                "tab_string_accuracy": report.tab_string_accuracy,
+                "full_metrics": _json.loads(report.full_metrics_json),
+            } if report else None),
+        }
