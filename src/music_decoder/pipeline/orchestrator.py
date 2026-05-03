@@ -75,6 +75,7 @@ def process_audio(
                 audio = load_audio(source)
                 summary["duration_s"] = audio.duration_s
                 summary["sr"] = audio.sr
+            s.commit()
 
             with emit("separation") as summary:
                 separation = isolate_guitar(audio)
@@ -83,6 +84,7 @@ def process_audio(
                     else audio.samples
                 )
                 summary["skipped_reason"] = separation.skipped_reason
+            s.commit()
 
             output_dir = artifacts.path_for(f"derived/{job_id}")
             with emit("transcription") as summary:
@@ -106,6 +108,7 @@ def process_audio(
                         audio_for_t, hyperparameters.crepe, output_dir=output_dir,
                     )
                 summary["raw_note_count"] = len(raw_t.notes)
+            s.commit()
 
             with emit("key_detection") as summary:
                 key_result = detect_key(
@@ -135,6 +138,7 @@ def process_audio(
                     f"{key_result.consensus_key.tonic} {key_result.consensus_key.mode}"
                     if key_result.consensus_key else None
                 )
+            s.commit()
 
             with emit("beat_tracking") as summary:
                 grid = track_beats(
@@ -161,6 +165,7 @@ def process_audio(
                 )
                 summary["tempo_bpm"] = grid.tempo_bpm
                 summary["ts"] = f"{ts.numerator}/{ts.denominator}"
+            s.commit()
 
             with emit("post_processing") as summary:
                 cleaned = apply_post_processing(
@@ -168,6 +173,7 @@ def process_audio(
                     beats=grid.beat_times_s,
                 )
                 summary["cleaned_note_count"] = len(cleaned)
+            s.commit()
 
             with emit("tab_assignment") as summary:
                 tab_result = assign_tab(
@@ -196,6 +202,7 @@ def process_audio(
                 note_repo.bulk_insert(job_id, note_rows)
                 summary["assigned"] = len(tab_result.tabbed_notes)
                 summary["dropped"] = len(tab_result.notes_dropped)
+            s.commit()
 
             job.status = "succeeded"
             job.finished_at = datetime.now(UTC)
