@@ -76,6 +76,22 @@ def test_ascending_scale_is_monotonic_in_pitch():
             raise AssertionError("string collision in sequential single notes")
 
 
+def test_more_than_six_simultaneous_notes_drops_lowest_confidence():
+    """Spec: if more than 6 overlap, keep 6 highest-confidence, drop the rest."""
+    pitches_and_confs = [
+        (60, 0.95), (64, 0.93), (67, 0.91), (70, 0.85),
+        (72, 0.80), (74, 0.75), (76, 0.50),  # this last one should be dropped
+    ]
+    notes = [TranscribedNote(start_s=0.0, end_s=1.0, pitch=p, velocity=80, confidence=c)
+             for p, c in pitches_and_confs]
+    result = assign_tab(notes, tuning=get_preset("EADGBE"),
+                       weights=_default_weights(), max_fret=22)
+    dropped_pitches = [n.pitch for n, reason in result.notes_dropped
+                       if reason == "chord_too_dense_capped_to_6"]
+    assert 76 in dropped_pitches
+    assert len(dropped_pitches) == 1
+
+
 def test_overlapping_notes_with_drifted_onsets_form_chord():
     """Two notes with onsets 30ms apart and overlapping intervals should
     form a single chord state, not be treated as sequential single notes."""

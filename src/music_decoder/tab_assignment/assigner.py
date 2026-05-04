@@ -49,8 +49,22 @@ def assign_tab(
             tabbed_notes=[], tuning=tuning, total_cost=0.0, notes_dropped=[],
         )
     groups = _group_simultaneous(note_list)
-    candidate_groups: list[Group] = []
     dropped: list[tuple[TranscribedNote, str]] = []
+
+    # Cap each chord group to 6 notes (highest confidence), per spec §6.1
+    clamped_groups: list[list[TranscribedNote]] = []
+    for chord_group in groups:
+        if len(chord_group) > 6:
+            sorted_by_conf = sorted(chord_group, key=lambda n: n.confidence, reverse=True)
+            keep, drop = sorted_by_conf[:6], sorted_by_conf[6:]
+            clamped_groups.append(sorted(keep, key=lambda n: n.pitch))
+            for n in drop:
+                dropped.append((n, "chord_too_dense_capped_to_6"))
+        else:
+            clamped_groups.append(chord_group)
+    groups = clamped_groups
+
+    candidate_groups: list[Group] = []
     flat_group_to_notes: list[list[TranscribedNote]] = []
     for chord_group in groups:
         if len(chord_group) == 1:
