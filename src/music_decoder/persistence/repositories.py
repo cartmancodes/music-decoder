@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ from .models import (
     TempoEstimate,
     Upload,
 )
+
+if TYPE_CHECKING:
+    from .models import ChordSegment as ChordSegmentModel
 
 
 def _now() -> datetime:
@@ -288,3 +292,20 @@ class AccuracyReportRepo:
         self.s.add(r)
         self.s.flush()
         return r
+
+
+class ChordSegmentRepo:
+    def __init__(self, session: Session) -> None:
+        self.s = session
+
+    def bulk_insert(self, job_id: int, rows: Iterable[dict]) -> None:  # type: ignore[type-arg]
+        from .models import ChordSegment
+        self.s.add_all([ChordSegment(job_id=job_id, **r) for r in rows])
+        self.s.flush()
+
+    def list_for_job(self, job_id: int) -> list[ChordSegmentModel]:
+        from .models import ChordSegment
+        return list(self.s.execute(
+            select(ChordSegment).where(ChordSegment.job_id == job_id)
+            .order_by(ChordSegment.start_s)
+        ).scalars())
