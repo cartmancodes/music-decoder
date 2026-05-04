@@ -131,3 +131,20 @@ class StageEvent:
     success: bool
     error: str | None
     summary: dict[str, Any]
+
+
+# ---- chord_detection
+@dataclass(frozen=True)
+class ChordSegment:
+    start_s: float
+    end_s: float
+    root: str
+    quality: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class ChordRecognitionResult:
+    segments: list[ChordSegment]
+    median_confidence: float
+    skipped_reason: str | None
