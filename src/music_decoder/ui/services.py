@@ -37,19 +37,24 @@ def enqueue_upload(
 ) -> int:
     sha = hashlib.sha256(content).hexdigest()
     with Session(engine) as s:
-        upload = UploadRepo(s).create(
-            sha256=sha, original_filename=original_filename, mime_type=mime_type,
-            duration_s=None, sample_rate_hz=None, declared_kind=declared_kind,
-            artifact_path="placeholder",
-        )
-        s.flush()
-        ext = original_filename.rsplit(".", 1)[-1].lower() or "wav"
-        key = f"uploads/{upload.id}/source.{ext}"
-        artifacts.put(key, content)
-        upload.artifact_path = key
+        existing = UploadRepo(s).find_by_sha256(sha)
+        if existing is not None:
+            upload_id = existing.id
+        else:
+            upload = UploadRepo(s).create(
+                sha256=sha, original_filename=original_filename, mime_type=mime_type,
+                duration_s=None, sample_rate_hz=None, declared_kind=declared_kind,
+                artifact_path="placeholder",
+            )
+            s.flush()
+            ext = original_filename.rsplit(".", 1)[-1].lower() or "wav"
+            key = f"uploads/{upload.id}/source.{ext}"
+            artifacts.put(key, content)
+            upload.artifact_path = key
+            upload_id = upload.id
 
         job = JobRepo(s).enqueue(
-            upload_id=upload.id, transcription_model=transcription_model,
+            upload_id=upload_id, transcription_model=transcription_model,
             requested_tuning=requested_tuning, requested_quality=requested_quality,
             use_demucs=use_demucs, hyperparameter_set=hyperparameter_set,
         )

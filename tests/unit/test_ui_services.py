@@ -72,6 +72,51 @@ def test_job_status_returns_progress_rows(tmp_path: Path):
     assert any(p["stage"] == "audio_io" for p in status["progress"])
 
 
+def test_enqueue_upload_deduplicates_by_sha256(tmp_path: Path):
+    """Uploading the same file twice creates only one Upload row but two Jobs."""
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'app.sqlite3'}")
+    Base.metadata.create_all(engine)
+    artifacts = FilesystemArtifactStore(root=tmp_path / "artifacts")
+    audio_bytes = (Path("tests/fixtures/audio_samples/sine_440.wav")).read_bytes()
+
+    job_id_1 = enqueue_upload(
+        engine=engine, artifacts=artifacts,
+        original_filename="sine.wav", mime_type="audio/wav",
+        content=audio_bytes,
+        declared_kind="solo_guitar",
+        transcription_model="basic-pitch",
+        requested_tuning="EADGBE", requested_quality="standard",
+        use_demucs=False,
+        hyperparameter_set="2026-05-04-baseline",
+    )
+    job_id_2 = enqueue_upload(
+        engine=engine, artifacts=artifacts,
+        original_filename="sine_copy.wav", mime_type="audio/wav",
+        content=audio_bytes,
+        declared_kind="solo_guitar",
+        transcription_model="basic-pitch",
+        requested_tuning="EADGBE", requested_quality="standard",
+        use_demucs=False,
+        hyperparameter_set="2026-05-04-baseline",
+    )
+
+    assert job_id_1 != job_id_2
+
+    with Session(engine) as s:
+        upload_count = s.execute(
+            sa_select(func.count()).select_from(Upload)
+        ).scalar_one()
+        assert upload_count == 1, "expected exactly one Upload row for identical content"
+
+        job1 = s.get(Job, job_id_1)
+        job2 = s.get(Job, job_id_2)
+        assert job1 is not None and job2 is not None
+        assert job1.upload_id == job2.upload_id, "both jobs should reference the same upload"
+
+
 def test_record_tab_reference_persists_row(tmp_path: Path):
     """record_tab_reference inserts a TabReference row with correct source and similarity."""
     from music_decoder.persistence.models import TabReference
