@@ -94,7 +94,7 @@ def assign_tab(
         )
 
     path, cost = astar_min_cost_path(
-        candidate_groups, weights=weights, hand_anchor_window=8,
+        candidate_groups, weights=weights, hand_anchor_window=2,
     )
     if cost == float("inf"):
         for chord_group in flat_group_to_notes:

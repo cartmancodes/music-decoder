@@ -10,8 +10,12 @@ def _note(pitch: int, start: float = 0.0, end: float = 1.0, conf: float = 1.0):
 
 
 def _default_weights() -> dict[str, float]:
+    # w_high raised to 2.0 so that the high-fret penalty is strong enough to
+    # prevent the "start high, glide down" path-gaming exploit that arises with
+    # the asymmetric move cost.  At 0.4 the penalty on fret 15 (C4 on A-string)
+    # was outweighed by the cheaper transitions it enabled for subsequent notes.
     return {
-        "w_move": 1.0, "w_string": 0.3, "w_span": 0.5, "w_high": 0.4,
+        "w_move": 1.0, "w_string": 0.3, "w_span": 0.5, "w_high": 2.0,
         "w_open": 0.2, "w_chord_intra": 0.6,
     }
 
@@ -106,3 +110,56 @@ def test_overlapping_notes_with_drifted_onsets_form_chord():
     assert len(result.tabbed_notes) == 2
     strings = {t.position.string for t in result.tabbed_notes}
     assert len(strings) == 2  # they cannot share a string
+
+
+def test_c_major_scale_uses_high_e_string_for_position_stability():
+    """C major scale ascending from C4 to C5. Position stability should keep
+    consecutive notes on the same string when feasible. Open strings still
+    win the open_bonus where available."""
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72]  # C4 through C5
+    notes = [
+        TranscribedNote(start_s=i * 0.5, end_s=(i + 1) * 0.5,
+                        pitch=p, velocity=80, confidence=0.95)
+        for i, p in enumerate(pitches)
+    ]
+    result = assign_tab(notes, tuning=get_preset("EADGBE"),
+                       weights=_default_weights(), max_fret=22)
+    assert len(result.tabbed_notes) == 8
+    # All assignments must be valid (string + fret = pitch)
+    for tabbed, expected_pitch in zip(result.tabbed_notes, pitches, strict=True):
+        s = tabbed.position.string
+        f = tabbed.position.fret
+        open_p = get_preset("EADGBE").open_pitches[s]
+        assert open_p + f == expected_pitch
+    # Position stability: notes 4-7 (E4..C5, all reachable on high E open + frets 0..8)
+    # should be on string 5 (the high E) since once we've moved up there, the anchor
+    # holds. Notes 0-3 (C4..F4) might be lower; check they don't bounce wildly.
+    later_strings = [t.position.string for t in result.tabbed_notes[4:]]
+    assert all(s == later_strings[0] for s in later_strings), \
+        f"Position stability violated in upper notes: strings={later_strings}"
+
+
+def test_melody_crossing_12th_fret_stays_upper_position():
+    """When a melody enters the upper position (above fret 12), position
+    stability should prefer staying there rather than flipping back to
+    open strings. The high_fret penalty pulls toward staying low for
+    initial notes, but once the melody forces a high-fret choice, the
+    sliding-anchor median should keep subsequent notes nearby."""
+    # G5 (79) -> high E string fret 15. The next notes should stay near fret 15.
+    # G5, A5, B5, A5, G5: simple melody around fret 15-19 on high E.
+    pitches = [79, 81, 83, 81, 79]  # G5 A5 B5 A5 G5
+    notes = [
+        TranscribedNote(start_s=i * 0.4, end_s=(i + 1) * 0.4,
+                        pitch=p, velocity=80, confidence=0.95)
+        for i, p in enumerate(pitches)
+    ]
+    result = assign_tab(notes, tuning=get_preset("EADGBE"),
+                       weights=_default_weights(), max_fret=22)
+    assert len(result.tabbed_notes) == 5
+    # All notes should be on the high E string (string 5) — no other string
+    # can play these pitches without exceeding max_fret.
+    # G5 (79): only valid on string 5 fret 15.
+    strings = [t.position.string for t in result.tabbed_notes]
+    frets = [t.position.fret for t in result.tabbed_notes]
+    assert all(s == 5 for s in strings), f"Expected all on high E, got {strings}"
+    assert frets == [15, 17, 19, 17, 15]
