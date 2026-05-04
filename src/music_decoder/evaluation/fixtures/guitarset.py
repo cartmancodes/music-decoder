@@ -13,6 +13,27 @@ _STANDARD_TUNING_MIDI = [40, 45, 50, 55, 59, 64]
 _STRING_ORDER = ["E", "A", "D", "G", "B", "e"]
 
 
+# JAMS chord namespace uses formats like "C:maj", "A:min", "G:7", "C:maj7", "N".
+def _parse_jams_chord_label(label: str) -> tuple[str, str] | None:
+    if label == "N":
+        return ("N", "")
+    if ":" not in label:
+        return None
+    root, quality = label.split(":", 1)
+    quality = quality.strip()
+    # Map JAMS qualities to our 4-quality vocabulary; reject unsupported.
+    quality_map = {
+        "maj": "maj", "min": "min",
+        "7": "7", "maj7": "maj7",
+        # Common variants we approximate:
+        "min7": "min",   # downgrade min7 → min for our 4-quality set
+    }
+    mapped = quality_map.get(quality)
+    if mapped is None:
+        return None
+    return (root, mapped)
+
+
 class GuitarSetFixtures:
     def __init__(self, cache_dir: Path, track_ids: list[str]) -> None:
         self.cache_dir = cache_dir
@@ -100,6 +121,27 @@ class GuitarSetFixtures:
             np.asarray(tab_intervals_list, dtype=float)
             if tab_intervals_list else None
         )
+        chord_segments_list: list[tuple[float, float, str, str]] | None = None
+        # mirdata GuitarSet exposes leadsheet_chords (simple) and inferred_chords;
+        # prefer leadsheet_chords as it has cleaner labels.
+        chords_obj = getattr(track, "leadsheet_chords", None) or getattr(track, "chords", None)
+        if chords_obj is not None:
+            try:
+                # mirdata's ChordData has .intervals (N,2) and .labels list[str]
+                ch_intervals = np.asarray(chords_obj.intervals, dtype=float)
+                ch_labels = list(chords_obj.labels)
+                parsed: list[tuple[float, float, str, str]] = []
+                for i, raw_label in enumerate(ch_labels):
+                    rq = _parse_jams_chord_label(raw_label)
+                    if rq is None:
+                        continue
+                    parsed.append((
+                        float(ch_intervals[i, 0]), float(ch_intervals[i, 1]),
+                        rq[0], rq[1],
+                    ))
+                chord_segments_list = parsed if parsed else None
+            except Exception:
+                chord_segments_list = None
         gt = GroundTruth(
             intervals=intervals_all,
             pitches_midi=pitches_all,
@@ -107,6 +149,7 @@ class GuitarSetFixtures:
             tempo_bpm=track.tempo if hasattr(track, "tempo") else None,
             tab=tab,
             tab_intervals=tab_intervals_arr,
+            chord_segments=chord_segments_list,
         )
         return Fixture(
             name=track_id,
