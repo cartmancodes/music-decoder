@@ -15,20 +15,28 @@ from music_decoder.artifacts.base import ArtifactStore
 from music_decoder.audio_io.load import load_audio
 from music_decoder.beat_tracking.beats import track_beats
 from music_decoder.beat_tracking.time_signature import infer_time_signature
+from music_decoder.chord_detection.api import detect_chords
 from music_decoder.config.hyperparameters import HyperparameterSet
-from music_decoder.key_detection.api import detect_key
 from music_decoder.key_detection.chroma import compute_chroma_with_hpss
+from music_decoder.key_detection.global_estimator import estimate_global_key
+from music_decoder.key_detection.windowed import detect_windowed_keys
 from music_decoder.logging_setup import get_logger
 from music_decoder.midi_synth.fluidsynth_wrapper import SynthBackend, synthesize_midi_to_wav
 from music_decoder.persistence.models import Job
 from music_decoder.persistence.repositories import (
+    ChordSegmentRepo,
     JobProgressRepo,
     JobRepo,
     KeyEstimateRepo,
     NoteRepo,
     TempoEstimateRepo,
 )
-from music_decoder.pipeline.contracts import AudioSource, LoadedAudio, SeparationResult
+from music_decoder.pipeline.contracts import (
+    AudioSource,
+    KeyDetectionResult,
+    LoadedAudio,
+    SeparationResult,
+)
 from music_decoder.pipeline.events import StageEventEmitter
 from music_decoder.separation.demucs import isolate_guitar
 from music_decoder.tab_assignment.assigner import assign_tab
@@ -129,12 +137,27 @@ def process_audio(
                 summary["raw_note_count"] = len(raw_t.notes)
             s.commit()
 
+            # Hoist chroma here so both key_detection and chord_detection share it
+            # without double-computing the HPSS decomposition.
+            chroma = compute_chroma_with_hpss(
+                samples_for_pitch.astype(float),
+                sr=audio.sr,
+                hpss_margin=hyperparameters.key_detection.hpss_margin,
+            )
+
             with emit("key_detection") as summary:
-                key_result = detect_key(
-                    samples_for_pitch, sr=audio.sr,
-                    hpss_margin=hyperparameters.key_detection.hpss_margin,
+                pc = chroma.mean(axis=1)
+                global_result = estimate_global_key(pc)
+                windowed = detect_windowed_keys(
+                    chroma, sr=audio.sr, hop_length=512,
                     segment_length_s=hyperparameters.key_detection.windowed_segment_length_s,
                     hop_s=hyperparameters.key_detection.windowed_hop_s,
+                )
+                key_result = KeyDetectionResult(
+                    global_top3_per_profile=global_result.global_top3_per_profile,
+                    consensus_key=global_result.consensus_key,
+                    windowed_segments=windowed,
+                    confidence=global_result.confidence,
                 )
                 key_rows: list[dict] = []  # type: ignore[type-arg]
                 for profile, top3 in key_result.global_top3_per_profile.items():
@@ -186,13 +209,32 @@ def process_audio(
                 summary["ts"] = f"{ts.numerator}/{ts.denominator}"
             s.commit()
 
+            with emit("chord_detection") as summary:
+                chord_repo = ChordSegmentRepo(s)
+                chord_result = detect_chords(
+                    chroma=chroma,
+                    sr=audio.sr,
+                    hop_length=512,
+                    beat_grid=grid,
+                    params=hyperparameters.chord_detection,
+                )
+                if chord_result.skipped_reason is None:
+                    chord_repo.bulk_insert(job_id, [
+                        {
+                            "start_s": seg.start_s, "end_s": seg.end_s,
+                            "root": seg.root, "quality": seg.quality,
+                            "confidence": seg.confidence,
+                        }
+                        for seg in chord_result.segments
+                    ])
+                summary["segments"] = len(chord_result.segments)
+                summary["median_confidence"] = chord_result.median_confidence
+                summary["skipped_reason"] = chord_result.skipped_reason
+            s.commit()
+
             with emit("visualizations") as summary:
                 # C3: render chromagram + waveform PNGs into derived/{job_id}
-                # TODO: cache chroma if measured to matter
-                chroma = compute_chroma_with_hpss(
-                    samples_for_pitch, sr=audio.sr,
-                    hpss_margin=hyperparameters.key_detection.hpss_margin,
-                )
+                # chroma is already computed above (hoisted from key_detection)
                 chroma_path = artifacts.path_for(f"derived/{job_id}/chromagram.png")
                 chroma_path.parent.mkdir(parents=True, exist_ok=True)
                 fig = render_chromagram_figure(
