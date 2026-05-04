@@ -159,6 +159,10 @@ def load_results(engine: Engine, job_id: int) -> dict[str, object] | None:
         refs = list(s.execute(select(TabReference).where(TabReference.job_id == job_id)
                                 .order_by(TabReference.created_at)).scalars())
         report = s.get(AccuracyReport, job_id)
+        from music_decoder.persistence.models import ChordSegment as ChordRow
+        chord_rows = list(s.execute(
+            select(ChordRow).where(ChordRow.job_id == job_id).order_by(ChordRow.start_s)
+        ).scalars())
         return {
             "job": {
                 "id": job.id, "status": job.status,
@@ -208,4 +212,10 @@ def load_results(engine: Engine, job_id: int) -> dict[str, object] | None:
                 "tab_string_accuracy": report.tab_string_accuracy,
                 "full_metrics": _json.loads(report.full_metrics_json),
             } if report else None),
+            "chord_segments": [
+                {"start_s": float(c.start_s), "end_s": float(c.end_s),
+                 "root": c.root, "quality": c.quality,
+                 "confidence": float(c.confidence)}
+                for c in chord_rows
+            ],
         }

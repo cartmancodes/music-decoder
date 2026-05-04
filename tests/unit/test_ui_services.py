@@ -206,3 +206,35 @@ def test_load_results_returns_assembled_payload(tmp_path: Path):
     assert payload["tempo"]["tempo_bpm"] == 120.0
     assert any(k["tonic"] == "C" for k in payload["keys"])
     assert payload["notes"][0]["pitch"] == 60
+
+
+def test_load_results_includes_chord_segments(tmp_path: Path):
+    from sqlalchemy import create_engine as _create_engine
+    from sqlalchemy.orm import Session as _Session
+
+    from music_decoder.artifacts.filesystem import FilesystemArtifactStore
+    from music_decoder.persistence.models import Base as _Base
+    from music_decoder.persistence.repositories import ChordSegmentRepo
+    from music_decoder.ui.services import enqueue_upload, load_results
+
+    engine = _create_engine(f"sqlite:///{tmp_path / 'app.sqlite3'}")
+    _Base.metadata.create_all(engine)
+    audio = (Path("tests/fixtures/audio_samples/sine_440.wav")).read_bytes()
+    artifacts = FilesystemArtifactStore(root=tmp_path / "artifacts")
+    job_id = enqueue_upload(
+        engine=engine, artifacts=artifacts, original_filename="x.wav",
+        mime_type="audio/wav", content=audio, declared_kind="solo_guitar",
+        transcription_model="basic-pitch", requested_tuning="EADGBE",
+        requested_quality="standard", use_demucs=False, hyperparameter_set="v1",
+    )
+    with _Session(engine) as s:
+        ChordSegmentRepo(s).bulk_insert(job_id, [
+            {"start_s": 0.0, "end_s": 4.0, "root": "C", "quality": "maj", "confidence": 0.85},
+            {"start_s": 4.0, "end_s": 8.0, "root": "G", "quality": "7",   "confidence": 0.75},
+        ])
+        s.commit()
+    payload = load_results(engine, job_id)
+    assert payload is not None
+    assert len(payload["chord_segments"]) == 2
+    assert payload["chord_segments"][0]["root"] == "C"
+    assert payload["chord_segments"][1]["quality"] == "7"
