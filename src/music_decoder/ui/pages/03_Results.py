@@ -6,21 +6,14 @@ import streamlit as st
 
 from music_decoder.artifacts.base import ArtifactStore
 from music_decoder.config.hyperparameters import HyperparameterSet
-from music_decoder.pipeline.contracts import (
-    TabbedNote,
-    TabPosition,
-    TranscribedNote,
-)
-from music_decoder.tab_reference.alignment import similarity_to_prediction
-from music_decoder.tab_reference.base import RawTabInput
-from music_decoder.tab_reference.parser import parse_ascii_tab
-from music_decoder.tab_reference.user_paste import UserPasteProvider
+from music_decoder.pipeline.contracts import TabbedNote, TabPosition, TranscribedNote
+from music_decoder.tab_reference.base import FetchedTab
 from music_decoder.ui.components.confidence import confidence_color
 from music_decoder.ui.components.tablature import (
     render_ascii_tab,
     render_svg_fretboard,
 )
-from music_decoder.ui.services import load_results
+from music_decoder.ui.services import load_results, record_tab_reference
 from music_decoder.ui.streamlit_app import app_context
 
 
@@ -157,10 +150,11 @@ def render() -> None:
         )
         text = st.text_area("URL or tab text", height=200)
         if st.button("Compare"):
-            fetched = UserPasteProvider().fetch(RawTabInput(text=text))
-            ref_positions = parse_ascii_tab(fetched.raw_text)
-            tabbed = _to_tabbed_notes(notes_list)
-            sim = similarity_to_prediction(tabbed, ref_positions)
+            from sqlalchemy.engine import Engine as _Engine
+            _fetched, sim = record_tab_reference(
+                cast(_Engine, engine), job_id, text, notes_list
+            )
+            fetched = cast(FetchedTab, _fetched)
             st.write(f"Similarity to prediction: {sim:.2f}")
             st.code(fetched.raw_text)
         if refs_list:

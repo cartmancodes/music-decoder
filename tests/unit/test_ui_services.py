@@ -72,6 +72,48 @@ def test_job_status_returns_progress_rows(tmp_path: Path):
     assert any(p["stage"] == "audio_io" for p in status["progress"])
 
 
+def test_record_tab_reference_persists_row(tmp_path: Path):
+    """record_tab_reference inserts a TabReference row with correct source and similarity."""
+    from music_decoder.persistence.models import TabReference
+    from music_decoder.ui.services import record_tab_reference
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'app.sqlite3'}")
+    Base.metadata.create_all(engine)
+    audio_bytes = (Path("tests/fixtures/audio_samples/sine_440.wav")).read_bytes()
+    artifacts = FilesystemArtifactStore(root=tmp_path / "artifacts")
+    job_id = enqueue_upload(
+        engine=engine, artifacts=artifacts,
+        original_filename="x.wav", mime_type="audio/wav", content=audio_bytes,
+        declared_kind="solo_guitar", transcription_model="basic-pitch",
+        requested_tuning="EADGBE", requested_quality="standard",
+        use_demucs=False, hyperparameter_set="v1",
+    )
+
+    raw_tab_text = "e|--0--|\nB|--1--|\nG|--2--|\nD|--3--|\nA|--4--|\nE|--5--|"
+    predicted_notes: list[dict[str, object]] = [
+        {
+            "start_s": 0.0, "end_s": 0.5, "pitch": 60, "velocity": 80,
+            "confidence": 0.9, "string": 2, "fret": 3,
+            "dropped_reason": None,
+        }
+    ]
+
+    fetched, sim = record_tab_reference(engine, job_id, raw_tab_text, predicted_notes)
+
+    assert fetched is not None
+    assert 0.0 <= sim <= 1.0
+
+    with Session(engine) as s:
+        rows = list(s.execute(
+            __import__("sqlalchemy").select(TabReference).where(TabReference.job_id == job_id)
+        ).scalars())
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.source in ("user_pasted_text", "user_pasted_url")
+        assert row.similarity_to_prediction is not None
+        assert abs(float(row.similarity_to_prediction) - sim) < 1e-9
+
+
 def test_load_results_returns_assembled_payload(tmp_path: Path):
     """After a successful job, load_results returns key, tempo, notes, and tab refs."""
     import json

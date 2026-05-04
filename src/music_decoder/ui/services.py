@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json as _json
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -18,7 +18,7 @@ from music_decoder.persistence.models import (
     TabReference,
     TempoEstimate,
 )
-from music_decoder.persistence.repositories import JobRepo, UploadRepo
+from music_decoder.persistence.repositories import JobRepo, TabReferenceRepo, UploadRepo
 
 
 def enqueue_upload(
@@ -55,6 +55,60 @@ def enqueue_upload(
         )
         s.commit()
         return int(job.id)
+
+
+def record_tab_reference(
+    engine: Engine,
+    job_id: int,
+    raw_input: str,
+    predicted_tabs: list[dict[str, Any]],
+) -> tuple[Any, float]:
+    """Fetch/parse a user-pasted tab, compute similarity, persist a TabReference row.
+
+    Returns (FetchedTab, similarity_score).
+    """
+    from music_decoder.pipeline.contracts import TabbedNote, TabPosition, TranscribedNote
+    from music_decoder.tab_reference.alignment import similarity_to_prediction
+    from music_decoder.tab_reference.base import RawTabInput
+    from music_decoder.tab_reference.parser import parse_ascii_tab
+    from music_decoder.tab_reference.user_paste import UserPasteProvider
+
+    fetched = UserPasteProvider().fetch(RawTabInput(text=raw_input))
+    ref_positions = parse_ascii_tab(fetched.raw_text)
+
+    tabbed: list[TabbedNote] = []
+    for r in predicted_tabs:
+        if r.get("string") is None or r.get("fret") is None:
+            continue
+        tabbed.append(TabbedNote(
+            note=TranscribedNote(
+                start_s=float(r["start_s"]),
+                end_s=float(r["end_s"]),
+                pitch=int(r["pitch"]),
+                velocity=int(r["velocity"]),
+                confidence=float(r["confidence"]),
+            ),
+            position=TabPosition(
+                string=int(r["string"]),
+                fret=int(r["fret"]),
+            ),
+            cost_breakdown={},
+        ))
+
+    sim = similarity_to_prediction(tabbed, ref_positions)
+
+    with Session(engine) as s:
+        TabReferenceRepo(s).create(
+            job_id=job_id,
+            source=fetched.source,
+            song_acoustid=None,
+            raw_text=fetched.raw_text,
+            similarity_to_prediction=sim,
+            disagreement_spans_json=None,
+        )
+        s.commit()
+
+    return fetched, sim
 
 
 def job_status(engine: Engine, job_id: int) -> dict[str, object] | None:
