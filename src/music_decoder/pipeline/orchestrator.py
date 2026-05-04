@@ -124,6 +124,7 @@ def process_audio(
                     )
                     raw_t = transcribe_crepe(
                         audio_for_t, hyperparameters.crepe, output_dir=output_dir,
+                        median_filter_window=hyperparameters.post_processing.median_filter_window,
                     )
                 summary["raw_note_count"] = len(raw_t.notes)
             s.commit()

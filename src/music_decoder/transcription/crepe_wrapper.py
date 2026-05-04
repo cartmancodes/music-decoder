@@ -44,7 +44,11 @@ def _segment_runs(
 
 
 def transcribe_crepe(
-    audio: LoadedAudio, params: CrepeParams, *, output_dir: Path,
+    audio: LoadedAudio,
+    params: CrepeParams,
+    *,
+    output_dir: Path,
+    median_filter_window: int = 5,
 ) -> TranscriptionResult:
     import crepe
 
@@ -60,8 +64,13 @@ def transcribe_crepe(
         viterbi=params.viterbi,
         verbose=0,
     )
+    from music_decoder.transcription.post_processing import median_filter_pitch_contour
+    smoothed_frequency: np.ndarray[object, np.dtype[np.float64]] = median_filter_pitch_contour(
+        np.asarray(frequency, dtype=float), window=median_filter_window
+    )
     midi_seq = np.array(
-        [_hz_to_midi(f) if c >= 0.5 else -1 for f, c in zip(frequency, confidence, strict=True)]
+        [_hz_to_midi(f) if c >= 0.5 else -1
+         for f, c in zip(smoothed_frequency, confidence, strict=True)]
     )
     step_s = params.step_size_ms / 1000.0
     runs = _segment_runs(midi_seq, confidence, step_s)
