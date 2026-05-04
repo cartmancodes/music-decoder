@@ -17,11 +17,19 @@ from .candidates import chord_combinations, note_candidates
 def _group_simultaneous(
     notes: list[TranscribedNote],
 ) -> list[list[TranscribedNote]]:
-    """Group notes whose start times match exactly into chord groups."""
+    """Group notes whose intervals overlap into chord groups.
+
+    Two notes belong to the same chord state if either's start_s falls within
+    the time span of any current group member. This is conservative — slightly
+    overlapping notes (e.g. legato) get grouped even if they aren't true chords.
+    """
+    if not notes:
+        return []
     sorted_notes = sorted(notes, key=lambda n: (n.start_s, n.pitch))
-    groups: list[list[TranscribedNote]] = []
-    for n in sorted_notes:
-        if groups and groups[-1][0].start_s == n.start_s:
+    groups: list[list[TranscribedNote]] = [[sorted_notes[0]]]
+    for n in sorted_notes[1:]:
+        current_max_end = max(m.end_s for m in groups[-1])
+        if n.start_s < current_max_end:
             groups[-1].append(n)
         else:
             groups.append([n])

@@ -74,3 +74,19 @@ def test_ascending_scale_is_monotonic_in_pitch():
     for a, b in zip(result.tabbed_notes, result.tabbed_notes[1:], strict=False):
         if a.note.end_s > b.note.start_s and a.position.string == b.position.string:
             raise AssertionError("string collision in sequential single notes")
+
+
+def test_overlapping_notes_with_drifted_onsets_form_chord():
+    """Two notes with onsets 30ms apart and overlapping intervals should
+    form a single chord state, not be treated as sequential single notes."""
+    notes = [
+        TranscribedNote(start_s=0.000, end_s=1.000, pitch=60, velocity=80, confidence=0.9),
+        TranscribedNote(start_s=0.030, end_s=1.000, pitch=64, velocity=80, confidence=0.9),
+    ]
+    result = assign_tab(notes, tuning=get_preset("EADGBE"),
+                       weights=_default_weights(), max_fret=22)
+    # Both notes should be tabbed; both should appear simultaneously (same TabbedNote group),
+    # which manifests as: their string positions differ (no string collision).
+    assert len(result.tabbed_notes) == 2
+    strings = {t.position.string for t in result.tabbed_notes}
+    assert len(strings) == 2  # they cannot share a string
