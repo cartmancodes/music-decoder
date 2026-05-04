@@ -6,6 +6,8 @@ from typing import Any
 import mir_eval
 import numpy as np
 
+from music_decoder.pipeline.contracts import ChordSegment
+
 _PITCH_CLASS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
                 "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
                 "A#": 10, "Bb": 10, "B": 11}
@@ -154,3 +156,60 @@ def tab_string_accuracy(
         if pred_list[pred_idx][1] == truth_list[gt_idx][1]
     )
     return correct / len(matching)
+
+
+def chord_recognition_score(
+    predicted: list[ChordSegment],
+    truth: list[tuple[float, float, str, str]],
+    *,
+    frame_rate_hz: float = 100.0,
+) -> float:
+    """MIREX-style chord score over a 10ms frame grid.
+
+    Per-frame:
+        1.0 if predicted (root, quality) matches truth exactly
+        0.5 if predicted root matches truth root but quality differs
+        0.0 otherwise
+
+    Returns the time-weighted mean across the union span.
+    """
+    if not predicted and not truth:
+        return 1.0
+    if not predicted or not truth:
+        return 0.0
+
+    end = max(
+        max(seg.end_s for seg in predicted),
+        max(t[1] for t in truth),
+    )
+    n_frames = max(round(end * frame_rate_hz), 1)
+    times = (np.arange(n_frames) + 0.5) / frame_rate_hz
+
+    def _label_at(segments_iter: Any, t: float) -> tuple[str, str] | None:
+        for seg in segments_iter:
+            if isinstance(seg, ChordSegment):
+                if seg.start_s <= t < seg.end_s:
+                    return seg.root, seg.quality
+            else:
+                start, end_, root, quality = seg
+                if start <= t < end_:
+                    return root, quality
+        return None
+
+    score_sum = 0.0
+    counted = 0
+    for t in times:
+        truth_label = _label_at(truth, float(t))
+        if truth_label is None:
+            continue
+        counted += 1
+        pred_label = _label_at(predicted, float(t))
+        if pred_label is None:
+            continue
+        if pred_label == truth_label:
+            score_sum += 1.0
+        elif pred_label[0] == truth_label[0]:
+            score_sum += 0.5
+    if counted == 0:
+        return 1.0
+    return score_sum / counted
