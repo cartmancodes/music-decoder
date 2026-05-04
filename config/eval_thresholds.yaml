@@ -1,0 +1,21 @@
+# Pinned acceptance thresholds for the regression suite.
+#
+# These are FLOORS, not targets. They reflect what the v1 pipeline (basic-pitch
+# + post-processing + A* tab assignment) achieves today on the mixed corpus
+# (synthetic + 5 GuitarSet excerpts spanning bossa nova / funk / jazz / rock).
+# Lowering any of these requires committing a baseline update with rationale.
+#
+# Synthetic fixtures alone score near-perfect; GuitarSet brings the average
+# down because real audio has reverb, picking artefacts, finger noise, and
+# chord stacks that basic-pitch wasn't perfectly tuned for. Targets in
+# RESEARCH.md (75-85% F-measure on solo polyphonic) remain the v2 goal.
+#
+# baseline.json holds the actual achieved values; regression_tolerance
+# catches drops below baseline within tolerance.
+
+note_f_measure: 0.55
+onset_f_measure: 0.30          # several GuitarSet tracks emit null; aggregate is mixed
+pitch_class_accuracy: 0.50
+key_mirex_score: 0.75          # no GT in current corpus; excluded from aggregate
+tab_string_accuracy: 0.35
+regression_tolerance: 0.02

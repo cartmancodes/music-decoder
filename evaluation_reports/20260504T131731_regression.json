@@ -1,0 +1,68 @@
+{
+  "timestamp": "2026-05-04T13:17:40.175730+00:00",
+  "per_fixture": [
+    {
+      "name": "c_major_scale",
+      "source": "synthetic",
+      "note_f_measure": 1.0,
+      "onset_f_measure": 1.0,
+      "pitch_class_accuracy": 0.95,
+      "key_mirex_score": null,
+      "tab_string_accuracy": null
+    },
+    {
+      "name": "g_major_chord",
+      "source": "synthetic",
+      "note_f_measure": 0.7142857142857143,
+      "onset_f_measure": 1.0,
+      "pitch_class_accuracy": 0.91,
+      "key_mirex_score": null,
+      "tab_string_accuracy": null
+    },
+    {
+      "name": "00_BN1-129-Eb_comp",
+      "source": "guitarset",
+      "note_f_measure": 0.6024096385542169,
+      "onset_f_measure": null,
+      "pitch_class_accuracy": 0.4380081300813008,
+      "key_mirex_score": null,
+      "tab_string_accuracy": 0.2727272727272727
+    },
+    {
+      "name": "00_BN1-129-Eb_solo",
+      "source": "guitarset",
+      "note_f_measure": 0.6808510638297872,
+      "onset_f_measure": null,
+      "pitch_class_accuracy": 0.8396361895643849,
+      "key_mirex_score": null,
+      "tab_string_accuracy": 0.3333333333333333
+    },
+    {
+      "name": "00_Funk1-114-Ab_comp",
+      "source": "guitarset",
+      "note_f_measure": 0.5776031434184675,
+      "onset_f_measure": null,
+      "pitch_class_accuracy": 0.41196172248803825,
+      "key_mirex_score": null,
+      "tab_string_accuracy": 0.6206896551724138
+    },
+    {
+      "name": "00_Jazz1-200-B_comp",
+      "source": "guitarset",
+      "note_f_measure": 0.59375,
+      "onset_f_measure": null,
+      "pitch_class_accuracy": 0.26521739130434785,
+      "key_mirex_score": null,
+      "tab_string_accuracy": 0.5405405405405406
+    },
+    {
+      "name": "00_Rock1-130-A_comp",
+      "source": "guitarset",
+      "note_f_measure": 0.25154639175257737,
+      "onset_f_measure": 0.19106699751861042,
+      "pitch_class_accuracy": 0.3943089430894309,
+      "key_mirex_score": null,
+      "tab_string_accuracy": null
+    }
+  ]
+}
