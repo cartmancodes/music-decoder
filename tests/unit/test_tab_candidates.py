@@ -1,9 +1,8 @@
 # tests/unit/test_tab_candidates.py
-import pytest
 
 from music_decoder.tab_assignment.candidates import (
-    note_candidates,
     chord_combinations,
+    note_candidates,
 )
 from music_decoder.tab_assignment.tuning import get_preset
 

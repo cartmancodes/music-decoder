@@ -1,3 +1,4 @@
+from datetime import UTC
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -41,7 +42,8 @@ def test_job_status_returns_none_for_missing_job(tmp_path: Path):
 
 
 def test_job_status_returns_progress_rows(tmp_path: Path):
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from music_decoder.persistence.repositories import JobProgressRepo
     from music_decoder.ui.services import job_status
 
@@ -59,8 +61,8 @@ def test_job_status_returns_progress_rows(tmp_path: Path):
     with Session(engine) as s:
         JobProgressRepo(s).record(
             job_id=job_id, stage="audio_io",
-            started_at=datetime.now(timezone.utc),
-            ended_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
             success=True, error=None, summary_json="{}",
         )
         s.commit()
@@ -73,8 +75,11 @@ def test_job_status_returns_progress_rows(tmp_path: Path):
 def test_load_results_returns_assembled_payload(tmp_path: Path):
     """After a successful job, load_results returns key, tempo, notes, and tab refs."""
     import json
+
     from music_decoder.persistence.repositories import (
-        KeyEstimateRepo, TempoEstimateRepo, NoteRepo,
+        KeyEstimateRepo,
+        NoteRepo,
+        TempoEstimateRepo,
     )
     from music_decoder.ui.services import load_results
 

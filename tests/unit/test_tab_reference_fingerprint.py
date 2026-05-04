@@ -1,10 +1,10 @@
 from pathlib import Path
-import numpy as np
+
 import pytest
 
 from music_decoder.tab_reference.fingerprint import (
-    fingerprint_audio,
     SongIdentificationFailed,
+    fingerprint_audio,
 )
 
 

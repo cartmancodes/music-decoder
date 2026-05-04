@@ -1,7 +1,4 @@
-import os
-import sys
 
-import pytest
 
 from music_decoder.cli.main import build_parser, run_worker_only
 

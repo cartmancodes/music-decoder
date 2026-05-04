@@ -14,7 +14,8 @@ def test_parse_simple_eadgbe_tab():
     # First column: open e, B 1, G 0, D 2, A 3, E muted → produces 5 positions
     assert len(positions) >= 5
     assert all(0 <= p.string < 6 for p in positions)
-    assert any(p.fret == 3 and p.string == 0 for p in positions)   # E string fret 3 in second column
+    # E string fret 3 in second column
+    assert any(p.fret == 3 and p.string == 0 for p in positions)
 
 
 def test_parse_skips_unparseable_input():

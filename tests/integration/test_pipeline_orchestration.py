@@ -1,5 +1,3 @@
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -7,9 +5,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from music_decoder.artifacts.filesystem import FilesystemArtifactStore
-from music_decoder.config.hyperparameters import HyperparameterSet, load_hyperparameters
+from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.persistence.models import Base, Job
-from music_decoder.persistence.repositories import UploadRepo, JobRepo
+from music_decoder.persistence.repositories import JobRepo, UploadRepo
 from music_decoder.pipeline.orchestrator import process_audio
 
 
@@ -47,7 +45,7 @@ def test_process_audio_succeeds_on_synthetic_clip(tmp_path: Path):
     with Session(engine) as s:
         j = s.get(Job, job_id)
         assert j.status == "succeeded"
-        from music_decoder.persistence.models import JobProgress, Note, KeyEstimate, TempoEstimate
+        from music_decoder.persistence.models import JobProgress, KeyEstimate, TempoEstimate
         progress = s.query(JobProgress).filter_by(job_id=job_id).all()
         stages = [p.stage for p in progress]
         assert "audio_io" in stages

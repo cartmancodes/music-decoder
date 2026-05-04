@@ -1,8 +1,9 @@
 import numpy as np
-import pytest
 
 from music_decoder.pipeline.contracts import (
-    TabbedNote, TabPosition, TranscribedNote,
+    TabbedNote,
+    TabPosition,
+    TranscribedNote,
 )
 from music_decoder.ui.components.chromagram import render_chromagram_figure
 from music_decoder.ui.components.confidence import confidence_color

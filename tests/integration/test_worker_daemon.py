@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 
 import pytest
@@ -8,7 +7,7 @@ from sqlalchemy.orm import Session
 from music_decoder.artifacts.filesystem import FilesystemArtifactStore
 from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.persistence.models import Base, Job
-from music_decoder.persistence.repositories import UploadRepo, JobRepo
+from music_decoder.persistence.repositories import JobRepo, UploadRepo
 from music_decoder.worker.daemon import WorkerDaemon
 
 

@@ -1,12 +1,11 @@
 from pathlib import Path
 
-import numpy as np
 import pretty_midi
 import pytest
 
 from music_decoder.midi_synth.fluidsynth_wrapper import (
-    synthesize_midi_to_wav,
     SynthBackend,
+    synthesize_midi_to_wav,
 )
 
 

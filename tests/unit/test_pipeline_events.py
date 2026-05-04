@@ -1,13 +1,13 @@
 import json
-from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from music_decoder.persistence.models import Base
 from music_decoder.persistence.repositories import (
-    UploadRepo, JobRepo, JobProgressRepo,
+    JobProgressRepo,
+    JobRepo,
+    UploadRepo,
 )
 from music_decoder.pipeline.events import StageEventEmitter
 
@@ -32,7 +32,9 @@ def test_emitter_writes_progress_rows():
         with emitter("audio_io") as record:
             record["bytes_read"] = 1024
         s.commit()
-        rows = list(s.query(__import__("music_decoder.persistence.models", fromlist=["JobProgress"]).JobProgress))
+        from music_decoder.persistence.models import JobProgress
+
+        rows = list(s.query(JobProgress))
         assert len(rows) == 1
         assert rows[0].stage == "audio_io"
         assert rows[0].success is True

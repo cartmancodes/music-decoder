@@ -1,13 +1,11 @@
 # tests/unit/test_tab_cost.py
-import pytest
 
 from music_decoder.pipeline.contracts import TabPosition
 from music_decoder.tab_assignment.cost import (
-    transition_cost,
-    chord_span_penalty,
     chord_collides,
+    chord_span_penalty,
+    transition_cost,
 )
-
 
 _W = {
     "w_move": 1.0, "w_string": 0.3, "w_span": 0.5,

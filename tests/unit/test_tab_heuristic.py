@@ -2,7 +2,6 @@
 from music_decoder.pipeline.contracts import TabPosition
 from music_decoder.tab_assignment.heuristic import remaining_high_fret_penalty
 
-
 _W = {"w_high": 0.4}
 
 

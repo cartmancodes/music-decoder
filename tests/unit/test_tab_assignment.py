@@ -1,8 +1,6 @@
 # tests/unit/test_tab_assignment.py
-import numpy as np
-import pytest
 
-from music_decoder.pipeline.contracts import TranscribedNote, TabPosition
+from music_decoder.pipeline.contracts import TabPosition, TranscribedNote
 from music_decoder.tab_assignment.assigner import assign_tab
 from music_decoder.tab_assignment.tuning import get_preset
 
@@ -73,6 +71,6 @@ def test_ascending_scale_is_monotonic_in_pitch():
                        weights=_default_weights(), max_fret=22)
     assert len(result.tabbed_notes) == 8
     # No two notes should occupy the same string at the same time
-    for a, b in zip(result.tabbed_notes, result.tabbed_notes[1:]):
+    for a, b in zip(result.tabbed_notes, result.tabbed_notes[1:], strict=False):
         if a.note.end_s > b.note.start_s and a.position.string == b.position.string:
             raise AssertionError("string collision in sequential single notes")
