@@ -15,6 +15,7 @@ from music_decoder.audio_io.load import load_audio
 from music_decoder.beat_tracking.beats import track_beats
 from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
+from music_decoder.evaluation.fixtures.guitarset import GuitarSetFixtures
 from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.evaluation.regression import (
     check_against_baseline,
@@ -58,17 +59,45 @@ def _real_pipeline(audio_path: Path, fixture: Fixture) -> dict[str, object]:
     )
     intervals = np.array([(n.start_s, n.end_s) for n in cleaned], dtype=float)
     pitches = np.array([n.pitch for n in cleaned], dtype=float)
+    tab_intervals = np.array(
+        [(t.note.start_s, t.note.end_s) for t in tab_result.tabbed_notes],
+        dtype=float,
+    ) if tab_result.tabbed_notes else np.zeros((0, 2))
     consensus = key.consensus_key
     return {
         "intervals": intervals, "pitches_midi": pitches,
         "key": (consensus.tonic, consensus.mode) if consensus else None,
         "tab": [(t.note.pitch, t.position.string, t.position.fret)
                 for t in tab_result.tabbed_notes],
+        "tab_intervals": tab_intervals,
     }
 
 
 def _synthetic_fixtures() -> list[Fixture]:
     return list(SyntheticFixtures(root=Path("tests/fixtures/synthetic")).load())
+
+
+# A small selection of GuitarSet excerpts spanning genres and playing styles.
+# These IDs are taken from the canonical GuitarSet release.
+_GUITARSET_TRACK_IDS = [
+    "00_BN1-129-Eb_comp",   # bossa nova comping
+    "00_BN1-129-Eb_solo",   # bossa nova solo
+    "00_Funk1-114-Ab_comp",
+    "00_Jazz1-200-B_comp",
+    "00_Rock1-130-A_comp",
+]
+
+
+def _guitarset_fixtures() -> list[Fixture]:
+    cache = Path("tests/fixtures/guitarset")
+    loader = GuitarSetFixtures(cache_dir=cache, track_ids=_GUITARSET_TRACK_IDS)
+    if not loader.is_available():
+        return []
+    return list(loader.load())
+
+
+def _all_fixtures() -> list[Fixture]:
+    return _synthetic_fixtures() + _guitarset_fixtures()
 
 
 @pytest.fixture
@@ -94,7 +123,7 @@ def test_thresholds_loadable() -> None:
 @pytest.mark.regression
 @pytest.mark.slow
 def test_real_pipeline_passes_thresholds() -> None:
-    fixtures = _synthetic_fixtures()
+    fixtures = _all_fixtures()
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     report_path = Path("evaluation_reports") / f"{ts}_regression.json"
     report = run_evaluation(_real_pipeline, fixtures, report_path=report_path)
@@ -106,8 +135,24 @@ def test_real_pipeline_passes_thresholds() -> None:
 @pytest.mark.regression
 @pytest.mark.slow
 def test_baseline_comparison_no_regression() -> None:
-    fixtures = _synthetic_fixtures()
+    fixtures = _all_fixtures()
     report = run_evaluation(_real_pipeline, fixtures)
     baseline = load_baseline(Path("evaluation_reports/baseline.json"))
     failures = check_against_baseline(report, baseline, tolerance=0.02)
     assert failures == [], f"Baseline regressions: {failures}"
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_guitarset_fixtures_loadable_when_cached() -> None:
+    """Skips cleanly when GuitarSet cache absent; surfaces a clear error
+    when cache is present but the loader yields nothing."""
+    cache = Path("tests/fixtures/guitarset")
+    loader = GuitarSetFixtures(cache_dir=cache, track_ids=_GUITARSET_TRACK_IDS)
+    if not loader.is_available():
+        pytest.skip("GuitarSet cache not present; run `make fixtures` to download.")
+    fixtures = list(loader.load())
+    assert len(fixtures) >= 1, (
+        f"GuitarSet cache present at {cache} but loader yielded 0 fixtures "
+        f"for track ids {_GUITARSET_TRACK_IDS}. Possible mirdata API drift."
+    )

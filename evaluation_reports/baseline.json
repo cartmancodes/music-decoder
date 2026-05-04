@@ -1,6 +1,10 @@
 {
-  "note_f_measure": 0.8571428571428572,
-  "onset_f_measure": 1.0,
-  "pitch_class_accuracy": 0.9299999999999999,
-  "_note": "Baseline captured after first green regression run."
+  "_note": "Baseline captured from regression run on synthetic + 5 GuitarSet excerpts (bossa nova comp/solo, funk comp, jazz comp, rock comp). Time-aligned tab_string_accuracy uses mir_eval.transcription.match_notes to align predictions to GT before comparing string assignments. Update this file when intentionally improving the pipeline.",
+  "_source_report": "evaluation_reports/20260504T131731_regression.json",
+  "_corpus_size": 7,
+  "_corpus_breakdown": "2 synthetic + 5 GuitarSet",
+  "note_f_measure": 0.6315,
+  "onset_f_measure": 0.7303,
+  "pitch_class_accuracy": 0.6013,
+  "tab_string_accuracy": 0.4418
 }
