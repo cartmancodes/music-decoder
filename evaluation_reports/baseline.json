@@ -1,10 +1,11 @@
 {
-  "_note": "Baseline captured from regression run on synthetic + 5 GuitarSet excerpts (bossa nova comp/solo, funk comp, jazz comp, rock comp). Time-aligned tab_string_accuracy uses mir_eval.transcription.match_notes to align predictions to GT before comparing string assignments. Update this file when intentionally improving the pipeline.",
-  "_source_report": "evaluation_reports/20260504T131731_regression.json",
+  "_note": "Baseline captured from regression run on synthetic + 5 GuitarSet excerpts (bossa nova comp/solo, funk comp, jazz comp, rock comp). Time-aligned tab_string_accuracy uses mir_eval.transcription.match_notes. chord_recognition_score added in Task 17; v1 chroma-template pipeline achieves ~5.5% on GuitarSet leadsheet chords — 0.40 is aspirational v2 target.",
+  "_source_report": "evaluation_reports/20260504T221619_regression.json",
   "_corpus_size": 7,
   "_corpus_breakdown": "2 synthetic + 5 GuitarSet",
   "note_f_measure": 0.6315,
-  "onset_f_measure": 0.7303,
+  "onset_f_measure": 0.7304,
   "pitch_class_accuracy": 0.6013,
-  "tab_string_accuracy": 0.4418
+  "tab_string_accuracy": 0.4418,
+  "chord_recognition_score": 0.0550
 }

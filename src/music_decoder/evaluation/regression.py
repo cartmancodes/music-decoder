@@ -30,6 +30,7 @@ def _aggregate(report: EvaluationReport) -> dict[str, float]:
         "pitch_class_accuracy",
         "key_mirex_score",
         "tab_string_accuracy",
+        "chord_recognition_score",
     ):
         values = [
             getattr(r, metric)

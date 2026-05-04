@@ -13,6 +13,7 @@ import pytest
 
 from music_decoder.audio_io.load import load_audio
 from music_decoder.beat_tracking.beats import track_beats
+from music_decoder.chord_detection.api import detect_chords
 from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
 from music_decoder.evaluation.fixtures.guitarset import GuitarSetFixtures
@@ -25,6 +26,7 @@ from music_decoder.evaluation.regression import (
 )
 from music_decoder.evaluation.runner import run_evaluation
 from music_decoder.key_detection.api import detect_key
+from music_decoder.key_detection.chroma import compute_chroma_with_hpss
 from music_decoder.pipeline.contracts import AudioSource
 from music_decoder.tab_assignment.assigner import assign_tab
 from music_decoder.tab_assignment.tuning import get_preset
@@ -57,6 +59,13 @@ def _real_pipeline(audio_path: Path, fixture: Fixture) -> dict[str, object]:
         cleaned, tuning=get_preset("EADGBE"),
         weights=hp.tab_assignment.weights, max_fret=hp.tab_assignment.max_fret,
     )
+    chroma = compute_chroma_with_hpss(
+        audio.samples, sr=audio.sr, hpss_margin=hp.key_detection.hpss_margin,
+    )
+    chord_result = detect_chords(
+        chroma=chroma, sr=audio.sr, hop_length=512,
+        beat_grid=grid, params=hp.chord_detection,
+    )
     intervals = np.array([(n.start_s, n.end_s) for n in cleaned], dtype=float)
     pitches = np.array([n.pitch for n in cleaned], dtype=float)
     tab_intervals = np.array(
@@ -70,6 +79,7 @@ def _real_pipeline(audio_path: Path, fixture: Fixture) -> dict[str, object]:
         "tab": [(t.note.pitch, t.position.string, t.position.fret)
                 for t in tab_result.tabbed_notes],
         "tab_intervals": tab_intervals,
+        "chord_segments": chord_result.segments,
     }
 
 
