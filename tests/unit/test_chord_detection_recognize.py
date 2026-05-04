@@ -37,3 +37,39 @@ def test_beat_sync_returns_empty_for_zero_beats():
     out = beat_sync_chroma(chroma, sr=22050, hop_length=512,
                            beat_times_s=np.array([]))
     assert out.shape == (12, 0)
+
+
+def test_score_beats_returns_per_beat_per_chord_matrix():
+    from music_decoder.chord_detection.recognize import score_beats
+
+    # 1 beat with a perfect C-major chroma (energy on C, E, G).
+    beat_chroma = np.zeros((12, 1), dtype=float)
+    beat_chroma[0, 0] = 1.0   # C
+    beat_chroma[4, 0] = 1.0   # E
+    beat_chroma[7, 0] = 1.0   # G
+
+    scores = score_beats(beat_chroma)
+    assert scores.shape == (1, 49)
+    # C-major template should score highest.
+    from music_decoder.chord_detection.templates import label_index
+
+    best_idx = int(np.argmax(scores[0]))
+    assert best_idx == label_index("C", "maj"), (
+        f"expected C maj at idx {label_index('C', 'maj')}, got {best_idx}"
+    )
+
+
+def test_score_beats_handles_empty_input():
+    from music_decoder.chord_detection.recognize import score_beats
+
+    out = score_beats(np.zeros((12, 0), dtype=float))
+    assert out.shape == (0, 49)
+
+
+def test_score_beats_zero_chroma_column_returns_zero_row():
+    from music_decoder.chord_detection.recognize import score_beats
+
+    out = score_beats(np.zeros((12, 1), dtype=float))
+    assert out.shape == (1, 49)
+    # All zero similarity (the L2 norm guard returns zeros for zero columns).
+    assert np.allclose(out[0], 0.0)

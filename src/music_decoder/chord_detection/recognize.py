@@ -36,3 +36,37 @@ def beat_sync_chroma(
         else:
             out[:, i] = chroma[:, start:end].mean(axis=1)
     return out
+
+
+from .templates import all_templates  # noqa: E402
+
+
+def score_beats(
+    beat_chroma: np.ndarray[Any, np.dtype[Any]],
+) -> np.ndarray[Any, np.dtype[np.float64]]:
+    """Cosine-similarity scores between every beat column and every template.
+
+    Returns a (num_beats, 49) matrix.  Beats whose chroma column is all-zero
+    receive an all-zero score row (the per-beat scorer never spuriously
+    "matches" a silent beat).
+    """
+    if beat_chroma.size == 0:
+        return np.zeros((0, 49), dtype=float)
+    templates = all_templates()                # (49, 12)
+    template_norms = np.linalg.norm(templates, axis=1, keepdims=True)
+    template_norms[template_norms == 0] = 1.0
+    templates_n = templates / template_norms
+
+    chroma_norms = np.linalg.norm(beat_chroma, axis=0, keepdims=True)  # (1, B)
+    safe_norms = np.where(chroma_norms == 0, 1.0, chroma_norms)
+    chroma_n = beat_chroma / safe_norms                                # (12, B)
+
+    # (B, 49) = (B, 12) @ (12, 49)
+    scores = chroma_n.T @ templates_n.T
+
+    # Zero out scores where the source chroma was all-zero.
+    mask = (chroma_norms == 0).flatten()       # (B,)
+    result: np.ndarray[Any, np.dtype[np.float64]] = np.array(scores, dtype=np.float64)
+    if mask.any():
+        result[mask] = 0.0
+    return result
