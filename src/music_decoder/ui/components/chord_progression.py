@@ -109,7 +109,10 @@ def render_chord_labels_above_tab(
         return tab_rows
 
     inner_columns = columns          # tab body width (between the bars)
-    label_row = [" "] * (inner_columns + 2)   # 2-char prefix
+    # Tab rows are formatted as "e|" + columns chars + "|" -> length columns + 3.
+    # Match that width so the trailing pipe also has whitespace above it and
+    # the monospace alignment doesn't drift on wide UIs.
+    label_row = [" "] * (inner_columns + 3)
     for seg in segments:
         col = int((seg.start_s / end_time) * (inner_columns - 4)) + 2
         label = chord_label(seg.root, seg.quality)

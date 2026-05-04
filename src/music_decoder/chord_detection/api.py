@@ -19,7 +19,7 @@ from .recognize import (
     score_beats,
     viterbi_smooth,
 )
-from .templates import label_index
+from .templates import QUALITIES, label_index
 
 _MIN_BEATS = 4
 
@@ -32,6 +32,15 @@ def detect_chords(
     beat_grid: BeatGrid,
     params: ChordDetectionParams,
 ) -> ChordRecognitionResult:
+    # Guard against config drift: the hardcoded QUALITIES tuple in templates.py
+    # is what actually drives the 48 chord templates. If hyperparameters.yaml
+    # is edited to a different list, fail loudly rather than silently ignoring.
+    if tuple(params.qualities) != QUALITIES:
+        raise ValueError(
+            f"chord_detection.qualities {params.qualities!r} does not match "
+            f"the templated vocabulary {list(QUALITIES)!r}; v1 supports only "
+            "the templated qualities. Edit templates.py to extend the vocabulary."
+        )
     if beat_grid.beat_times_s.size < _MIN_BEATS:
         return ChordRecognitionResult(
             segments=[], median_confidence=0.0,
