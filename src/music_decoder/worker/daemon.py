@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import signal
 import time
+from datetime import UTC, datetime
 
+from sqlalchemy import update
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.cursor import CursorResult
 from sqlalchemy.orm import Session
 
 from music_decoder.artifacts.base import ArtifactStore
 from music_decoder.config.hyperparameters import HyperparameterSet
 from music_decoder.logging_setup import get_logger
+from music_decoder.persistence.models import Job
 from music_decoder.persistence.repositories import JobRepo
 from music_decoder.pipeline.orchestrator import process_audio
 
@@ -29,6 +33,23 @@ class WorkerDaemon:
         self.hp = hyperparameters
         self.poll_interval_s = poll_interval_s
         self._stop = False
+
+    def _recover_orphans(self) -> None:
+        """Reset any jobs stuck in 'running' state to 'failed' at daemon startup."""
+        with Session(self.engine) as s:
+            result: CursorResult[tuple[()]] = s.execute(  # type: ignore[assignment]
+                update(Job)
+                .where(Job.status == "running")
+                .values(
+                    status="failed",
+                    error_class="worker_orphaned",
+                    error_message="Worker process exited mid-job; reset on restart.",
+                    finished_at=datetime.now(UTC),
+                )
+            )
+            s.commit()
+            if result.rowcount:
+                _log.warning("recovered_orphans", extra={"count": result.rowcount})
 
     def warm_models(self) -> None:
         """Force load of basic-pitch and CREPE so the first job doesn't pay the cost."""
@@ -72,6 +93,7 @@ class WorkerDaemon:
 
     def run(self) -> None:
         _log.info("worker_starting")
+        self._recover_orphans()
         self.warm_models()
         while not self._stop:
             job_id = self._claim_next()
@@ -84,6 +106,7 @@ class WorkerDaemon:
 
     def run_until_idle(self, idle_timeout_s: float = 5.0) -> None:
         """Test helper: process anything queued, then exit when idle."""
+        self._recover_orphans()
         self.warm_models()
         idle_for = 0.0
         while idle_for < idle_timeout_s:
