@@ -43,12 +43,16 @@ class ManualFixtures:
                 tab = [(int(r["pitch"]), int(r["string"]), int(r["fret"])) for r in tab_rows]
             key_field = data.get("key")
             key = (key_field["tonic"], key_field["mode"]) if key_field else None
+            # Manual fixture rows include start_s/end_s with each tab entry, so
+            # tab_intervals is just `intervals` (1:1 with the tab list).
+            tab_intervals = intervals if tab is not None else None
             gt = GroundTruth(
                 intervals=intervals,
                 pitches_midi=pitches,
                 key=key,
                 tempo_bpm=float(data["tempo_bpm"]) if "tempo_bpm" in data else None,
                 tab=tab,
+                tab_intervals=tab_intervals,
             )
             yield Fixture(
                 name=json_path.stem,

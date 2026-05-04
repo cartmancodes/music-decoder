@@ -15,6 +15,10 @@ class GroundTruth:
     key: tuple[str, str] | None
     tempo_bpm: float | None
     tab: list[tuple[int, int, int]] | None
+    # Per-tab-row (start_s, end_s) in the same order as `tab`. Required for
+    # time-aligned `tab_string_accuracy`. Loaders that build `tab` separately
+    # from chronological note data must populate this. None when tab is None.
+    tab_intervals: np.ndarray[Any, np.dtype[Any]] | None = None
 
 
 @dataclass(frozen=True)

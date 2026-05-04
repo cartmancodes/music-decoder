@@ -101,14 +101,56 @@ def key_mirex_score(predicted: tuple[str, str], truth: tuple[str, str]) -> float
 def tab_string_accuracy(
     predicted: Iterable[tuple[int, int, int]],
     truth: Iterable[tuple[int, int, int]],
+    *,
+    pred_intervals: np.ndarray[Any, np.dtype[np.float64]] | None = None,
+    gt_intervals: np.ndarray[Any, np.dtype[np.float64]] | None = None,
+    onset_tolerance_s: float = 0.05,
 ) -> float:
+    """String-assignment accuracy.
+
+    Two modes:
+
+    - **Index-aligned (legacy):** when ``pred_intervals`` and ``gt_intervals`` are
+      omitted, predicted and truth are aligned 1:1 by order. This mode is only
+      meaningful for tightly hand-curated test fixtures where note counts match
+      and order is deterministic.
+    - **Time-aligned (preferred for real audio):** when intervals are supplied,
+      uses ``mir_eval.transcription.match_notes`` to find pitch+onset matches
+      between predicted and truth, then reports the fraction of matched pairs
+      whose ``string`` index also agrees. Computed conditional on a successful
+      pitch+onset match — unmatched notes are excluded from both numerator and
+      denominator. The metric collapses to 0.0 when no matches exist (a clear
+      signal of pipeline failure rather than a meaningless small number).
+    """
     pred_list = list(predicted)
     truth_list = list(truth)
-    n = max(len(pred_list), len(truth_list))
-    if n == 0:
+    if not pred_list and not truth_list:
         return 1.0
-    correct = 0
-    for p, t in zip(pred_list, truth_list, strict=False):
-        if p[0] == t[0] and p[1] == t[1]:
-            correct += 1
-    return correct / n
+    if not pred_list or not truth_list:
+        return 0.0
+
+    if pred_intervals is None or gt_intervals is None:
+        # Legacy index-aligned mode.
+        n = max(len(pred_list), len(truth_list))
+        correct = sum(
+            1 for p, t in zip(pred_list, truth_list, strict=False)
+            if p[0] == t[0] and p[1] == t[1]
+        )
+        return correct / n
+
+    pred_pitches_hz = _midi_to_hz(np.array([p[0] for p in pred_list], dtype=float))
+    gt_pitches_hz = _midi_to_hz(np.array([t[0] for t in truth_list], dtype=float))
+    matching = mir_eval.transcription.match_notes(
+        np.asarray(gt_intervals), gt_pitches_hz,
+        np.asarray(pred_intervals), pred_pitches_hz,
+        onset_tolerance=onset_tolerance_s,
+        pitch_tolerance=50.0,
+        offset_ratio=None,
+    )
+    if not matching:
+        return 0.0
+    correct = sum(
+        1 for gt_idx, pred_idx in matching
+        if pred_list[pred_idx][1] == truth_list[gt_idx][1]
+    )
+    return correct / len(matching)

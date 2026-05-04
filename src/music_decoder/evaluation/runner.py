@@ -82,11 +82,26 @@ def run_evaluation(
             else None
         )
         pred_tab = prediction.get("tab")
-        tab = (
-            tab_string_accuracy(pred_tab, gt.tab)  # type: ignore[arg-type]
-            if pred_tab and gt.tab
-            else None
-        )
+        tab: float | None
+        if pred_tab and gt.tab:
+            # Prefer tab-aligned intervals if both pipeline and GT provide them;
+            # otherwise fall back to legacy index-aligned mode.
+            pred_tab_intervals = prediction.get("tab_intervals")
+            gt_tab_intervals = gt.tab_intervals
+            if pred_tab_intervals is not None and gt_tab_intervals is not None:
+                tab = tab_string_accuracy(
+                    pred_tab,  # type: ignore[arg-type]
+                    gt.tab,
+                    pred_intervals=np.asarray(pred_tab_intervals),
+                    gt_intervals=np.asarray(gt_tab_intervals),
+                )
+            else:
+                tab = tab_string_accuracy(
+                    pred_tab,  # type: ignore[arg-type]
+                    gt.tab,
+                )
+        else:
+            tab = None
         rows.append(
             FixtureMetrics(
                 name=fx.name,

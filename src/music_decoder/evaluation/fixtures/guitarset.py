@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -28,6 +29,8 @@ class GuitarSetFixtures:
         # Try notes_by_string first (older mirdata API), fall back to per-string notes dict
         tab: list[tuple[int, int, int]] | None = None
 
+        tab_intervals_list: list[tuple[float, float]] = []
+
         if hasattr(track, "notes_by_string"):
             # Older mirdata API: notes_by_string is a list of NoteData per string
             notes_all_obj = getattr(track, "notes", None)
@@ -40,9 +43,13 @@ class GuitarSetFixtures:
                 if sn is None:
                     continue
                 open_midi = _STANDARD_TUNING_MIDI[s_idx] if s_idx < 6 else 40
-                for p in np.asarray(sn.pitches, dtype=float):
+                sn_intervals = np.asarray(sn.intervals, dtype=float)
+                for i, p in enumerate(np.asarray(sn.pitches, dtype=float)):
                     fret = round(float(p)) - open_midi
                     tab_rows.append((round(float(p)), s_idx, fret))
+                    tab_intervals_list.append(
+                        (float(sn_intervals[i, 0]), float(sn_intervals[i, 1]))
+                    )
             tab = tab_rows if tab_rows else None
         elif hasattr(track, "notes_all") and hasattr(track, "notes"):
             # Current mirdata API: notes is a dict keyed by string name
@@ -60,9 +67,13 @@ class GuitarSetFixtures:
                         continue
                     open_midi = _STANDARD_TUNING_MIDI[s_idx]
                     pitches = np.asarray(sn.pitches, dtype=float)
-                    for p in pitches:
+                    sn_intervals = np.asarray(sn.intervals, dtype=float)
+                    for i, p in enumerate(pitches):
                         fret = round(float(p)) - open_midi
                         tab_rows.append((round(float(p)), s_idx, fret))
+                        tab_intervals_list.append(
+                            (float(sn_intervals[i, 0]), float(sn_intervals[i, 1]))
+                        )
                 tab = tab_rows if tab_rows else None
         else:
             # Minimal fallback: use whatever notes attr is available, no tab
@@ -85,12 +96,17 @@ class GuitarSetFixtures:
                 intervals_all = np.asarray(notes_obj.intervals, dtype=float)
                 pitches_all = np.asarray(notes_obj.pitches, dtype=float)
 
+        tab_intervals_arr: np.ndarray[Any, np.dtype[np.float64]] | None = (
+            np.asarray(tab_intervals_list, dtype=float)
+            if tab_intervals_list else None
+        )
         gt = GroundTruth(
             intervals=intervals_all,
             pitches_midi=pitches_all,
             key=None,
             tempo_bpm=track.tempo if hasattr(track, "tempo") else None,
             tab=tab,
+            tab_intervals=tab_intervals_arr,
         )
         return Fixture(
             name=track_id,
