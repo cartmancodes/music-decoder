@@ -114,3 +114,54 @@ def test_viterbi_handles_zero_input():
 
     path = viterbi_smooth(np.zeros((0, 49), dtype=float), p_self=0.7)
     assert path.shape == (0,)
+
+
+def test_merge_segments_collapses_consecutive_runs():
+    from music_decoder.chord_detection.recognize import merge_segments
+    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.pipeline.contracts import ChordSegment
+
+    c = label_index("C", "maj")
+    f = label_index("F", "maj")
+    state_path = np.array([c, c, c, f, f, c])
+    beat_times = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    scores = np.zeros((6, 49), dtype=float)
+    scores[:, c] = 0.7
+    scores[:, f] = 0.6
+
+    segments = merge_segments(state_path, beat_times, scores,
+                              min_segment_duration_s=0.0)
+    assert all(isinstance(s, ChordSegment) for s in segments)
+    assert len(segments) == 3
+    assert (segments[0].root, segments[0].quality) == ("C", "maj")
+    assert segments[0].start_s == 0.0 and segments[0].end_s == 3.0
+    assert (segments[1].root, segments[1].quality) == ("F", "maj")
+    assert segments[1].start_s == 3.0 and segments[1].end_s == 5.0
+    assert (segments[2].root, segments[2].quality) == ("C", "maj")
+    assert segments[2].start_s == 5.0 and segments[2].end_s == 6.0
+
+
+def test_merge_segments_drops_below_min_duration():
+    from music_decoder.chord_detection.recognize import merge_segments
+    from music_decoder.chord_detection.templates import label_index
+
+    c = label_index("C", "maj")
+    f = label_index("F", "maj")
+    # F segment is 0.1s - below 0.25 default; gets absorbed into preceding C.
+    state_path = np.array([c, c, f, c, c])
+    beat_times = np.array([0.0, 0.5, 1.0, 1.1, 1.6, 2.1])
+    scores = np.zeros((5, 49), dtype=float)
+    scores[:, c] = 0.7
+    scores[:, f] = 0.7
+    segments = merge_segments(state_path, beat_times, scores,
+                              min_segment_duration_s=0.25)
+    # Result: [C 0.0-1.1], [C 1.1-2.1] - but adjacent same-chord absorbs again.
+    assert all(s.root == "C" for s in segments)
+
+
+def test_merge_segments_handles_empty():
+    from music_decoder.chord_detection.recognize import merge_segments
+    out = merge_segments(np.zeros(0, dtype=int), np.zeros(0, dtype=float),
+                         np.zeros((0, 49), dtype=float),
+                         min_segment_duration_s=0.0)
+    assert out == []

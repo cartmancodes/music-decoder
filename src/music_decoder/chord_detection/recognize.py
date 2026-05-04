@@ -1,10 +1,14 @@
 # src/music_decoder/chord_detection/recognize.py
-"""Beat-synchronous chord recognition: chroma + beats → chord segments."""
+"""Beat-synchronous chord recognition: chroma + beats -> chord segments."""
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
+
+from music_decoder.pipeline.contracts import ChordSegment
+
+from .templates import NO_CHORD, QUALITIES, ROOTS, all_templates
 
 
 def beat_sync_chroma(
@@ -17,7 +21,7 @@ def beat_sync_chroma(
     """Average chroma columns over each beat-to-beat interval.
 
     Returns a (12, max(0, len(beats) - 1)) matrix. The last beat closes the
-    final window — if there are N beats, there are N-1 windows.
+    final window -- if there are N beats, there are N-1 windows.
     """
     if chroma.size == 0 or beat_times_s.size < 2:
         return np.zeros((12, max(0, beat_times_s.size - 1)), dtype=float)
@@ -36,9 +40,6 @@ def beat_sync_chroma(
         else:
             out[:, i] = chroma[:, start:end].mean(axis=1)
     return out
-
-
-from .templates import all_templates  # noqa: E402
 
 
 def score_beats(
@@ -137,3 +138,64 @@ def viterbi_smooth(
     for t in range(num_beats - 1, 0, -1):
         path[t - 1] = back[t, path[t]]
     return path
+
+
+def _state_to_root_quality(state_idx: int) -> tuple[str, str]:
+    if state_idx == 48:
+        return NO_CHORD, ""
+    return ROOTS[state_idx // len(QUALITIES)], QUALITIES[state_idx % len(QUALITIES)]
+
+
+def merge_segments(
+    state_path: np.ndarray[Any, np.dtype[Any]],
+    beat_times_s: np.ndarray[Any, np.dtype[Any]],
+    scores: np.ndarray[Any, np.dtype[Any]],
+    *,
+    min_segment_duration_s: float,
+) -> list[ChordSegment]:
+    """Collapse consecutive identical states into ChordSegment records and
+    absorb runs shorter than `min_segment_duration_s` into their predecessor."""
+    if state_path.size == 0:
+        return []
+
+    # First pass: build raw runs.
+    raw: list[tuple[int, int, int]] = []   # (start_beat, end_beat, state)
+    start = 0
+    for i in range(1, len(state_path)):
+        if state_path[i] != state_path[start]:
+            raw.append((start, i, int(state_path[start])))
+            start = i
+    raw.append((start, len(state_path), int(state_path[start])))
+
+    # Second pass: drop short segments.
+    cleaned: list[tuple[int, int, int]] = []
+    for s, e, state in raw:
+        duration = float(beat_times_s[e]) - float(beat_times_s[s])
+        if cleaned and duration < min_segment_duration_s:
+            prev_s, _prev_e, prev_state = cleaned[-1]
+            cleaned[-1] = (prev_s, e, prev_state)
+        else:
+            cleaned.append((s, e, state))
+
+    # Third pass: re-collapse if absorption created adjacent same-state runs.
+    final: list[tuple[int, int, int]] = []
+    for s, e, state in cleaned:
+        if final and final[-1][2] == state:
+            ps, _pe, pstate = final[-1]
+            final[-1] = (ps, e, pstate)
+        else:
+            final.append((s, e, state))
+
+    segments: list[ChordSegment] = []
+    for s, e, state in final:
+        root, quality = _state_to_root_quality(state)
+        beat_scores = scores[s:e, state] if scores.size else np.array([0.0])
+        confidence = float(beat_scores.mean()) if beat_scores.size else 0.0
+        segments.append(ChordSegment(
+            start_s=float(beat_times_s[s]),
+            end_s=float(beat_times_s[e]),
+            root=root,
+            quality=quality,
+            confidence=confidence,
+        ))
+    return segments
