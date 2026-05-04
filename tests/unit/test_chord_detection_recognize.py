@@ -73,3 +73,44 @@ def test_score_beats_zero_chroma_column_returns_zero_row():
     assert out.shape == (1, 49)
     # All zero similarity (the L2 norm guard returns zeros for zero columns).
     assert np.allclose(out[0], 0.0)
+
+
+def test_viterbi_smooths_single_flicker():
+    from music_decoder.chord_detection.recognize import viterbi_smooth
+
+    # 5 beats. Peaks favor [C, C, F, C, C] but want smoothing to keep C the whole time
+    # if F's score on beat 2 is only marginally higher than C's.
+    n_states = 49
+    scores = np.zeros((5, n_states), dtype=float)
+    from music_decoder.chord_detection.templates import label_index
+    c_idx = label_index("C", "maj")
+    f_idx = label_index("F", "maj")
+    scores[:, c_idx] = 0.80
+    scores[2, c_idx] = 0.78        # slight dip on beat 2
+    scores[2, f_idx] = 0.79        # slight overshoot for F
+
+    path = viterbi_smooth(scores, p_self=0.7)
+    assert path.tolist() == [c_idx] * 5
+
+
+def test_viterbi_returns_argmax_when_self_prob_zero():
+    from music_decoder.chord_detection.recognize import viterbi_smooth
+    from music_decoder.chord_detection.templates import label_index
+
+    scores = np.zeros((3, 49), dtype=float)
+    scores[0, label_index("C", "maj")] = 0.9
+    scores[1, label_index("F", "maj")] = 0.9
+    scores[2, label_index("G", "maj")] = 0.9
+    path = viterbi_smooth(scores, p_self=1.0 / 49)   # uniform -> no smoothing
+    assert path.tolist() == [
+        label_index("C", "maj"),
+        label_index("F", "maj"),
+        label_index("G", "maj"),
+    ]
+
+
+def test_viterbi_handles_zero_input():
+    from music_decoder.chord_detection.recognize import viterbi_smooth
+
+    path = viterbi_smooth(np.zeros((0, 49), dtype=float), p_self=0.7)
+    assert path.shape == (0,)

@@ -70,3 +70,70 @@ def score_beats(
     if mask.any():
         result[mask] = 0.0
     return result
+
+
+def viterbi_smooth(
+    scores: np.ndarray[Any, np.dtype[Any]],
+    *,
+    p_self: float,
+) -> np.ndarray[Any, np.dtype[np.int_]]:
+    """Standard Viterbi over 49 states with a uniform stay/switch transition.
+
+    `scores` is the (num_beats, 49) per-beat similarity matrix from `score_beats`.
+    `p_self` is the self-transition probability; switches are uniform across
+    the other 48 states. Decoding is done in log-space.
+
+    Returns an integer array of length num_beats holding the most-likely state
+    index per beat.
+    """
+    if scores.shape[0] == 0:
+        return np.zeros(0, dtype=int)
+    num_beats, n_states = scores.shape
+    # Build log-emission matrix; clip scores to (0, 1] before log.
+    eps = 1e-12
+    log_emit = np.log(np.clip(scores, eps, 1.0))
+
+    # Transition matrix in log-space.
+    p_switch = (1.0 - p_self) / (n_states - 1)
+    log_trans_self = np.log(p_self + eps)
+    log_trans_other = np.log(p_switch + eps)
+
+    # Viterbi DP.
+    dp = np.full((num_beats, n_states), -np.inf, dtype=float)
+    back = np.zeros((num_beats, n_states), dtype=int)
+    dp[0] = log_emit[0]   # uniform initial -> constant offset, can drop
+    for t in range(1, num_beats):
+        # For each next-state j, best k is either j (self) or the argmax over k!=j.
+        prev = dp[t - 1]
+        # The best-of-others is just (max - is_self_correction). Equivalent to:
+        # take max over all k for each j (using log_trans_other), and then for
+        # k=j replace with prev[j] + log_trans_self if higher.
+        best_other_value = prev.max() + log_trans_other
+        best_other_idx = int(prev.argmax())
+        for j in range(n_states):
+            self_score = prev[j] + log_trans_self
+            other_score = best_other_value
+            other_idx = best_other_idx
+            if other_idx == j:
+                # The "best-of-others" candidate WAS j; we have to find the
+                # second-best for j-as-other, which is the rare case.
+                tmp = prev.copy()
+                tmp[j] = -np.inf
+                if np.isfinite(tmp).any():
+                    other_idx = int(tmp.argmax())
+                    other_score = tmp[other_idx] + log_trans_other
+                else:
+                    other_score = -np.inf
+            if self_score >= other_score:
+                dp[t, j] = self_score + log_emit[t, j]
+                back[t, j] = j
+            else:
+                dp[t, j] = other_score + log_emit[t, j]
+                back[t, j] = other_idx
+
+    # Backtrace.
+    path = np.zeros(num_beats, dtype=int)
+    path[-1] = int(np.argmax(dp[-1]))
+    for t in range(num_beats - 1, 0, -1):
+        path[t - 1] = back[t, path[t]]
+    return path
