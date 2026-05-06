@@ -1,0 +1,48 @@
+# GuitarSet fine-tuning config for basic-pitch.
+#
+# This is the canonical training spec the C-3 scaffold consumes. The defaults
+# split GuitarSet's 360 tracks into a held-out validation set (the 5 tracks
+# already in the regression suite) and a training set (everything else).
+#
+# Actually running training requires basic-pitch's training package to be
+# installed and a few hours of CPU (or 30-60 min of GPU). See docs/training.md
+# for the workflow.
+
+id: 2026-05-07-guitarset-finetune-v1
+base_checkpoint: null            # null = start from basic-pitch's stock checkpoint
+output_checkpoint_dir: ~/Library/Caches/music-decoder/checkpoints
+
+train:
+  name: guitarset
+  cache_dir: tests/fixtures/guitarset
+  # In practice you'd enumerate every GuitarSet track NOT in the val list.
+  # The harness will skip any track whose audio + JAMS aren't both present.
+  # Below is a small placeholder set — replace with the full ~355-track list
+  # before kicking off a real training run.
+  track_ids:
+    - 00_BN1-147-Gb_comp
+    - 00_BN1-147-Gb_solo
+    - 00_BN2-131-B_comp
+    - 00_BN2-131-B_solo
+    - 00_BN2-166-Ab_comp
+    - 00_BN2-166-Ab_solo
+    - 00_BN3-119-G_comp
+    - 00_BN3-119-G_solo
+    - 00_Funk1-114-Ab_solo
+    - 00_Jazz1-200-B_solo
+    - 00_Rock1-130-A_solo
+
+val:
+  name: guitarset
+  cache_dir: tests/fixtures/guitarset
+  track_ids:
+    - 00_BN1-129-Eb_comp
+    - 00_BN1-129-Eb_solo
+    - 00_Funk1-114-Ab_comp
+    - 00_Jazz1-200-B_comp
+    - 00_Rock1-130-A_comp
+
+epochs: 5
+batch_size: 4
+learning_rate: 0.0001
+sample_rate_hz: 22050
