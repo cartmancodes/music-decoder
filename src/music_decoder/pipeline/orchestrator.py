@@ -217,6 +217,7 @@ def process_audio(
                     hop_length=512,
                     beat_grid=grid,
                     params=hyperparameters.chord_detection,
+                    audio_path=audio.source.path,
                 )
                 if chord_result.skipped_reason is None:
                     chord_repo.bulk_insert(job_id, [

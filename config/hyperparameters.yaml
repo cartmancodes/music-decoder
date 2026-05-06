@@ -28,6 +28,9 @@ chord_detection:
   hmm_self_transition_prob: 0.7
   no_chord_threshold: 0.15
   min_segment_duration_s: 0.25
+  # Backend: "template_hmm" (default, pure NumPy) or "madmom_deep_chroma"
+  # (requires an importable madmom; falls back to template_hmm if missing).
+  backend: madmom_deep_chroma
 tab_assignment:
   weights:
     w_move: 1.0

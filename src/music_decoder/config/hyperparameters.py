@@ -52,6 +52,11 @@ class ChordDetectionParams:
     hmm_self_transition_prob: float
     no_chord_threshold: float
     min_segment_duration_s: float
+    # Default backend; the orchestrator may pass-through to the named backend.
+    # "template_hmm" — chroma + 49 templates + Viterbi (always available).
+    # "madmom_deep_chroma" — madmom's pre-trained pipeline (requires audio_path
+    # and an importable madmom; falls back to template_hmm if unavailable).
+    backend: str = "template_hmm"
 
 
 @dataclass(frozen=True)

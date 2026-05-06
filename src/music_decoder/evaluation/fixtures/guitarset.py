@@ -6,32 +6,17 @@ from typing import Any
 
 import numpy as np
 
+# Delegate JAMS chord parsing to the shared chord_detection.labels module so
+# the GuitarSet loader and the madmom backend share one canonical mapping.
+from music_decoder.chord_detection.labels import (
+    parse_jams_chord_label as _parse_jams_chord_label,
+)
+
 from .base import Fixture, GroundTruth
 
 # Standard guitar tuning: MIDI pitches for open strings E A D G B e
 _STANDARD_TUNING_MIDI = [40, 45, 50, 55, 59, 64]
 _STRING_ORDER = ["E", "A", "D", "G", "B", "e"]
-
-
-# JAMS chord namespace uses formats like "C:maj", "A:min", "G:7", "C:maj7", "N".
-def _parse_jams_chord_label(label: str) -> tuple[str, str] | None:
-    if label == "N":
-        return ("N", "")
-    if ":" not in label:
-        return None
-    root, quality = label.split(":", 1)
-    quality = quality.strip()
-    # Map JAMS qualities to our 4-quality vocabulary; reject unsupported.
-    quality_map = {
-        "maj": "maj", "min": "min",
-        "7": "7", "maj7": "maj7",
-        # Common variants we approximate:
-        "min7": "min",   # downgrade min7 → min for our 4-quality set
-    }
-    mapped = quality_map.get(quality)
-    if mapped is None:
-        return None
-    return (root, mapped)
 
 
 class GuitarSetFixtures:

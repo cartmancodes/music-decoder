@@ -18,5 +18,5 @@ onset_f_measure: 0.30          # several GuitarSet tracks emit null; aggregate i
 pitch_class_accuracy: 0.50
 key_mirex_score: 0.75          # no GT in current corpus; excluded from aggregate
 tab_string_accuracy: 0.35
-chord_recognition_score: 0.05  # actual achieved: 0.055 on GuitarSet; 0.40 is aspirational v2 target
+chord_recognition_score: 0.40  # achieved 0.642 with madmom_deep_chroma backend (Phase C-4)
 regression_tolerance: 0.02

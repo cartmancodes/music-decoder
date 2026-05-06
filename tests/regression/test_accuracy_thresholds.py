@@ -65,6 +65,7 @@ def _real_pipeline(audio_path: Path, fixture: Fixture) -> dict[str, object]:
     chord_result = detect_chords(
         chroma=chroma, sr=audio.sr, hop_length=512,
         beat_grid=grid, params=hp.chord_detection,
+        audio_path=audio_path,
     )
     intervals = np.array([(n.start_s, n.end_s) for n in cleaned], dtype=float)
     pitches = np.array([n.pitch for n in cleaned], dtype=float)
