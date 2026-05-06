@@ -16,9 +16,12 @@ def test_dockerfile_builds_successfully():
     )
     if daemon_check.returncode != 0:
         pytest.skip("docker daemon not running")
+    # 20-minute timeout: full pip install of basic-pitch + demucs + crepe pulls
+    # TensorFlow and PyTorch wheels (~500 MB each) which routinely takes 10-15
+    # minutes from cold cache.
     result = subprocess.run(
         ["docker", "build", "-t", "music-decoder-smoke", "--no-cache=false", "."],
-        capture_output=True, text=True, timeout=600,
+        capture_output=True, text=True, timeout=1200,
     )
     if result.returncode != 0:
         print(result.stderr)
