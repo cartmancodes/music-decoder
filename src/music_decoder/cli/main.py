@@ -30,6 +30,27 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="Verify ffmpeg, data dirs, and models.")
     sub.add_parser("download-models",
                    help="Download all model weights into the user cache.")
+
+    fi = sub.add_parser(
+        "fixture-init",
+        help="Bootstrap a manual evaluation fixture from an audio file.",
+    )
+    fi.add_argument("audio", help="path to the audio file (.wav, .mp3, .flac)")
+    fi.add_argument("--name", required=True,
+                    help="fixture name (no extension); becomes <name>.json")
+    fi.add_argument("--tuning", default="EADGBE",
+                    help="tuning preset (default: EADGBE)")
+    fi.add_argument("--output-dir", default="tests/fixtures/manual",
+                    help="directory to write the JSON")
+    fi.add_argument("--force", action="store_true",
+                    help="overwrite if the JSON exists")
+
+    fv = sub.add_parser(
+        "fixture-validate",
+        help="Validate a manual evaluation fixture against the schema.",
+    )
+    fv.add_argument("fixture", help="path to the fixture JSON")
+
     p.add_argument("--runtime-yaml", default="config/runtime.yaml")
     p.add_argument("--hp-yaml", default="config/hyperparameters.yaml")
     return p
@@ -115,6 +136,15 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "download-models":
         warm_models()
         return 0
+    if cmd == "fixture-init":
+        from music_decoder.cli.fixture import cli_init
+        return cli_init(
+            audio=args.audio, name=args.name, tuning=args.tuning,
+            force=args.force, output_dir=args.output_dir,
+        )
+    if cmd == "fixture-validate":
+        from music_decoder.cli.fixture import cli_validate
+        return cli_validate(fixture=args.fixture)
     return run_default(runtime_yaml, hp_yaml)
 
 

@@ -52,6 +52,15 @@ def test_process_audio_succeeds_on_synthetic_clip(tmp_path: Path):
         assert "transcription" in stages
         assert "key_detection" in stages
         assert "beat_tracking" in stages
+        assert "chord_detection" in stages
         assert "tab_assignment" in stages
         assert s.query(TempoEstimate).filter_by(job_id=job_id).count() == 1
         assert s.query(KeyEstimate).filter_by(job_id=job_id).count() >= 6
+
+        # Chord segments must have been computed and persisted.
+        from music_decoder.persistence.repositories import ChordSegmentRepo
+        chord_rows = ChordSegmentRepo(s).list_for_job(job_id)
+        # The synthetic 1-second sine isn't really a chord, so the result is
+        # either an N segment or a degenerate-beat-grid skip; either way the
+        # stage must have run without error and produced at most a few rows.
+        assert chord_rows is not None

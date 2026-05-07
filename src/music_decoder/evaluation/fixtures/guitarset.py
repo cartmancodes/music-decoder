@@ -6,6 +6,12 @@ from typing import Any
 
 import numpy as np
 
+# Delegate JAMS chord parsing to the shared chord_detection.labels module so
+# the GuitarSet loader and the madmom backend share one canonical mapping.
+from music_decoder.chord_detection.labels import (
+    parse_jams_chord_label as _parse_jams_chord_label,
+)
+
 from .base import Fixture, GroundTruth
 
 # Standard guitar tuning: MIDI pitches for open strings E A D G B e
@@ -100,6 +106,27 @@ class GuitarSetFixtures:
             np.asarray(tab_intervals_list, dtype=float)
             if tab_intervals_list else None
         )
+        chord_segments_list: list[tuple[float, float, str, str]] | None = None
+        # mirdata GuitarSet exposes leadsheet_chords (simple) and inferred_chords;
+        # prefer leadsheet_chords as it has cleaner labels.
+        chords_obj = getattr(track, "leadsheet_chords", None) or getattr(track, "chords", None)
+        if chords_obj is not None:
+            try:
+                # mirdata's ChordData has .intervals (N,2) and .labels list[str]
+                ch_intervals = np.asarray(chords_obj.intervals, dtype=float)
+                ch_labels = list(chords_obj.labels)
+                parsed: list[tuple[float, float, str, str]] = []
+                for i, raw_label in enumerate(ch_labels):
+                    rq = _parse_jams_chord_label(raw_label)
+                    if rq is None:
+                        continue
+                    parsed.append((
+                        float(ch_intervals[i, 0]), float(ch_intervals[i, 1]),
+                        rq[0], rq[1],
+                    ))
+                chord_segments_list = parsed if parsed else None
+            except Exception:
+                chord_segments_list = None
         gt = GroundTruth(
             intervals=intervals_all,
             pitches_midi=pitches_all,
@@ -107,6 +134,7 @@ class GuitarSetFixtures:
             tempo_bpm=track.tempo if hasattr(track, "tempo") else None,
             tab=tab,
             tab_intervals=tab_intervals_arr,
+            chord_segments=chord_segments_list,
         )
         return Fixture(
             name=track_id,

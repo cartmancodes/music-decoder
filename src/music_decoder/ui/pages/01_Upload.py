@@ -28,11 +28,17 @@ def render() -> None:
         st.radio("Audio source", options=["solo_guitar", "full_mix"], horizontal=True),
     )
     transcription_model = cast(
-        Literal["basic-pitch", "crepe"],
+        Literal["basic-pitch", "crepe", "highres-guitar"],
         st.radio(
             "Transcription model",
-            options=["basic-pitch", "crepe"], horizontal=True,
-            help="basic-pitch handles polyphonic; CREPE is monophonic only.",
+            options=["basic-pitch", "crepe", "highres-guitar"], horizontal=True,
+            help=(
+                "basic-pitch (default) handles polyphonic guitar; "
+                "CREPE is monophonic only; "
+                "highres-guitar uses Kong et al.'s high-resolution architecture "
+                "(stock weights are piano-trained — see docs/training.md "
+                "for the workflow to swap in a guitar-fine-tuned checkpoint)."
+            ),
         ),
     )
     requested_tuning = st.selectbox("Tuning", options=list(PRESETS.keys()))

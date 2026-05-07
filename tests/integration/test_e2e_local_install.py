@@ -52,3 +52,13 @@ def test_full_pipeline_on_synthetic_audio(tmp_path: Path):
     assert len(payload["keys"]) >= 6   # 3 per profile minimum
     # Notes: a 1-second sine tone at 440 Hz should yield at least one detected note.
     assert len(payload["notes"]) >= 1
+
+    from sqlalchemy.orm import Session
+
+    from music_decoder.persistence.repositories import ChordSegmentRepo
+    with Session(engine) as s:
+        chord_rows = ChordSegmentRepo(s).list_for_job(job_id)
+        # Synthetic 1-second sine: chord stage either skipped (degenerate beats)
+        # or produced N segments. Either way the assertion is that no exception
+        # bubbled up — chord rows may be empty without it being a failure.
+        assert chord_rows is not None

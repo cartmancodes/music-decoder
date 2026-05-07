@@ -1,15 +1,35 @@
+"""Render committed .mid fixture files to .wav for the regression suite.
+
+Phase B-5 added a fluidsynth path. The loader prefers fluidsynth + a soundfont
+when a .sf2 file is available under ``<root>/soundfont/`` — that produces
+realistic instrument timbres (transients, harmonic content, decay) that are
+representative of what basic-pitch will see on real audio. When no soundfont
+is present, the loader falls back to the original sine-wave synthesis (purely
+deterministic; useful as a sanity-floor).
+
+A user can install a soundfont with:
+
+    python scripts/download_soundfont.py
+
+The download is opt-in so a fresh checkout doesn't try to fetch ~6MB on its
+first regression run.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pretty_midi
 import scipy.io.wavfile as wavfile
 
+from music_decoder.logging_setup import get_logger
+
 from .base import Fixture, GroundTruth
 
 _SR = 22050
+_log = get_logger("evaluation.synthetic")
 
 
 def _safe_tempo(pm: pretty_midi.PrettyMIDI) -> float:
@@ -21,22 +41,75 @@ def _safe_tempo(pm: pretty_midi.PrettyMIDI) -> float:
         return float(tempos[0]) if len(tempos) > 0 else 120.0
 
 
+def _find_soundfont(root: Path) -> Path | None:
+    """Return the first .sf2 under <root>/soundfont/ or None if absent."""
+    sf_dir = root / "soundfont"
+    if not sf_dir.exists():
+        return None
+    for path in sorted(sf_dir.glob("*.sf2")):
+        return path
+    return None
+
+
 class SyntheticFixtures:
-    """Renders committed .mid files to .wav via pretty_midi.synthesize() (sine waves)."""
+    """Renders committed .mid files to .wav.
+
+    Prefers fluidsynth + soundfont when a .sf2 is available under
+    ``<root>/soundfont/``; falls back to sine-wave synthesis otherwise.
+    """
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._sf2_path = _find_soundfont(root)
+        if self._sf2_path is not None:
+            _log.info(
+                "synthetic_fixtures_using_fluidsynth",
+                extra={"sf2": str(self._sf2_path)},
+            )
+        else:
+            _log.info("synthetic_fixtures_using_sine_fallback")
 
     def _ensure_wav(self, midi_path: Path) -> Path:
         wav_path = midi_path.with_suffix(".wav")
-        if wav_path.exists() and wav_path.stat().st_mtime > midi_path.stat().st_mtime:
+        # Cache key includes the soundfont path so swapping SF2s invalidates.
+        cache_marker = midi_path.parent / f".{midi_path.stem}.synth_marker"
+        current_marker = (
+            f"sf2={self._sf2_path}" if self._sf2_path else "sine"
+        )
+        cache_valid = (
+            wav_path.exists()
+            and wav_path.stat().st_mtime > midi_path.stat().st_mtime
+            and cache_marker.exists()
+            and cache_marker.read_text() == current_marker
+        )
+        if cache_valid:
             return wav_path
+
         pm = pretty_midi.PrettyMIDI(str(midi_path))
-        audio = pm.synthesize(fs=_SR).astype(np.float32)
+        audio = self._synthesize(pm)
         peak = float(np.max(np.abs(audio)) or 1.0)
         audio = (audio / peak * 0.9).astype(np.float32)
         wavfile.write(str(wav_path), _SR, (audio * 32767).astype(np.int16))
+        cache_marker.write_text(current_marker)
         return wav_path
+
+    def _synthesize(
+        self, pm: pretty_midi.PrettyMIDI,
+    ) -> np.ndarray[Any, np.dtype[np.float32]]:
+        """Render a PrettyMIDI object to mono float32 audio at _SR."""
+        if self._sf2_path is not None:
+            try:
+                rendered: np.ndarray[Any, np.dtype[Any]] = pm.fluidsynth(
+                    fs=_SR, sf2_path=str(self._sf2_path),
+                )
+                return np.asarray(rendered, dtype=np.float32)
+            except Exception as e:
+                _log.warning(
+                    "fluidsynth_render_failed_falling_back",
+                    extra={"error": str(e)},
+                )
+        sine: np.ndarray[Any, np.dtype[Any]] = pm.synthesize(fs=_SR)
+        return np.asarray(sine, dtype=np.float32)
 
     def _ground_truth(self, midi_path: Path) -> GroundTruth:
         pm = pretty_midi.PrettyMIDI(str(midi_path))

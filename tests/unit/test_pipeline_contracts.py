@@ -63,3 +63,25 @@ def test_stage_event_serializable():
         success=True, error=None, summary={"notes": 42},
     )
     assert e.summary["notes"] == 42
+
+
+def test_chord_segment_is_immutable():
+    import dataclasses
+
+    from music_decoder.pipeline.contracts import ChordSegment
+    seg = ChordSegment(start_s=0.0, end_s=4.0, root="C", quality="maj", confidence=0.85)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        seg.root = "G"  # type: ignore[misc]
+
+
+def test_chord_recognition_result_holds_segments():
+    from music_decoder.pipeline.contracts import (
+        ChordRecognitionResult,
+        ChordSegment,
+    )
+    seg = ChordSegment(start_s=0.0, end_s=4.0, root="C", quality="maj", confidence=0.85)
+    result = ChordRecognitionResult(
+        segments=[seg], median_confidence=0.85, skipped_reason=None,
+    )
+    assert result.segments == [seg]
+    assert result.skipped_reason is None

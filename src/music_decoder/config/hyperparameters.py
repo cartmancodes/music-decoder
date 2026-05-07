@@ -47,6 +47,19 @@ class BeatTrackingParams:
 
 
 @dataclass(frozen=True)
+class ChordDetectionParams:
+    qualities: list[str]
+    hmm_self_transition_prob: float
+    no_chord_threshold: float
+    min_segment_duration_s: float
+    # Default backend; the orchestrator may pass-through to the named backend.
+    # "template_hmm" — chroma + 49 templates + Viterbi (always available).
+    # "madmom_deep_chroma" — madmom's pre-trained pipeline (requires audio_path
+    # and an importable madmom; falls back to template_hmm if unavailable).
+    backend: str = "template_hmm"
+
+
+@dataclass(frozen=True)
 class TabAssignmentParams:
     weights: dict[str, float]
     max_fret: int
@@ -71,6 +84,7 @@ class HyperparameterSet:
     post_processing: PostProcessingParams
     key_detection: KeyDetectionParams
     beat_tracking: BeatTrackingParams
+    chord_detection: ChordDetectionParams
     tab_assignment: TabAssignmentParams
     ui: UIParams
     evaluation: EvaluationParams
@@ -93,6 +107,7 @@ def load_hyperparameters(path: Path) -> HyperparameterSet:
         post_processing=PostProcessingParams(**_section(raw, "post_processing")),
         key_detection=KeyDetectionParams(**_section(raw, "key_detection")),
         beat_tracking=BeatTrackingParams(**_section(raw, "beat_tracking")),
+        chord_detection=ChordDetectionParams(**_section(raw, "chord_detection")),
         tab_assignment=TabAssignmentParams(**_section(raw, "tab_assignment")),
         ui=UIParams(**_section(raw, "ui")),
         evaluation=EvaluationParams(**_section(raw, "evaluation")),

@@ -46,6 +46,14 @@ class ManualFixtures:
             # Manual fixture rows include start_s/end_s with each tab entry, so
             # tab_intervals is just `intervals` (1:1 with the tab list).
             tab_intervals = intervals if tab is not None else None
+            chord_segments_list: list[tuple[float, float, str, str]] | None = None
+            chords_field = data.get("chords")
+            if chords_field:
+                chord_segments_list = [
+                    (float(c["start_s"]), float(c["end_s"]),
+                     str(c["root"]), str(c["quality"]))
+                    for c in chords_field
+                ]
             gt = GroundTruth(
                 intervals=intervals,
                 pitches_midi=pitches,
@@ -53,6 +61,7 @@ class ManualFixtures:
                 tempo_bpm=float(data["tempo_bpm"]) if "tempo_bpm" in data else None,
                 tab=tab,
                 tab_intervals=tab_intervals,
+                chord_segments=chord_segments_list,
             )
             yield Fixture(
                 name=json_path.stem,

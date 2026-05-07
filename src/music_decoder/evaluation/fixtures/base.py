@@ -19,6 +19,7 @@ class GroundTruth:
     # time-aligned `tab_string_accuracy`. Loaders that build `tab` separately
     # from chronological note data must populate this. None when tab is None.
     tab_intervals: np.ndarray[Any, np.dtype[Any]] | None = None
+    chord_segments: list[tuple[float, float, str, str]] | None = None
 
 
 @dataclass(frozen=True)

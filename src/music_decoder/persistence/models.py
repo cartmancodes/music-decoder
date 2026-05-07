@@ -52,7 +52,9 @@ class Job(Base):
         ), nullable=False,
     )
     transcription_model: Mapped[str] = mapped_column(
-        String, CheckConstraint("transcription_model IN ('basic-pitch','crepe')"),
+        String, CheckConstraint(
+            "transcription_model IN ('basic-pitch','crepe','highres-guitar')"
+        ),
         nullable=False,
     )
     requested_tuning: Mapped[str] = mapped_column(String, nullable=False)
@@ -74,6 +76,9 @@ class Job(Base):
         back_populates="job", cascade="all, delete-orphan", passive_deletes=True,
     )
     notes: Mapped[list[Note]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", passive_deletes=True,
+    )
+    chord_segments: Mapped[list[ChordSegment]] = relationship(
         back_populates="job", cascade="all, delete-orphan", passive_deletes=True,
     )
 
@@ -184,3 +189,19 @@ class AccuracyReport(Base):
     tab_string_accuracy: Mapped[float | None] = mapped_column(Float)
     self_confidence_summary_json: Mapped[str] = mapped_column(Text, nullable=False)
     full_metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ChordSegment(Base):
+    __tablename__ = "chord_segments"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False,
+    )
+    start_s: Mapped[float] = mapped_column(Float, nullable=False)
+    end_s: Mapped[float] = mapped_column(Float, nullable=False)
+    root: Mapped[str] = mapped_column(String, nullable=False)
+    quality: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+
+    job: Mapped[Job] = relationship(back_populates="chord_segments")
+    __table_args__ = (Index("chord_segments_job_idx", "job_id", "start_s"),)

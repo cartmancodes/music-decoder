@@ -27,6 +27,7 @@ class FixtureMetrics:
     pitch_class_accuracy: float | None
     key_mirex_score: float | None
     tab_string_accuracy: float | None
+    chord_recognition_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,12 @@ def run_evaluation(
                 )
         else:
             tab = None
+        pred_chords = prediction.get("chord_segments")
+        gt_chords = gt.chord_segments
+        chord_score: float | None = None
+        if pred_chords is not None and gt_chords:
+            from .metrics import chord_recognition_score
+            chord_score = chord_recognition_score(pred_chords, gt_chords)  # type: ignore[arg-type]
         rows.append(
             FixtureMetrics(
                 name=fx.name,
@@ -111,6 +118,7 @@ def run_evaluation(
                 pitch_class_accuracy=pc,
                 key_mirex_score=k,
                 tab_string_accuracy=tab,
+                chord_recognition_score=chord_score,
             )
         )
     report = EvaluationReport(
