@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from music_decoder.pipeline.contracts import TabPosition
+from music_decoder.types import TabPosition
 
 
 def remaining_high_fret_penalty(

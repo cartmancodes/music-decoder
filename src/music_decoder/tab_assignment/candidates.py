@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from itertools import product
 
-from music_decoder.pipeline.contracts import TabPosition
+from music_decoder.types import TabPosition
 from music_decoder.tab_assignment.tuning import Tuning
 
 _MAX_CHORD_SPAN = 5

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from music_decoder.pipeline.contracts import (
+from music_decoder.types import (
     TabAssignmentResult,
     TabbedNote,
     TranscribedNote,
