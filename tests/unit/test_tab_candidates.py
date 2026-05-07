@@ -1,10 +1,10 @@
 # tests/unit/test_tab_candidates.py
 
-from music_decoder.tab_assignment.candidates import (
+from music_decoder.tabs.candidates import (
     chord_combinations,
     note_candidates,
 )
-from music_decoder.tab_assignment.tuning import get_preset
+from music_decoder.tabs.tuning import get_preset
 
 
 def test_e4_in_eadgbe_has_two_candidates_below_fret_22():

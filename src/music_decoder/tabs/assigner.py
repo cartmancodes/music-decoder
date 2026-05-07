@@ -8,7 +8,7 @@ from music_decoder.types import (
     TabbedNote,
     TranscribedNote,
 )
-from music_decoder.tab_assignment.tuning import Tuning
+from music_decoder.tabs.tuning import Tuning
 
 from .astar import Group, astar_min_cost_path
 from .candidates import chord_combinations, note_candidates

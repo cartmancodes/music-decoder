@@ -1,8 +1,8 @@
 # tests/unit/test_tab_assignment.py
 
 from music_decoder.types import TabPosition, TranscribedNote
-from music_decoder.tab_assignment.assigner import assign_tab
-from music_decoder.tab_assignment.tuning import get_preset
+from music_decoder.tabs.assigner import assign_tab
+from music_decoder.tabs.tuning import get_preset
 
 
 def _note(pitch: int, start: float = 0.0, end: float = 1.0, conf: float = 1.0):

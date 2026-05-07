@@ -6,7 +6,7 @@ import pytest
 
 from music_decoder.types import AudioSource, LoadedAudio
 from music_decoder.separation.demucs import isolate_guitar
-from music_decoder.tab_assignment.tuning import get_preset
+from music_decoder.tabs.tuning import get_preset
 
 
 def _audio(samples: np.ndarray, sr: int = 22050) -> LoadedAudio:

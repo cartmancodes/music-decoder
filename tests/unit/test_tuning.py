@@ -1,6 +1,6 @@
 import pytest
 
-from music_decoder.tab_assignment.tuning import (
+from music_decoder.tabs.tuning import (
     PRESETS,
     get_preset,
 )

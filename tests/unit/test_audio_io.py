@@ -11,7 +11,7 @@ from music_decoder.audio_io.load import (
     load_audio,
 )
 from music_decoder.types import AudioSource
-from music_decoder.tab_assignment.tuning import get_preset
+from music_decoder.tabs.tuning import get_preset
 
 
 def _source(path: Path) -> AudioSource:

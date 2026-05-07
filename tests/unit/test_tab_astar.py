@@ -1,6 +1,6 @@
 # tests/unit/test_tab_astar.py
 from music_decoder.types import TabPosition
-from music_decoder.tab_assignment.astar import (
+from music_decoder.tabs.astar import (
     Group,
     astar_min_cost_path,
 )

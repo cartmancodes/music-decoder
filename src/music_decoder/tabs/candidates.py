@@ -4,7 +4,7 @@ from __future__ import annotations
 from itertools import product
 
 from music_decoder.types import TabPosition
-from music_decoder.tab_assignment.tuning import Tuning
+from music_decoder.tabs.tuning import Tuning
 
 _MAX_CHORD_SPAN = 5
 
