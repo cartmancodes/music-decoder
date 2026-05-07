@@ -5,7 +5,7 @@ from typing import Any
 import librosa
 import numpy as np
 
-from music_decoder.pipeline.contracts import BeatGrid
+from music_decoder.types import BeatGrid
 
 
 def track_beats(

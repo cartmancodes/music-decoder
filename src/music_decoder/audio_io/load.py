@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io.wavfile as wavfile
 
-from music_decoder.pipeline.contracts import AudioSource, LoadedAudio
+from music_decoder.types import AudioSource, LoadedAudio
 
 from .ffmpeg import decode_to_wav
 
