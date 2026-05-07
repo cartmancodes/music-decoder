@@ -1,10 +1,18 @@
-"""Shared frozen dataclasses for the public API."""
+"""Shared frozen dataclasses for the public API and surviving internals.
+
+This module is the single source of truth for shapes flowing between
+ingest → dsp → key → chords → transcription → tabs and through the public
+``analyze()`` / ``compose()`` entry points. It deliberately mirrors every
+shape that the legacy ``pipeline.contracts`` module exported so that the
+import-migration phase is purely mechanical.
+"""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -76,15 +84,70 @@ class ChordSymbol:
         return f"{self.root}{_QUALITY_TO_LABEL[self.quality]}"
 
 
-# ---- Analysis-result primitives -------------------------------------------
+# ---- Tuning ----------------------------------------------------------------
 
 @dataclass(frozen=True)
-class ChordSegment:
+class Tuning:
+    """Open-string MIDI pitches, ordered low to high (string 0 = lowest)."""
+    name: str
+    open_pitches: tuple[int, ...]
+
+
+# ---- Audio ingestion -------------------------------------------------------
+
+@dataclass(frozen=True)
+class AudioSource:
+    path: Path
+    declared_kind: Literal["solo_guitar", "full_mix"]
+    requested_quality: Literal["standard", "high"]
+    requested_tuning: Tuning
+
+
+@dataclass(frozen=True)
+class LoadedAudio:
+    samples: np.ndarray[Any, np.dtype[np.float32]]
+    sr: int
+    duration_s: float
+    sha256: str
+    source: AudioSource
+
+
+# ---- Separation ------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SeparationResult:
+    guitar_samples: np.ndarray[Any, np.dtype[np.float32]] | None
+    sr: int
+    skipped_reason: str | None
+    bleed_estimate_db: float | None
+
+
+# ---- Transcription ---------------------------------------------------------
+
+@dataclass(frozen=True)
+class TranscribedNote:
     start_s: float
     end_s: float
-    chord: ChordSymbol
+    pitch: int
+    velocity: int
     confidence: float
 
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    notes: list[TranscribedNote]
+    model: Literal["basic-pitch", "crepe", "highres-guitar"]
+    raw_midi_path: Path
+    post_midi_path: Path
+    hyperparameters: dict[str, Any]
+    median_confidence: float
+
+
+# Public Note = same shape as TranscribedNote (kept distinct for clarity in API).
+Note = TranscribedNote
+
+
+# ---- Key detection ---------------------------------------------------------
 
 @dataclass(frozen=True)
 class KeyEstimate:
@@ -96,31 +159,79 @@ class KeyEstimate:
 
 
 @dataclass(frozen=True)
-class Note:
-    start_s: float
-    end_s: float
-    pitch: int
-    velocity: int
+class KeyDetectionResult:
+    global_top3_per_profile: dict[str, list[KeyEstimate]]
+    consensus_key: KeyEstimate | None
+    windowed_segments: list[tuple[float, float, KeyEstimate]]
     confidence: float
 
 
+# ---- Beat tracking ---------------------------------------------------------
+
+@dataclass(frozen=True)
+class BeatGrid:
+    tempo_bpm: float
+    beat_times_s: np.ndarray[Any, np.dtype[np.float64]]
+    downbeat_times_s: np.ndarray[Any, np.dtype[np.float64]]
+    ts_numerator: int
+    ts_denominator: int
+    ts_confidence: float
+    ts_assumed: bool
+
+
+# ---- Tab assignment --------------------------------------------------------
+
 @dataclass(frozen=True)
 class TabPosition:
-    string: int          # 0 = lowest
-    fret: int            # 0 = open; -1 = muted (in voicings)
+    """Fingering position. fret=-1 = string muted (used in chord voicings)."""
+    string: int
+    fret: int
 
 
 @dataclass(frozen=True)
 class TabbedNote:
-    note: Note
+    note: TranscribedNote
     position: TabPosition
+    cost_breakdown: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
-class Tuning:
-    name: str
-    open_pitches: tuple[int, ...]   # MIDI numbers low → high
+class TabAssignmentResult:
+    tabbed_notes: list[TabbedNote]
+    tuning: Tuning
+    total_cost: float
+    notes_dropped: list[tuple[TranscribedNote, str]]
 
+
+# ---- Chord recognition ----------------------------------------------------
+
+@dataclass(frozen=True)
+class ChordSegment:
+    """One chord-segment from the chord recognizer.
+
+    Carries legacy ``root`` / ``quality`` strings (so the surviving chord-
+    detection backends can construct it without change) and exposes a
+    ``chord`` property that coerces to the public :class:`ChordSymbol`.
+    """
+    start_s: float
+    end_s: float
+    root: str
+    quality: str
+    confidence: float
+
+    @property
+    def chord(self) -> ChordSymbol:
+        return ChordSymbol(root=self.root, quality=cast(ChordQuality, self.quality))
+
+
+@dataclass(frozen=True)
+class ChordRecognitionResult:
+    segments: list[ChordSegment]
+    median_confidence: float
+    skipped_reason: str | None
+
+
+# ---- Voicings (composition) -----------------------------------------------
 
 @dataclass(frozen=True)
 class VoicedChord:
@@ -128,7 +239,7 @@ class VoicedChord:
     positions: tuple[TabPosition, ...]   # one per string; fret -1 = muted
 
 
-# ---- Top-level results ----------------------------------------------------
+# ---- Top-level public results ---------------------------------------------
 
 @dataclass(frozen=True)
 class AnalysisResult:
@@ -149,49 +260,19 @@ class Composition:
     midi_path: Path
     wav_path: Path
     ascii_tab: str
-    melody_notes: tuple[Note, ...]
+    melody_notes: tuple[TranscribedNote, ...]
     chord_voicings: tuple[VoicedChord, ...]
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-# ---- Internal pipeline values (kept for module re-use; not public) -------
+# ---- Legacy orchestration values (kept for surviving call sites) ----------
 
 @dataclass(frozen=True)
-class LoadedAudio:
-    samples: np.ndarray
-    sr: int
-    duration_s: float
-    sha256: str
-    source_path: Path
-
-
-@dataclass(frozen=True)
-class BeatGrid:
-    tempo_bpm: float
-    beat_times_s: np.ndarray
-    downbeat_times_s: np.ndarray
-
-
-@dataclass(frozen=True)
-class TranscribedNote:
-    """Used internally by transcription/. Identical shape to public Note."""
-    start_s: float
-    end_s: float
-    pitch: int
-    velocity: int
-    confidence: float
-
-
-@dataclass(frozen=True)
-class ChordRecognitionResult:
-    segments: tuple[ChordSegment, ...]
-    backend: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class KeyDetectionResult:
-    global_top3_per_profile: dict[str, list[KeyEstimate]]
-    consensus_key: KeyEstimate | None
-    windowed_segments: list[tuple[float, float, KeyEstimate]]
-    confidence: float
+class StageEvent:
+    job_id: int
+    stage: str
+    started_at: datetime
+    ended_at: datetime
+    success: bool
+    error: str | None
+    summary: dict[str, Any]
