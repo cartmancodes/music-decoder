@@ -6,7 +6,7 @@ from typing import Any
 import mir_eval
 import numpy as np
 
-from music_decoder.pipeline.contracts import ChordSegment
+from music_decoder.types import ChordSegment
 
 _PITCH_CLASS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
                 "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
