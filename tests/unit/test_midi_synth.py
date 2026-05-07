@@ -3,7 +3,7 @@ from pathlib import Path
 import pretty_midi
 import pytest
 
-from music_decoder.midi_synth.fluidsynth_wrapper import (
+from music_decoder.synth.fluidsynth_wrapper import (
     SynthBackend,
     synthesize_midi_to_wav,
 )
