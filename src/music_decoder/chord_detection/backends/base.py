@@ -24,7 +24,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from music_decoder.config.hyperparameters import ChordDetectionParams
-from music_decoder.pipeline.contracts import BeatGrid, ChordRecognitionResult
+from music_decoder.types import BeatGrid, ChordRecognitionResult
 
 
 class ChordBackend(Protocol):

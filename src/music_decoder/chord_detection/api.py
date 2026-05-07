@@ -13,7 +13,7 @@ import numpy as np
 
 from music_decoder.config.hyperparameters import ChordDetectionParams
 from music_decoder.logging_setup import get_logger
-from music_decoder.pipeline.contracts import (
+from music_decoder.types import (
     BeatGrid,
     ChordRecognitionResult,
 )

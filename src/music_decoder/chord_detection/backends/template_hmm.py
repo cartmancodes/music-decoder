@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from music_decoder.config.hyperparameters import ChordDetectionParams
-from music_decoder.pipeline.contracts import BeatGrid, ChordRecognitionResult
+from music_decoder.types import BeatGrid, ChordRecognitionResult
 
 from ..recognize import (
     beat_sync_chroma,

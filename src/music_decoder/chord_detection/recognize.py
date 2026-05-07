@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from music_decoder.pipeline.contracts import ChordSegment
+from music_decoder.types import ChordSegment
 
 from .templates import NO_CHORD, QUALITIES, ROOTS, all_templates
 
