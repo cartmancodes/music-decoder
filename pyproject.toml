@@ -52,7 +52,7 @@ crepe = [
 ]
 
 [project.scripts]
-# music-decoder = "music_decoder.cli.main:main"  # restored in Phase 8
+music-decoder = "music_decoder.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/music_decoder"]
