@@ -79,25 +79,79 @@ def dry_run(config: FineTuneConfig) -> DryRunReport:
     )
 
 
-def execute_training(config: FineTuneConfig) -> Path:
+def execute_training(
+    config: FineTuneConfig,
+    *,
+    tfrecord_source: Path,
+    steps_per_epoch: int = 100,
+    validation_steps: int = 5,
+    shuffle_size: int = 100,
+) -> Path:
     """Invoke basic-pitch's training loop with the configured dataset.
 
-    This function attempts to import basic-pitch's training package and
-    invoke its ``train`` entry point. If the package isn't available (the
-    pip-installed basic-pitch may ship inference-only), the function raises
-    ``NotImplementedError`` with a clear message pointing at the workflow
-    doc.
+    Prerequisites the caller must satisfy:
 
-    NOTE: this is the deferred path. The C-3 spec ships the harness; users
-    actually run training out-of-band when they have time.
+    1. ``basic_pitch`` and ``tensorflow`` are installed.
+    2. ``tf-keras`` is installed and ``TF_USE_LEGACY_KERAS=1`` is set in the
+       environment. basic-pitch's training code uses Keras-2-style symbolic
+       tensor ops that don't work under Keras 3 (TF 2.16+).
+    3. ``tfrecord_source`` is the parent directory of
+       ``<dataset_name>/splits/{train,validation,test}/*.tfrecord``. Generate
+       it with ``scripts/convert_guitarset_to_tfrecord.py``.
+
+    Returns the path to the ``model.best`` checkpoint directory written by
+    the trainer.
     """
-    raise NotImplementedError(
-        "basic-pitch training is not wired up in this scaffold. See "
-        "docs/training.md for the manual workflow: clone spotify/basic-pitch, "
-        "run their training package directly with the dataset spec, then "
-        "drop the resulting checkpoint into the model_cache_dir and use "
-        "evaluate_checkpoint() to measure the delta.\n\n"
-        f"Config id: {config.id}\n"
-        f"Train pairs target: {len(list(enumerate_pairs(config.train)))}\n"
-        f"Val pairs target: {len(list(enumerate_pairs(config.val)))}"
+    import os
+
+    if os.environ.get("TF_USE_LEGACY_KERAS") != "1":
+        raise RuntimeError(
+            "TF_USE_LEGACY_KERAS=1 must be set in the environment before "
+            "importing tensorflow. Re-launch with: "
+            "TF_USE_LEGACY_KERAS=1 python scripts/finetune_basic_pitch.py ..."
+        )
+
+    # Apply our shims BEFORE importing basic_pitch.train (which imports the
+    # affected layers).
+    from . import basic_pitch_compat  # noqa: F401  side effect: apply shims
+
+    try:
+        import basic_pitch.train as bp_train
+    except ImportError as e:
+        raise NotImplementedError(
+            "basic_pitch.train not importable. Install with "
+            "`pip install basic-pitch[tf]`. Original error: " + str(e)
+        ) from e
+
+    config.output_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    bp_train.main(
+        source=str(tfrecord_source),
+        output=str(config.output_checkpoint_dir),
+        batch_size=config.batch_size,
+        shuffle_size=shuffle_size,
+        learning_rate=config.learning_rate,
+        epochs=config.epochs,
+        steps_per_epoch=steps_per_epoch,
+        validation_steps=validation_steps,
+        size_evaluation_callback_datasets=2,
+        datasets_to_use=[config.train.name],
+        dataset_sampling_frequency=[1.0],
+        no_sonify=True,
+        no_contours=False,
+        weighted_onset_loss=False,
+        positive_onset_weight=1.0,
     )
+
+    # basic_pitch.train writes <output>/<timestamp>/model.best (a directory of
+    # TF SavedModel files). The latest timestamp is the run we just kicked off.
+    runs = sorted(
+        d for d in config.output_checkpoint_dir.iterdir()
+        if d.is_dir() and (d / "model.best").exists()
+    )
+    if not runs:
+        raise RuntimeError(
+            f"basic_pitch.train completed but produced no model.best under "
+            f"{config.output_checkpoint_dir}; check the trainer logs."
+        )
+    return runs[-1] / "model.best"

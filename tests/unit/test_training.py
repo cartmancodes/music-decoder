@@ -159,8 +159,13 @@ def test_dry_run_warns_when_train_dataset_empty(tmp_path: Path):
     assert any("0 pairs" in n for n in report.notes)
 
 
-def test_execute_training_raises_not_implemented(tmp_path: Path):
-    """Until basic-pitch training is wired up, --execute should fail clearly."""
+def test_execute_training_requires_legacy_keras_env(tmp_path: Path, monkeypatch):
+    """Without TF_USE_LEGACY_KERAS=1, execute_training should refuse cleanly.
+
+    basic-pitch's training code uses Keras-2 idioms that don't work under
+    Keras 3 (TF 2.16+); the wrapper enforces this prerequisite.
+    """
+    monkeypatch.delenv("TF_USE_LEGACY_KERAS", raising=False)
     cfg = FineTuneConfig(
         id="x",
         base_checkpoint=None,
@@ -169,8 +174,15 @@ def test_execute_training_raises_not_implemented(tmp_path: Path):
         val=DatasetSpec(name="guitarset", cache_dir=tmp_path, track_ids=[]),
         epochs=1, batch_size=4, learning_rate=1e-4, sample_rate_hz=22050,
     )
-    with pytest.raises(NotImplementedError, match=r"docs/training\.md"):
-        execute_training(cfg)
+    with pytest.raises(RuntimeError, match=r"TF_USE_LEGACY_KERAS=1"):
+        execute_training(cfg, tfrecord_source=tmp_path)
+
+
+def test_basic_pitch_compat_apply_is_idempotent():
+    """Applying the shim twice should not error or duplicate work."""
+    from music_decoder.training import basic_pitch_compat
+    basic_pitch_compat.apply_basic_pitch_shims()
+    basic_pitch_compat.apply_basic_pitch_shims()  # second call is a no-op
 
 
 def test_aggregate_metrics_handles_partial_nones():

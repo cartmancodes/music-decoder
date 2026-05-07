@@ -37,6 +37,22 @@ def main(argv: list[str] | None = None) -> int:
         "--execute", action="store_true",
         help="Actually run training. Refuses if --dry-run also set.",
     )
+    parser.add_argument(
+        "--tfrecord-source", default="/tmp/bp_tfrecords",
+        help=(
+            "Parent dir of <dataset_name>/splits/{train,validation,test}/*.tfrecord. "
+            "Generate with scripts/convert_guitarset_to_tfrecord.py. Required "
+            "for --execute."
+        ),
+    )
+    parser.add_argument(
+        "--steps-per-epoch", type=int, default=100,
+        help="Number of training batches per epoch.",
+    )
+    parser.add_argument(
+        "--validation-steps", type=int, default=5,
+        help="Number of validation batches per epoch.",
+    )
     args = parser.parse_args(argv)
     configure_logging("INFO")
 
@@ -71,8 +87,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {n}")
 
     if args.execute:
+        from pathlib import Path as _P
         try:
-            ckpt = execute_training(config)
+            ckpt = execute_training(
+                config,
+                tfrecord_source=_P(args.tfrecord_source),
+                steps_per_epoch=args.steps_per_epoch,
+                validation_steps=args.validation_steps,
+            )
+        except RuntimeError as e:
+            print()
+            print("Training prerequisite missing:")
+            print(str(e))
+            return 1
         except NotImplementedError as e:
             print()
             print("Training execution is not yet wired up:")
