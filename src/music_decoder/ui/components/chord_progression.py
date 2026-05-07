@@ -22,6 +22,23 @@ def render_chord_progression_text(segments: list[ChordSegment]) -> str:
     return " | ".join(parts)
 
 
+def render_chord_timeline(segments: Iterable[ChordSegment]) -> None:
+    """Render a chord progression timeline into the active Streamlit context.
+
+    Thin Streamlit-aware adapter over :func:`render_chord_progression_text`.
+    Streamlit is imported lazily so this module still imports cleanly outside
+    a running Streamlit server (e.g. during pytest collection).
+    """
+    import streamlit as st  # local import keeps module-level import side-effect-free
+
+    seg_list = list(segments)
+    text = render_chord_progression_text(seg_list)
+    if not text:
+        st.info("No chords detected.")
+        return
+    st.code(text)
+
+
 def render_chord_diagram_svg(
     root: str, quality: str, *, n_strings: int = 6, max_fret: int = 5,
 ) -> str:
