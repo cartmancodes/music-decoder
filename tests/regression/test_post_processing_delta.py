@@ -11,7 +11,7 @@ from music_decoder.config.hyperparameters import (
 )
 from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.evaluation.metrics import note_f_measure
-from music_decoder.pipeline.contracts import AudioSource
+from music_decoder.types import AudioSource
 from music_decoder.tab_assignment.tuning import get_preset
 from music_decoder.transcription.basic_pitch_wrapper import transcribe_basic_pitch
 from music_decoder.transcription.post_processing import apply_post_processing

@@ -27,7 +27,7 @@ from music_decoder.evaluation.regression import (
 from music_decoder.evaluation.runner import run_evaluation
 from music_decoder.key_detection.api import detect_key
 from music_decoder.key_detection.chroma import compute_chroma_with_hpss
-from music_decoder.pipeline.contracts import AudioSource
+from music_decoder.types import AudioSource
 from music_decoder.tab_assignment.assigner import assign_tab
 from music_decoder.tab_assignment.tuning import get_preset
 from music_decoder.transcription.basic_pitch_wrapper import transcribe_basic_pitch

@@ -1,6 +1,6 @@
 # tests/unit/test_tab_cost.py
 
-from music_decoder.pipeline.contracts import TabPosition
+from music_decoder.types import TabPosition
 from music_decoder.tab_assignment.cost import (
     chord_collides,
     chord_span_penalty,

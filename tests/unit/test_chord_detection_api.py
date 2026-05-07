@@ -3,7 +3,7 @@ import numpy as np
 
 from music_decoder.chord_detection.api import detect_chords
 from music_decoder.config.hyperparameters import ChordDetectionParams
-from music_decoder.pipeline.contracts import BeatGrid
+from music_decoder.types import BeatGrid
 
 
 def _params() -> ChordDetectionParams:

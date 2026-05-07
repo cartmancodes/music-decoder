@@ -119,7 +119,7 @@ def test_viterbi_handles_zero_input():
 def test_merge_segments_collapses_consecutive_runs():
     from music_decoder.chord_detection.recognize import merge_segments
     from music_decoder.chord_detection.templates import label_index
-    from music_decoder.pipeline.contracts import ChordSegment
+    from music_decoder.types import ChordSegment
 
     c = label_index("C", "maj")
     f = label_index("F", "maj")

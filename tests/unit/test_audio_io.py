@@ -10,7 +10,7 @@ from music_decoder.audio_io.load import (
     SilentAudioError,
     load_audio,
 )
-from music_decoder.pipeline.contracts import AudioSource
+from music_decoder.types import AudioSource
 from music_decoder.tab_assignment.tuning import get_preset
 
 

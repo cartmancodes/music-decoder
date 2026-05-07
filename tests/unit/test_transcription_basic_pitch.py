@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from music_decoder.config.hyperparameters import BasicPitchParams
-from music_decoder.pipeline.contracts import AudioSource, LoadedAudio
+from music_decoder.types import AudioSource, LoadedAudio
 from music_decoder.tab_assignment.tuning import get_preset
 from music_decoder.transcription.basic_pitch_wrapper import transcribe_basic_pitch
 

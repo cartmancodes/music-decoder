@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.pipeline.contracts import (
+from music_decoder.types import (
     TabbedNote,
     TabPosition,
     TranscribedNote,

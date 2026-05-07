@@ -1,6 +1,6 @@
 # tests/unit/test_tab_assignment.py
 
-from music_decoder.pipeline.contracts import TabPosition, TranscribedNote
+from music_decoder.types import TabPosition, TranscribedNote
 from music_decoder.tab_assignment.assigner import assign_tab
 from music_decoder.tab_assignment.tuning import get_preset
 

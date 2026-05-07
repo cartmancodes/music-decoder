@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from music_decoder.pipeline.contracts import AudioSource, LoadedAudio
+from music_decoder.types import AudioSource, LoadedAudio
 from music_decoder.separation.demucs import isolate_guitar
 from music_decoder.tab_assignment.tuning import get_preset
 

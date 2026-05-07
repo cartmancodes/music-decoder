@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from music_decoder.pipeline.contracts import TranscribedNote
+from music_decoder.types import TranscribedNote
 from music_decoder.transcription.post_processing import (
     drop_short_notes,
     median_filter_pitch_contour,

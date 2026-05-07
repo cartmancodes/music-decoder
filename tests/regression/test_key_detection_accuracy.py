@@ -6,7 +6,7 @@ import pytest
 from music_decoder.audio_io.load import load_audio
 from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.key_detection.api import detect_key
-from music_decoder.pipeline.contracts import AudioSource
+from music_decoder.types import AudioSource
 from music_decoder.tab_assignment.tuning import get_preset
 
 

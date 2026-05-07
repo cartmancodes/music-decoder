@@ -10,7 +10,7 @@ from music_decoder.chord_detection.backends.madmom_deep_chroma import (
     MadmomDeepChromaBackend,
 )
 from music_decoder.config.hyperparameters import ChordDetectionParams
-from music_decoder.pipeline.contracts import BeatGrid
+from music_decoder.types import BeatGrid
 
 
 def _params() -> ChordDetectionParams:

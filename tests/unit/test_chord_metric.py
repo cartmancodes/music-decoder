@@ -1,7 +1,7 @@
 import pytest
 
 from music_decoder.evaluation.metrics import chord_recognition_score
-from music_decoder.pipeline.contracts import ChordSegment
+from music_decoder.types import ChordSegment
 
 
 def _seg(start: float, end: float, root: str, quality: str) -> ChordSegment:

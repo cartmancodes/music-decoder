@@ -1,4 +1,4 @@
-from music_decoder.pipeline.contracts import (
+from music_decoder.types import (
     ChordSegment,
     TabbedNote,
     TabPosition,
