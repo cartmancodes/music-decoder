@@ -134,3 +134,22 @@ def voicing_for(root: str, quality: str) -> tuple[int, int, int, int, int, int]:
     if label not in VOICINGS:
         raise KeyError(f"no voicing for {label!r}")
     return VOICINGS[label]
+
+
+def canonical_voicings_for(chord) -> list:
+    """Return the canonical EADGBE voicings for the given chord symbol.
+
+    Adapter that wraps the module-level ``VOICINGS`` dict (label -> 6-tuple
+    of frets) into a list of :class:`music_decoder.types.VoicedChord` objects.
+    Returns an empty list when the chord label is not in the map.
+    """
+    from music_decoder.types import TabPosition, VoicedChord
+
+    label = chord.to_label()
+    raw = VOICINGS.get(label)
+    if raw is None:
+        return []
+    positions = tuple(
+        TabPosition(string=i, fret=int(fret)) for i, fret in enumerate(raw)
+    )
+    return [VoicedChord(chord=chord, positions=positions)]

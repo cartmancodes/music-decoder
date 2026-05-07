@@ -19,6 +19,14 @@ PRESETS: dict[str, Tuning] = {
     "DADGAD":     Tuning("DADGAD",     (38, 45, 50, 55, 57, 62)),
 }
 
+# Named module-level constants for ergonomic imports.
+STANDARD_EADGBE = PRESETS["EADGBE"]
+DROP_D = PRESETS["Drop_D"]
+EB_HALF_STEP_DOWN = PRESETS["Eb"]
+D_STANDARD = PRESETS["D_standard"]
+DROP_C = PRESETS["Drop_C"]
+DADGAD = PRESETS["DADGAD"]
+
 
 def get_preset(name: str) -> Tuning:
     if name not in PRESETS:
