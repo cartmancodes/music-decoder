@@ -5,8 +5,7 @@ services:
     ports:
       - "8501:8501"
     environment:
-      MUSIC_DECODER_DB_PATH: /data/db.sqlite3
-      MUSIC_DECODER_ARTIFACT_DIR: /data/artifacts
+      MUSIC_DECODER_DATA_DIR: /data
       MUSIC_DECODER_LOG_LEVEL: INFO
     volumes:
       - md-data:/data
