@@ -1,14 +1,10 @@
-id: 2026-05-04-baseline
+id: 2026-05-08-v2-baseline
 basic_pitch:
   onset_threshold: 0.5
   frame_threshold: 0.3
   minimum_note_length_ms: 58
   minimum_frequency_hz: 32.7
   maximum_frequency_hz: 2000
-crepe:
-  model_capacity: full
-  step_size_ms: 10
-  viterbi: true
 post_processing:
   median_filter_window: 5
   min_note_duration_s: 0.05
@@ -18,19 +14,13 @@ key_detection:
   hpss_margin: 1.0
   windowed_segment_length_s: 8.0
   windowed_hop_s: 2.0
-  modulation_penalty: 0.3
 beat_tracking:
   start_bpm: 120
   tightness: 100
-  ts_min_confidence: 0.5
 chord_detection:
-  qualities: [maj, min, "7", maj7, min7, dim, sus4, aug]
-  hmm_self_transition_prob: 0.7
-  no_chord_threshold: 0.15
-  min_segment_duration_s: 0.25
-  # Backend: "template_hmm" (default, pure NumPy) or "madmom_deep_chroma"
-  # (requires an importable madmom; falls back to template_hmm if missing).
-  backend: madmom_deep_chroma
+  backend: madmom_deep_chroma            # falls back to template_hmm
+  qualities: [maj, min, maj7, min7, 7, dim, sus4, aug]
+  min_segment_duration_s: 0.4
 tab_assignment:
   weights:
     w_move: 1.0
@@ -40,13 +30,10 @@ tab_assignment:
     w_high: 0.4
     w_chord_intra: 0.6
   max_fret: 22
-ui:
-  confidence_thresholds:
-    high: 0.8
-    medium: 0.5
-evaluation:
-  thresholds:
-    note_f_measure: 0.65
-    key_mirex_score: 0.75
-    tab_string_accuracy: 0.55
-  regression_tolerance: 0.02
+composition:
+  notes_per_bar: 4
+  strong_beat_chord_tone_prob: 0.7
+  weak_beat_chord_tone_prob: 0.3
+  markov_max_interval_semitones: 4
+  velocity_strong: 80
+  velocity_weak: 70

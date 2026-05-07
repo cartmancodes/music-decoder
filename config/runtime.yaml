@@ -1,8 +1,9 @@
 # config/runtime.yaml
-# Defaults assume macOS user data dir; override via MUSIC_DECODER_* env vars.
+# Override any field via MUSIC_DECODER_<UPPERCASE_KEY> env vars.
+data_dir: ~/.music-decoder
 log_level: INFO
-youtube_cache_dir: ~/Library/Application Support/music-decoder/yt_cache
-composition_out_dir: ~/Library/Application Support/music-decoder/compositions
-ffmpeg_path: null            # null = autodiscover via PATH
-model_cache_dir: ~/Library/Caches/music-decoder/models
-fixture_dir: tests/fixtures
+ffmpeg_path: ffmpeg
+fluidsynth_soundfont: GeneralUser-GS.sf2
+sample_rate_hz: 22050
+youtube_cache_dir: ${data_dir}/yt_cache
+composition_out_dir: ${data_dir}/compositions
