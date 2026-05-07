@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from music_decoder.audio_io.load import (
+from music_decoder.ingest.audio_file import (
     ClipTooShortError,
     CorruptAudioError,
     SilentAudioError,

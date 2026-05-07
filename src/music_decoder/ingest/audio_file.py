@@ -1,4 +1,4 @@
-# src/music_decoder/audio_io/load.py
+# src/music_decoder/ingest/audio_file.py
 from __future__ import annotations
 
 import hashlib
@@ -79,3 +79,7 @@ def load_audio(source: AudioSource) -> LoadedAudio:
         samples=samples, sr=sr, duration_s=samples.size / sr,
         sha256=_sha256(source.path), source=source,
     )
+
+
+# v2 alias: prefer `load_audio_file` going forward.
+load_audio_file = load_audio

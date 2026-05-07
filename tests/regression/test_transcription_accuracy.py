@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from music_decoder.audio_io.load import load_audio
+from music_decoder.ingest.audio_file import load_audio
 from music_decoder.config.hyperparameters import BasicPitchParams
 from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.evaluation.metrics import note_f_measure

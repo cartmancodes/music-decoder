@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from music_decoder.audio_io.load import load_audio
+from music_decoder.ingest.audio_file import load_audio
 from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.key.api import detect_key
 from music_decoder.types import AudioSource
