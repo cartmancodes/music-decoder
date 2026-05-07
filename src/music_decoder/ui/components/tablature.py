@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from music_decoder.pipeline.contracts import TabbedNote
+from music_decoder.types import TabbedNote
 
 _STRING_LABELS = ("E", "A", "D", "G", "B", "e")   # standard EADGBE labels
 
