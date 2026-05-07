@@ -52,7 +52,9 @@ class Job(Base):
         ), nullable=False,
     )
     transcription_model: Mapped[str] = mapped_column(
-        String, CheckConstraint("transcription_model IN ('basic-pitch','crepe')"),
+        String, CheckConstraint(
+            "transcription_model IN ('basic-pitch','crepe','highres-guitar')"
+        ),
         nullable=False,
     )
     requested_tuning: Mapped[str] = mapped_column(String, nullable=False)

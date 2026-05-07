@@ -29,7 +29,7 @@ def enqueue_upload(
     mime_type: str,
     content: bytes,
     declared_kind: Literal["solo_guitar", "full_mix"],
-    transcription_model: Literal["basic-pitch", "crepe"],
+    transcription_model: Literal["basic-pitch", "crepe", "highres-guitar"],
     requested_tuning: str,
     requested_quality: Literal["standard", "high"],
     use_demucs: bool,

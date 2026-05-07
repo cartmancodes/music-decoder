@@ -114,27 +114,30 @@ def process_audio(
 
             output_dir = artifacts.path_for(f"derived/{job_id}")
             with emit("transcription") as summary:
+                audio_for_t = LoadedAudio(
+                    samples=samples_for_pitch, sr=audio.sr,
+                    duration_s=samples_for_pitch.size / audio.sr,
+                    sha256=audio.sha256, source=source,
+                )
                 if job.transcription_model == "basic-pitch":
-                    audio_for_t = LoadedAudio(
-                        samples=samples_for_pitch, sr=audio.sr,
-                        duration_s=samples_for_pitch.size / audio.sr,
-                        sha256=audio.sha256, source=source,
-                    )
                     raw_t = transcribe_basic_pitch(
                         audio_for_t, hyperparameters.basic_pitch,
                         output_dir=output_dir,
                     )
-                else:
-                    audio_for_t = LoadedAudio(
-                        samples=samples_for_pitch, sr=audio.sr,
-                        duration_s=samples_for_pitch.size / audio.sr,
-                        sha256=audio.sha256, source=source,
+                elif job.transcription_model == "highres-guitar":
+                    from music_decoder.transcription.highres_guitar_wrapper import (
+                        transcribe_highres_guitar,
                     )
+                    raw_t = transcribe_highres_guitar(
+                        audio_for_t, output_dir=output_dir,
+                    )
+                else:
                     raw_t = transcribe_crepe(
                         audio_for_t, hyperparameters.crepe, output_dir=output_dir,
                         median_filter_window=hyperparameters.post_processing.median_filter_window,
                     )
                 summary["raw_note_count"] = len(raw_t.notes)
+                summary["transcription_model"] = raw_t.model
             s.commit()
 
             # Hoist chroma here so both key_detection and chord_detection share it

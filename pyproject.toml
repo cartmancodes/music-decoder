@@ -73,7 +73,8 @@ plugins = []
 [[tool.mypy.overrides]]
 module = ["basic_pitch.*", "crepe.*", "demucs.*", "librosa.*", "pretty_midi.*",
           "music21.*", "mir_eval.*", "mirdata.*", "acoustid.*", "fluidsynth.*",
-          "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*"]
+          "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*",
+          "piano_transcription_inference.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

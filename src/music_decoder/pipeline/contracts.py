@@ -51,7 +51,7 @@ class TranscribedNote:
 @dataclass(frozen=True)
 class TranscriptionResult:
     notes: list[TranscribedNote]
-    model: Literal["basic-pitch", "crepe"]
+    model: Literal["basic-pitch", "crepe", "highres-guitar"]
     raw_midi_path: Path
     post_midi_path: Path
     hyperparameters: dict[str, Any]
