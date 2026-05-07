@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from music_decoder.audio_io.load import load_audio
-from music_decoder.beat_tracking.beats import track_beats
+from music_decoder.dsp.beats import track_beats
 from music_decoder.chords.api import detect_chords
 from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
@@ -25,8 +25,8 @@ from music_decoder.evaluation.regression import (
     load_thresholds,
 )
 from music_decoder.evaluation.runner import run_evaluation
-from music_decoder.key_detection.api import detect_key
-from music_decoder.key_detection.chroma import compute_chroma_with_hpss
+from music_decoder.key.api import detect_key
+from music_decoder.dsp.chroma import compute_chroma_with_hpss
 from music_decoder.types import AudioSource
 from music_decoder.tabs.assigner import assign_tab
 from music_decoder.tabs.tuning import get_preset

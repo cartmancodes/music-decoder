@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.beat_tracking.beats import track_beats
+from music_decoder.dsp.beats import track_beats
 
 
 def _click_track(bpm: float, duration_s: float, sr: int = 22050) -> np.ndarray:

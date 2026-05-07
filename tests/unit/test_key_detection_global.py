@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.key_detection.global_estimator import estimate_global_key
+from music_decoder.key.global_estimator import estimate_global_key
 
 
 def test_consensus_when_profiles_agree():

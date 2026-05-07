@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.beat_tracking.time_signature import infer_time_signature
+from music_decoder.dsp.time_signature import infer_time_signature
 
 
 def test_strong_4_4_pattern_detects_4_4():

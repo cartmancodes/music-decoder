@@ -6,7 +6,7 @@ import numpy as np
 
 from music_decoder.types import KeyDetectionResult
 
-from .chroma import compute_chroma_with_hpss
+from music_decoder.dsp.chroma import compute_chroma_with_hpss
 from .global_estimator import estimate_global_key
 from .windowed import detect_windowed_keys
 

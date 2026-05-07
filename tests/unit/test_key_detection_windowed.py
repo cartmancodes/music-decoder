@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.key_detection.windowed import detect_windowed_keys
+from music_decoder.key.windowed import detect_windowed_keys
 
 
 def test_windowed_segments_cover_audio():

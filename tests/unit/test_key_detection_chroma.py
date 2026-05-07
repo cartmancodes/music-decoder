@@ -1,6 +1,6 @@
 import numpy as np
 
-from music_decoder.key_detection.chroma import compute_chroma_with_hpss
+from music_decoder.dsp.chroma import compute_chroma_with_hpss
 
 
 def test_chroma_shape_and_range():

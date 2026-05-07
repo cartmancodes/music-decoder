@@ -1,10 +1,10 @@
 import numpy as np
 
-from music_decoder.key_detection.ks import (
+from music_decoder.key.ks import (
     correlate_against_profiles,
     top_k_estimates,
 )
-from music_decoder.key_detection.profiles import (
+from music_decoder.key.profiles import (
     KRUMHANSL_KESSLER_MAJOR,
     KRUMHANSL_KESSLER_MINOR,
 )
