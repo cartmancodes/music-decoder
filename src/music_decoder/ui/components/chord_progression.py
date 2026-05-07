@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from music_decoder.chords.templates import chord_label
 from music_decoder.chords.voicings import voicing_for
 from music_decoder.types import ChordSegment, TabbedNote
-from music_decoder.ui.components.tablature import render_ascii_tab
+from music_decoder.tabs.render import render_ascii_tab
 
 
 def render_chord_progression_text(segments: list[ChordSegment]) -> str:

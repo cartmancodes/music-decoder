@@ -7,7 +7,7 @@ from music_decoder.types import (
 )
 from music_decoder.ui.components.chromagram import render_chromagram_figure
 from music_decoder.ui.components.confidence import confidence_color
-from music_decoder.ui.components.tablature import (
+from music_decoder.tabs.render import (
     render_ascii_tab,
     render_svg_fretboard,
 )
