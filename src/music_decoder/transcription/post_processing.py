@@ -7,7 +7,7 @@ import numpy as np
 from scipy.signal import medfilt
 
 from music_decoder.config.hyperparameters import PostProcessingParams
-from music_decoder.pipeline.contracts import TranscribedNote
+from music_decoder.types import TranscribedNote
 
 
 def drop_short_notes(

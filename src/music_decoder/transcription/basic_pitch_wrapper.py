@@ -8,7 +8,7 @@ import numpy as np
 import scipy.io.wavfile as wavfile
 
 from music_decoder.config.hyperparameters import BasicPitchParams
-from music_decoder.pipeline.contracts import (
+from music_decoder.types import (
     LoadedAudio,
     TranscribedNote,
     TranscriptionResult,
