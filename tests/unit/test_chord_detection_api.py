@@ -8,7 +8,7 @@ from music_decoder.pipeline.contracts import BeatGrid
 
 def _params() -> ChordDetectionParams:
     return ChordDetectionParams(
-        qualities=["maj", "min", "7", "maj7"],
+        qualities=["maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug"],
         hmm_self_transition_prob=0.7,
         no_chord_threshold=0.15,
         min_segment_duration_s=0.0,

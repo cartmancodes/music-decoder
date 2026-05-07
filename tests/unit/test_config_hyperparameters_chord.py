@@ -36,7 +36,7 @@ beat_tracking:
   tightness: 100
   ts_min_confidence: 0.5
 chord_detection:
-  qualities: [maj, min, "7", maj7]
+  qualities: [maj, min, "7", maj7, min7, dim, sus4, aug]
   hmm_self_transition_prob: 0.7
   no_chord_threshold: 0.15
   min_segment_duration_s: 0.25
@@ -51,7 +51,9 @@ evaluation:
 """)
     hp = load_hyperparameters(p)
     assert isinstance(hp.chord_detection, ChordDetectionParams)
-    assert hp.chord_detection.qualities == ["maj", "min", "7", "maj7"]
+    assert hp.chord_detection.qualities == [
+        "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug",
+    ]
     assert hp.chord_detection.hmm_self_transition_prob == 0.7
     assert hp.chord_detection.no_chord_threshold == 0.15
     assert hp.chord_detection.min_segment_duration_s == 0.25

@@ -15,7 +15,7 @@ from music_decoder.pipeline.contracts import BeatGrid
 
 def _params() -> ChordDetectionParams:
     return ChordDetectionParams(
-        qualities=["maj", "min", "7", "maj7"],
+        qualities=["maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug"],
         hmm_self_transition_prob=0.7,
         no_chord_threshold=0.15,
         min_segment_duration_s=0.0,
@@ -67,13 +67,15 @@ def test_madmom_backend_convert_parses_jams_labels():
     and segment merging logic.
     """
     backend = MadmomDeepChromaBackend()
-    # Mimic madmom's structured-array output.
+    # Mimic madmom's structured-array output. Phase B-3 promoted sus4 to a
+    # first-class quality, so the F:sus4 segment now survives as ("F", "sus4").
+    # We use a still-unsupported quality (alt) to test the drop path.
     raw_segments = [
         (0.0, 4.0, "C:maj"),
         (4.0, 8.0, "A:min"),
-        (8.0, 9.0, "F:sus4"),    # unsupported; should be dropped
+        (8.0, 9.0, "F:alt"),    # unsupported; should be dropped
         (9.0, 12.0, "G:7"),
-        (12.0, 16.0, "C:maj"),    # adjacent to a different chord; not merged with first
+        (12.0, 16.0, "C:maj"),  # adjacent to a different chord; not merged with first
     ]
     result = backend._convert(raw_segments, _params())
     labels = [(s.root, s.quality) for s in result.segments]
@@ -122,4 +124,6 @@ def test_madmom_backend_runs_on_real_audio():
     assert result.segments[0].root in (
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "N"
     )
-    assert result.segments[0].quality in ("maj", "min", "7", "maj7", "")
+    assert result.segments[0].quality in (
+        "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug", "",
+    )

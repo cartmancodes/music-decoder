@@ -49,7 +49,7 @@ def test_score_beats_returns_per_beat_per_chord_matrix():
     beat_chroma[7, 0] = 1.0   # G
 
     scores = score_beats(beat_chroma)
-    assert scores.shape == (1, 49)
+    assert scores.shape == (1, 97)
     # C-major template should score highest.
     from music_decoder.chord_detection.templates import label_index
 
@@ -63,14 +63,14 @@ def test_score_beats_handles_empty_input():
     from music_decoder.chord_detection.recognize import score_beats
 
     out = score_beats(np.zeros((12, 0), dtype=float))
-    assert out.shape == (0, 49)
+    assert out.shape == (0, 97)
 
 
 def test_score_beats_zero_chroma_column_returns_zero_row():
     from music_decoder.chord_detection.recognize import score_beats
 
     out = score_beats(np.zeros((12, 1), dtype=float))
-    assert out.shape == (1, 49)
+    assert out.shape == (1, 97)
     # All zero similarity (the L2 norm guard returns zeros for zero columns).
     assert np.allclose(out[0], 0.0)
 
@@ -80,7 +80,7 @@ def test_viterbi_smooths_single_flicker():
 
     # 5 beats. Peaks favor [C, C, F, C, C] but want smoothing to keep C the whole time
     # if F's score on beat 2 is only marginally higher than C's.
-    n_states = 49
+    n_states = 97
     scores = np.zeros((5, n_states), dtype=float)
     from music_decoder.chord_detection.templates import label_index
     c_idx = label_index("C", "maj")
@@ -97,11 +97,11 @@ def test_viterbi_returns_argmax_when_self_prob_zero():
     from music_decoder.chord_detection.recognize import viterbi_smooth
     from music_decoder.chord_detection.templates import label_index
 
-    scores = np.zeros((3, 49), dtype=float)
+    scores = np.zeros((3, 97), dtype=float)
     scores[0, label_index("C", "maj")] = 0.9
     scores[1, label_index("F", "maj")] = 0.9
     scores[2, label_index("G", "maj")] = 0.9
-    path = viterbi_smooth(scores, p_self=1.0 / 49)   # uniform -> no smoothing
+    path = viterbi_smooth(scores, p_self=1.0 / 97)   # uniform -> no smoothing
     assert path.tolist() == [
         label_index("C", "maj"),
         label_index("F", "maj"),
@@ -112,7 +112,7 @@ def test_viterbi_returns_argmax_when_self_prob_zero():
 def test_viterbi_handles_zero_input():
     from music_decoder.chord_detection.recognize import viterbi_smooth
 
-    path = viterbi_smooth(np.zeros((0, 49), dtype=float), p_self=0.7)
+    path = viterbi_smooth(np.zeros((0, 97), dtype=float), p_self=0.7)
     assert path.shape == (0,)
 
 
@@ -125,7 +125,7 @@ def test_merge_segments_collapses_consecutive_runs():
     f = label_index("F", "maj")
     state_path = np.array([c, c, c, f, f, c])
     beat_times = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
-    scores = np.zeros((6, 49), dtype=float)
+    scores = np.zeros((6, 97), dtype=float)
     scores[:, c] = 0.7
     scores[:, f] = 0.6
 
@@ -150,7 +150,7 @@ def test_merge_segments_drops_below_min_duration():
     # F segment is 0.1s - below 0.25 default; gets absorbed into preceding C.
     state_path = np.array([c, c, f, c, c])
     beat_times = np.array([0.0, 0.5, 1.0, 1.1, 1.6, 2.1])
-    scores = np.zeros((5, 49), dtype=float)
+    scores = np.zeros((5, 97), dtype=float)
     scores[:, c] = 0.7
     scores[:, f] = 0.7
     segments = merge_segments(state_path, beat_times, scores,
@@ -162,6 +162,6 @@ def test_merge_segments_drops_below_min_duration():
 def test_merge_segments_handles_empty():
     from music_decoder.chord_detection.recognize import merge_segments
     out = merge_segments(np.zeros(0, dtype=int), np.zeros(0, dtype=float),
-                         np.zeros((0, 49), dtype=float),
+                         np.zeros((0, 97), dtype=float),
                          min_segment_duration_s=0.0)
     assert out == []

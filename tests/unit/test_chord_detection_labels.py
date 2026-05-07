@@ -21,21 +21,38 @@ def test_sharp_and_flat_roots():
     assert parse_jams_chord_label("F#:min") == ("F#", "min")
 
 
-def test_min7_downgrades_to_min():
-    assert parse_jams_chord_label("D:min7") == ("D", "min")
+def test_min7_first_class_after_b3():
+    # Phase B-3 promoted min7 from a downgrade rule to a first-class quality.
+    assert parse_jams_chord_label("D:min7") == ("D", "min7")
 
 
 def test_maj9_downgrades_to_maj7():
     assert parse_jams_chord_label("C:maj9") == ("C", "maj7")
 
 
-def test_sus_chords_rejected():
-    assert parse_jams_chord_label("F:sus4") is None
-    assert parse_jams_chord_label("C:sus2") is None
+def test_min9_downgrades_to_min7():
+    assert parse_jams_chord_label("C:min9") == ("C", "min7")
 
 
-def test_diminished_rejected():
-    assert parse_jams_chord_label("B:dim") is None
+def test_sus4_first_class_after_b3():
+    assert parse_jams_chord_label("F:sus4") == ("F", "sus4")
+
+
+def test_sus2_downgrades_to_sus4():
+    # Both are suspensions; sus4 is the first-class shape.
+    assert parse_jams_chord_label("C:sus2") == ("C", "sus4")
+
+
+def test_diminished_first_class_after_b3():
+    assert parse_jams_chord_label("B:dim") == ("B", "dim")
+    # dim7 + half-dim downgrade to dim (same triad, different 7th).
+    assert parse_jams_chord_label("B:dim7") == ("B", "dim")
+    assert parse_jams_chord_label("B:hdim7") == ("B", "dim")
+
+
+def test_aug_first_class_after_b3():
+    assert parse_jams_chord_label("C:aug") == ("C", "aug")
+    assert parse_jams_chord_label("C:+") == ("C", "aug")
 
 
 def test_x_label_returns_none():

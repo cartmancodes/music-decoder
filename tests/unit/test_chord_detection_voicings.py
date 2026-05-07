@@ -43,11 +43,12 @@ def test_voicing_frets_in_range():
             assert -1 <= f <= 22, f"{label}: fret {f} out of range"
 
 
-def test_voicing_for_unknown_returns_fallback_barre():
-    # Implementation choice: return None or raise. Spec says lookup table is
-    # static; missing keys signal a gap in coverage.
+def test_voicing_for_unknown_quality_raises():
+    # Implementation choice: missing keys signal a gap in coverage.
+    # Phase B-3 added sus4 to the vocabulary, so we test with a genuinely
+    # unsupported quality.
     with pytest.raises(KeyError):
-        voicing_for("C", "sus4")
+        voicing_for("C", "alt")  # not in our 8-quality vocabulary
 
 
 def test_no_chord_voicing_is_all_muted():
@@ -55,7 +56,8 @@ def test_no_chord_voicing_is_all_muted():
     assert v == (-1, -1, -1, -1, -1, -1)
 
 
-def test_all_48_chords_have_voicings():
+def test_all_chords_have_voicings():
+    """Phase B-3 grew the vocabulary from 48 to 96 chords (12 roots x 8 qualities)."""
     from music_decoder.chord_detection.templates import QUALITIES, ROOTS, chord_label
     missing = []
     for root in ROOTS:

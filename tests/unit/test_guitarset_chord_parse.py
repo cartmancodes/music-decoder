@@ -21,4 +21,6 @@ def test_chord_segments_parsed_when_cache_present():
     for start, end, root, quality in gt.chord_segments:
         assert end > start
         assert root in {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "N"}
-        assert quality in {"maj", "min", "7", "maj7", ""}
+        assert quality in {
+            "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug", "",
+        }

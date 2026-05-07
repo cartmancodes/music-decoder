@@ -47,13 +47,13 @@ def score_beats(
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """Cosine-similarity scores between every beat column and every template.
 
-    Returns a (num_beats, 49) matrix.  Beats whose chroma column is all-zero
+    Returns a (num_beats, 97) matrix.  Beats whose chroma column is all-zero
     receive an all-zero score row (the per-beat scorer never spuriously
     "matches" a silent beat).
     """
     if beat_chroma.size == 0:
-        return np.zeros((0, 49), dtype=float)
-    templates = all_templates()                # (49, 12)
+        return np.zeros((0, 97), dtype=float)
+    templates = all_templates()                # (97, 12)
     template_norms = np.linalg.norm(templates, axis=1, keepdims=True)
     template_norms[template_norms == 0] = 1.0
     templates_n = templates / template_norms
@@ -62,7 +62,7 @@ def score_beats(
     safe_norms = np.where(chroma_norms == 0, 1.0, chroma_norms)
     chroma_n = beat_chroma / safe_norms                                # (12, B)
 
-    # (B, 49) = (B, 12) @ (12, 49)
+    # (B, 97) = (B, 12) @ (12, 97)
     scores = chroma_n.T @ templates_n.T
 
     # Zero out scores where the source chroma was all-zero.
@@ -78,11 +78,11 @@ def viterbi_smooth(
     *,
     p_self: float,
 ) -> np.ndarray[Any, np.dtype[np.int_]]:
-    """Standard Viterbi over 49 states with a uniform stay/switch transition.
+    """Standard Viterbi over 97 states with a uniform stay/switch transition.
 
-    `scores` is the (num_beats, 49) per-beat similarity matrix from `score_beats`.
+    `scores` is the (num_beats, 97) per-beat similarity matrix from `score_beats`.
     `p_self` is the self-transition probability; switches are uniform across
-    the other 48 states. Decoding is done in log-space.
+    the other 96 states. Decoding is done in log-space.
 
     Returns an integer array of length num_beats holding the most-likely state
     index per beat.
@@ -141,7 +141,8 @@ def viterbi_smooth(
 
 
 def _state_to_root_quality(state_idx: int) -> tuple[str, str]:
-    if state_idx == 48:
+    n_chord_states = len(ROOTS) * len(QUALITIES)
+    if state_idx == n_chord_states:
         return NO_CHORD, ""
     return ROOTS[state_idx // len(QUALITIES)], QUALITIES[state_idx % len(QUALITIES)]
 
