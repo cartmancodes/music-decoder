@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from music_decoder.pipeline.contracts import KeyDetectionResult
+from music_decoder.types import KeyDetectionResult
 
 from .chroma import compute_chroma_with_hpss
 from .global_estimator import estimate_global_key

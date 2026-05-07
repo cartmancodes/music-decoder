@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from music_decoder.pipeline.contracts import KeyDetectionResult
+from music_decoder.types import KeyDetectionResult
 
 from .ks import top_k_estimates
 
