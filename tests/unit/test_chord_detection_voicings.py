@@ -1,7 +1,7 @@
 # tests/unit/test_chord_detection_voicings.py
 import pytest
 
-from music_decoder.chord_detection.voicings import VOICINGS, voicing_for
+from music_decoder.chords.voicings import VOICINGS, voicing_for
 
 
 def test_c_major_open_position():
@@ -58,7 +58,7 @@ def test_no_chord_voicing_is_all_muted():
 
 def test_all_chords_have_voicings():
     """Phase B-3 grew the vocabulary from 48 to 96 chords (12 roots x 8 qualities)."""
-    from music_decoder.chord_detection.templates import QUALITIES, ROOTS, chord_label
+    from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
     missing = []
     for root in ROOTS:
         for quality in QUALITIES:

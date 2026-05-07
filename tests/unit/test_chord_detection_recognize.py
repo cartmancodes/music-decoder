@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from music_decoder.chord_detection.recognize import beat_sync_chroma
+from music_decoder.chords.recognize import beat_sync_chroma
 
 
 def test_beat_sync_averages_columns_in_each_window():
@@ -40,7 +40,7 @@ def test_beat_sync_returns_empty_for_zero_beats():
 
 
 def test_score_beats_returns_per_beat_per_chord_matrix():
-    from music_decoder.chord_detection.recognize import score_beats
+    from music_decoder.chords.recognize import score_beats
 
     # 1 beat with a perfect C-major chroma (energy on C, E, G).
     beat_chroma = np.zeros((12, 1), dtype=float)
@@ -51,7 +51,7 @@ def test_score_beats_returns_per_beat_per_chord_matrix():
     scores = score_beats(beat_chroma)
     assert scores.shape == (1, 97)
     # C-major template should score highest.
-    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.chords.templates import label_index
 
     best_idx = int(np.argmax(scores[0]))
     assert best_idx == label_index("C", "maj"), (
@@ -60,14 +60,14 @@ def test_score_beats_returns_per_beat_per_chord_matrix():
 
 
 def test_score_beats_handles_empty_input():
-    from music_decoder.chord_detection.recognize import score_beats
+    from music_decoder.chords.recognize import score_beats
 
     out = score_beats(np.zeros((12, 0), dtype=float))
     assert out.shape == (0, 97)
 
 
 def test_score_beats_zero_chroma_column_returns_zero_row():
-    from music_decoder.chord_detection.recognize import score_beats
+    from music_decoder.chords.recognize import score_beats
 
     out = score_beats(np.zeros((12, 1), dtype=float))
     assert out.shape == (1, 97)
@@ -76,13 +76,13 @@ def test_score_beats_zero_chroma_column_returns_zero_row():
 
 
 def test_viterbi_smooths_single_flicker():
-    from music_decoder.chord_detection.recognize import viterbi_smooth
+    from music_decoder.chords.recognize import viterbi_smooth
 
     # 5 beats. Peaks favor [C, C, F, C, C] but want smoothing to keep C the whole time
     # if F's score on beat 2 is only marginally higher than C's.
     n_states = 97
     scores = np.zeros((5, n_states), dtype=float)
-    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.chords.templates import label_index
     c_idx = label_index("C", "maj")
     f_idx = label_index("F", "maj")
     scores[:, c_idx] = 0.80
@@ -94,8 +94,8 @@ def test_viterbi_smooths_single_flicker():
 
 
 def test_viterbi_returns_argmax_when_self_prob_zero():
-    from music_decoder.chord_detection.recognize import viterbi_smooth
-    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.chords.recognize import viterbi_smooth
+    from music_decoder.chords.templates import label_index
 
     scores = np.zeros((3, 97), dtype=float)
     scores[0, label_index("C", "maj")] = 0.9
@@ -110,15 +110,15 @@ def test_viterbi_returns_argmax_when_self_prob_zero():
 
 
 def test_viterbi_handles_zero_input():
-    from music_decoder.chord_detection.recognize import viterbi_smooth
+    from music_decoder.chords.recognize import viterbi_smooth
 
     path = viterbi_smooth(np.zeros((0, 97), dtype=float), p_self=0.7)
     assert path.shape == (0,)
 
 
 def test_merge_segments_collapses_consecutive_runs():
-    from music_decoder.chord_detection.recognize import merge_segments
-    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.chords.recognize import merge_segments
+    from music_decoder.chords.templates import label_index
     from music_decoder.types import ChordSegment
 
     c = label_index("C", "maj")
@@ -142,8 +142,8 @@ def test_merge_segments_collapses_consecutive_runs():
 
 
 def test_merge_segments_drops_below_min_duration():
-    from music_decoder.chord_detection.recognize import merge_segments
-    from music_decoder.chord_detection.templates import label_index
+    from music_decoder.chords.recognize import merge_segments
+    from music_decoder.chords.templates import label_index
 
     c = label_index("C", "maj")
     f = label_index("F", "maj")
@@ -160,7 +160,7 @@ def test_merge_segments_drops_below_min_duration():
 
 
 def test_merge_segments_handles_empty():
-    from music_decoder.chord_detection.recognize import merge_segments
+    from music_decoder.chords.recognize import merge_segments
     out = merge_segments(np.zeros(0, dtype=int), np.zeros(0, dtype=float),
                          np.zeros((0, 97), dtype=float),
                          min_segment_duration_s=0.0)

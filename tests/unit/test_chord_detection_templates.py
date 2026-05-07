@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from music_decoder.chord_detection.templates import (
+from music_decoder.chords.templates import (
     NO_CHORD,
     QUALITIES,
     ROOTS,

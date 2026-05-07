@@ -13,7 +13,7 @@ import pytest
 
 from music_decoder.audio_io.load import load_audio
 from music_decoder.beat_tracking.beats import track_beats
-from music_decoder.chord_detection.api import detect_chords
+from music_decoder.chords.api import detect_chords
 from music_decoder.config.hyperparameters import load_hyperparameters
 from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
 from music_decoder.evaluation.fixtures.guitarset import GuitarSetFixtures

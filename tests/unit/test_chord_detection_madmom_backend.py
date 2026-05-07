@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from music_decoder.chord_detection.backends.madmom_deep_chroma import (
+from music_decoder.chords.backends.madmom_deep_chroma import (
     MadmomDeepChromaBackend,
 )
 from music_decoder.config.hyperparameters import ChordDetectionParams

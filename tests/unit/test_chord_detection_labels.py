@@ -1,7 +1,7 @@
 """Tests for the shared JAMS chord-label parser."""
 from __future__ import annotations
 
-from music_decoder.chord_detection.labels import parse_jams_chord_label
+from music_decoder.chords.labels import parse_jams_chord_label
 
 
 def test_no_chord_label():

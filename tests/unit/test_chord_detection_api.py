@@ -1,7 +1,7 @@
 # tests/unit/test_chord_detection_api.py
 import numpy as np
 
-from music_decoder.chord_detection.api import detect_chords
+from music_decoder.chords.api import detect_chords
 from music_decoder.config.hyperparameters import ChordDetectionParams
 from music_decoder.types import BeatGrid
 

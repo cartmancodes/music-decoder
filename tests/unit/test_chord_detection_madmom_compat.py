@@ -5,7 +5,7 @@ import collections
 
 import numpy as np
 
-from music_decoder.chord_detection import madmom_compat
+from music_decoder.chords import madmom_compat
 
 
 def test_apply_madmom_shims_idempotent():
