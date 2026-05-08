@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -6,8 +5,8 @@ import pytest
 from music_decoder.errors import YouTubeError
 from music_decoder.ingest.youtube import (
     extract_video_id,
-    is_youtube_url,
     fetch_audio,
+    is_youtube_url,
 )
 
 
@@ -64,6 +63,7 @@ def test_fetch_audio_calls_yt_dlp_when_not_cached(tmp_path):
 
 def test_fetch_audio_raises_youtube_error_on_failure(tmp_path):
     import yt_dlp
+
     cache_dir = tmp_path / "yt_cache"
     cache_dir.mkdir()
     with mock.patch("yt_dlp.YoutubeDL") as ydl_cls:

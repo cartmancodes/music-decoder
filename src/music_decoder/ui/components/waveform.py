@@ -12,7 +12,10 @@ _Array = np.ndarray[Any, np.dtype[np.float64]]
 
 
 def render_waveform_figure(
-    samples: _Array, *, sr: int, onsets_s: _Array | None = None,
+    samples: _Array,
+    *,
+    sr: int,
+    onsets_s: _Array | None = None,
 ) -> matplotlib.figure.Figure:
     fig, ax = plt.subplots(figsize=(8, 2))
     t = np.arange(samples.size) / sr

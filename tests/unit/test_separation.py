@@ -4,18 +4,22 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from music_decoder.types import AudioSource, LoadedAudio
 from music_decoder.separation.demucs import isolate_guitar
 from music_decoder.tabs.tuning import get_preset
+from music_decoder.types import AudioSource, LoadedAudio
 
 
 def _audio(samples: np.ndarray, sr: int = 22050) -> LoadedAudio:
     return LoadedAudio(
-        samples=samples, sr=sr, duration_s=samples.size / sr,
+        samples=samples,
+        sr=sr,
+        duration_s=samples.size / sr,
         sha256="x" * 64,
         source=AudioSource(
-            path=Path("/tmp/x.wav"), declared_kind="full_mix",
-            requested_quality="standard", requested_tuning=get_preset("EADGBE"),
+            path=Path("/tmp/x.wav"),
+            declared_kind="full_mix",
+            requested_quality="standard",
+            requested_tuning=get_preset("EADGBE"),
         ),
     )
 
@@ -23,10 +27,15 @@ def _audio(samples: np.ndarray, sr: int = 22050) -> LoadedAudio:
 def test_solo_guitar_short_circuits_with_skipped_reason():
     samples = np.random.randn(22050).astype(np.float32) * 0.1
     audio = LoadedAudio(
-        samples=samples, sr=22050, duration_s=1.0, sha256="x" * 64,
+        samples=samples,
+        sr=22050,
+        duration_s=1.0,
+        sha256="x" * 64,
         source=AudioSource(
-            path=Path("/tmp/x.wav"), declared_kind="solo_guitar",
-            requested_quality="standard", requested_tuning=get_preset("EADGBE"),
+            path=Path("/tmp/x.wav"),
+            declared_kind="solo_guitar",
+            requested_quality="standard",
+            requested_tuning=get_preset("EADGBE"),
         ),
     )
     result = isolate_guitar(audio)
@@ -41,9 +50,7 @@ def test_demucs_failure_returns_skipped_with_original_audio(monkeypatch):
     def fake_apply_model(*args, **kwargs):
         raise RuntimeError("demucs blew up")
 
-    monkeypatch.setattr(
-        "music_decoder.separation.demucs._apply_demucs", fake_apply_model
-    )
+    monkeypatch.setattr("music_decoder.separation.demucs._apply_demucs", fake_apply_model)
     result = isolate_guitar(audio)
     assert result.guitar_samples is None
     assert result.skipped_reason and result.skipped_reason.startswith("demucs_failed")

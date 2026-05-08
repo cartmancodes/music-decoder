@@ -16,6 +16,7 @@ Backends consume different inputs:
 The shared ``ChordBackend`` Protocol accepts both. Backend implementations
 must accept any combination of arguments and ignore what they don't need.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

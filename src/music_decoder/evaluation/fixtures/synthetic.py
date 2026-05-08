@@ -14,6 +14,7 @@ A user can install a soundfont with:
 The download is opt-in so a fresh checkout doesn't try to fetch ~6MB on its
 first regression run.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -75,9 +76,7 @@ class SyntheticFixtures:
         wav_path = midi_path.with_suffix(".wav")
         # Cache key includes the soundfont path so swapping SF2s invalidates.
         cache_marker = midi_path.parent / f".{midi_path.stem}.synth_marker"
-        current_marker = (
-            f"sf2={self._sf2_path}" if self._sf2_path else "sine"
-        )
+        current_marker = f"sf2={self._sf2_path}" if self._sf2_path else "sine"
         cache_valid = (
             wav_path.exists()
             and wav_path.stat().st_mtime > midi_path.stat().st_mtime
@@ -96,13 +95,15 @@ class SyntheticFixtures:
         return wav_path
 
     def _synthesize(
-        self, pm: pretty_midi.PrettyMIDI,
+        self,
+        pm: pretty_midi.PrettyMIDI,
     ) -> np.ndarray[Any, np.dtype[np.float32]]:
         """Render a PrettyMIDI object to mono float32 audio at _SR."""
         if self._sf2_path is not None:
             try:
                 rendered: np.ndarray[Any, np.dtype[Any]] = pm.fluidsynth(
-                    fs=_SR, sf2_path=str(self._sf2_path),
+                    fs=_SR,
+                    sf2_path=str(self._sf2_path),
                 )
                 return np.asarray(rendered, dtype=np.float32)
             except Exception as e:
@@ -131,8 +132,10 @@ class SyntheticFixtures:
         for midi_path in sorted(self.root.glob("*.mid")):
             wav = self._ensure_wav(midi_path)
             yield Fixture(
-                name=midi_path.stem, source="synthetic",
-                audio_path=wav, ground_truth=self._ground_truth(midi_path),
+                name=midi_path.stem,
+                source="synthetic",
+                audio_path=wav,
+                ground_truth=self._ground_truth(midi_path),
             )
 
 
@@ -167,8 +170,11 @@ class SyntheticFixture:
 _SYNTHETIC_GT: dict[str, SyntheticGroundTruth] = {
     "c_major_scale": SyntheticGroundTruth(
         key=KeyEstimate(
-            tonic="C", mode="major",
-            profile="krumhansl_kessler", correlation=1.0, margin=0.0,
+            tonic="C",
+            mode="major",
+            profile="krumhansl_kessler",
+            correlation=1.0,
+            margin=0.0,
         ),
         chord_progression=(
             ChordSegment(start_s=0.0, end_s=4.0, root="C", quality="maj", confidence=1.0),
@@ -177,8 +183,11 @@ _SYNTHETIC_GT: dict[str, SyntheticGroundTruth] = {
     ),
     "g_major_chord": SyntheticGroundTruth(
         key=KeyEstimate(
-            tonic="G", mode="major",
-            profile="krumhansl_kessler", correlation=1.0, margin=0.0,
+            tonic="G",
+            mode="major",
+            profile="krumhansl_kessler",
+            correlation=1.0,
+            margin=0.0,
         ),
         chord_progression=(
             ChordSegment(start_s=0.0, end_s=2.0, root="G", quality="maj", confidence=1.0),

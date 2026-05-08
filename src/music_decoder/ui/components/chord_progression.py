@@ -3,14 +3,15 @@
 Pure functions; no Streamlit imports here. The Streamlit page in
 ui/pages/03_Results.py composes these and feeds them to st.code / st.markdown.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
 
 from music_decoder.chords.templates import chord_label
 from music_decoder.chords.voicings import voicing_for
-from music_decoder.types import ChordSegment, TabbedNote
 from music_decoder.tabs.render import render_ascii_tab
+from music_decoder.types import ChordSegment, TabbedNote
 
 
 def render_chord_progression_text(segments: list[ChordSegment]) -> str:
@@ -40,7 +41,11 @@ def render_chord_timeline(segments: Iterable[ChordSegment]) -> None:
 
 
 def render_chord_diagram_svg(
-    root: str, quality: str, *, n_strings: int = 6, max_fret: int = 5,
+    root: str,
+    quality: str,
+    *,
+    n_strings: int = 6,
+    max_fret: int = 5,
 ) -> str:
     label = chord_label(root, quality)
     voicing = voicing_for(root, quality)
@@ -81,14 +86,10 @@ def render_chord_diagram_svg(
                 f'text-anchor="middle" fill="#888">x</text>'
             )
         elif fret == 0:
-            parts.append(
-                f'<circle cx="{margin_x - 8}" cy="{y}" r="4" fill="none" stroke="#222"/>'
-            )
+            parts.append(f'<circle cx="{margin_x - 8}" cy="{y}" r="4" fill="none" stroke="#222"/>')
         elif fret <= max_fret:
             cx = margin_x + (fret - 0.5) * fret_w
-            parts.append(
-                f'<circle cx="{cx}" cy="{y}" r="6" fill="#222"/>'
-            )
+            parts.append(f'<circle cx="{cx}" cy="{y}" r="6" fill="#222"/>')
         else:
             # Fret out of displayed range (e.g., barre at fret 6 with max_fret=5):
             # render the marker at the rightmost fret with a "+" annotation.
@@ -125,7 +126,7 @@ def render_chord_labels_above_tab(
     if end_time <= 0:
         return tab_rows
 
-    inner_columns = columns          # tab body width (between the bars)
+    inner_columns = columns  # tab body width (between the bars)
     # Tab rows are formatted as "e|" + columns chars + "|" -> length columns + 3.
     # Match that width so the trailing pipe also has whitespace above it and
     # the monospace alignment doesn't drift on wide UIs.

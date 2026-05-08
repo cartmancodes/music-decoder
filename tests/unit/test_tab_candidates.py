@@ -19,11 +19,11 @@ def test_below_range_returns_empty():
 
 
 def test_chord_combinations_filters_string_collisions():
-    pitches = [40, 40]   # two E2s; cannot both play on string 0
+    pitches = [40, 40]  # two E2s; cannot both play on string 0
     combos = chord_combinations(pitches, tuning=get_preset("EADGBE"), max_fret=22)
     for combo in combos:
         strings = [p.string for p in combo]
-        assert len(strings) == len(set(strings))   # no duplicates
+        assert len(strings) == len(set(strings))  # no duplicates
 
 
 def test_chord_combinations_respects_span_5_frets():

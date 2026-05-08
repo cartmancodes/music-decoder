@@ -1,9 +1,13 @@
-import pytest
 from music_decoder.errors import (
-    MusicDecoderError, IngestError, YouTubeError, CorruptAudioError,
-    SilentAudioError, ClipTooShortError, SeparationError,
-    TranscriptionError, ChordRecognitionError, TabAssignmentError,
-    CompositionError, InvalidScaleError, InvalidProgressionError,
+    ChordRecognitionError,
+    ClipTooShortError,
+    CompositionError,
+    CorruptAudioError,
+    IngestError,
+    InvalidScaleError,
+    MusicDecoderError,
+    SilentAudioError,
+    YouTubeError,
 )
 
 

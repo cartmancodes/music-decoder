@@ -1,14 +1,16 @@
 """Transcription adapters for the public ``analyze()`` pipeline."""
+
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
-from music_decoder.types import AudioSource, LoadedAudio, Note
 from music_decoder.tabs.tuning import STANDARD_EADGBE
+from music_decoder.types import AudioSource, LoadedAudio, Note
 
 
 def transcribe(

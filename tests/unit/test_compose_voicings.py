@@ -1,5 +1,5 @@
 from music_decoder.compose.voicings import voicings_for
-from music_decoder.tabs.tuning import STANDARD_EADGBE, DROP_D
+from music_decoder.tabs.tuning import DROP_D, STANDARD_EADGBE
 from music_decoder.types import ChordSymbol
 
 
@@ -22,8 +22,6 @@ def test_drop_d_d_chord_uses_open_lowest():
 
 def test_unknown_quality_falls_back_to_root_note():
     # We only support the 8 qualities; an unsupported one should raise.
-    import pytest
-    from music_decoder.errors import InvalidProgressionError
     bad = ChordSymbol(root="C", quality="maj")  # ok
     voicings_for(bad, STANDARD_EADGBE)  # smoke
     # No quality outside Literal can be constructed via parse, so we stop here.

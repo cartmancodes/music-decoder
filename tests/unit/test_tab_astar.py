@@ -1,13 +1,17 @@
 # tests/unit/test_tab_astar.py
-from music_decoder.types import TabPosition
 from music_decoder.tabs.astar import (
     Group,
     astar_min_cost_path,
 )
+from music_decoder.types import TabPosition
 
 _W = {
-    "w_move": 1.0, "w_string": 0.3, "w_span": 0.5, "w_high": 0.4,
-    "w_open": 0.2, "w_chord_intra": 0.6,
+    "w_move": 1.0,
+    "w_string": 0.3,
+    "w_span": 0.5,
+    "w_high": 0.4,
+    "w_open": 0.2,
+    "w_chord_intra": 0.6,
 }
 
 

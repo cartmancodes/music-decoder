@@ -1,7 +1,6 @@
 from pathlib import Path
 from unittest import mock
 
-import pretty_midi
 import pytest
 
 from music_decoder.compose.api import compose
@@ -15,7 +14,10 @@ def test_compose_returns_paths_and_data(tmp_path):
         result = compose(
             scale=Scale("C", "major"),
             progression=[ChordSymbol.parse(c) for c in ("Cmaj7", "Am7", "Dm7", "G7")],
-            tempo_bpm=120.0, bars_per_chord=1, style="strum", seed=7,
+            tempo_bpm=120.0,
+            bars_per_chord=1,
+            style="strum",
+            seed=7,
             out_dir=tmp_path,
         )
     assert result.midi_path.exists()

@@ -43,9 +43,7 @@ def astar_min_cost_path(
     n = len(groups)
     # Each state: (group_index, candidate_index, recent_anchor_frets_tuple).
     heap: list[tuple[float, int, int, tuple[int, ...]]] = []
-    parents: dict[
-        tuple[int, int, tuple[int, ...]], tuple[int, int, tuple[int, ...]]
-    ] = {}
+    parents: dict[tuple[int, int, tuple[int, ...]], tuple[int, int, tuple[int, ...]]] = {}
     g_score: dict[tuple[int, int, tuple[int, ...]], float] = {}
     for idx, candidate in enumerate(groups[0].candidates):
         extra = _state_extra_cost(candidate, weights=weights)
@@ -56,12 +54,16 @@ def astar_min_cost_path(
         state: tuple[int, int, tuple[int, ...]] = (0, idx, init_history)
         # Include position cost for first group (high-fret and open-string terms only)
         pos_cost = transition_cost(
-            prev=rep, curr=rep, weights=weights, hand_anchor=float(rep.fret),
+            prev=rep,
+            curr=rep,
+            weights=weights,
+            hand_anchor=float(rep.fret),
         )
         g = extra + pos_cost
         g_score[state] = g
         heuristic = remaining_high_fret_penalty(
-            [grp.candidates for grp in groups[1:]], weights=weights,
+            [grp.candidates for grp in groups[1:]],
+            weights=weights,
         )
         heapq.heappush(heap, (g + heuristic, *state))
 
@@ -88,7 +90,10 @@ def astar_min_cost_path(
             anchor_window = anchor_window[-hand_anchor_window:]
             anchor = float(statistics.median(anchor_window))
             step = transition_cost(
-                prev=rep, curr=next_rep, weights=weights, hand_anchor=anchor,
+                prev=rep,
+                curr=next_rep,
+                weights=weights,
+                hand_anchor=anchor,
             )
             new_g = g_score[state] + step + next_extra
             next_state = (gi + 1, next_idx, tuple(anchor_window))

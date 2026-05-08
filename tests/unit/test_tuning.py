@@ -49,6 +49,4 @@ def test_tuning_is_frozen():
 
 
 def test_presets_listed():
-    assert set(PRESETS.keys()) == {
-        "EADGBE", "Drop_D", "Eb", "D_standard", "Drop_C", "DADGAD"
-    }
+    assert set(PRESETS.keys()) == {"EADGBE", "Drop_D", "Eb", "D_standard", "Drop_C", "DADGAD"}

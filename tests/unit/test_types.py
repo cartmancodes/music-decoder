@@ -1,5 +1,6 @@
 import pytest
-from music_decoder.types import Scale, ChordSymbol
+
+from music_decoder.types import ChordSymbol, Scale
 
 
 def test_scale_parse_major():

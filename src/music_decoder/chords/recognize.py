@@ -1,5 +1,6 @@
 # src/music_decoder/chord_detection/recognize.py
 """Beat-synchronous chord recognition: chroma + beats -> chord segments."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -53,20 +54,20 @@ def score_beats(
     """
     if beat_chroma.size == 0:
         return np.zeros((0, 97), dtype=float)
-    templates = all_templates()                # (97, 12)
+    templates = all_templates()  # (97, 12)
     template_norms = np.linalg.norm(templates, axis=1, keepdims=True)
     template_norms[template_norms == 0] = 1.0
     templates_n = templates / template_norms
 
     chroma_norms = np.linalg.norm(beat_chroma, axis=0, keepdims=True)  # (1, B)
     safe_norms = np.where(chroma_norms == 0, 1.0, chroma_norms)
-    chroma_n = beat_chroma / safe_norms                                # (12, B)
+    chroma_n = beat_chroma / safe_norms  # (12, B)
 
     # (B, 97) = (B, 12) @ (12, 97)
     scores = chroma_n.T @ templates_n.T
 
     # Zero out scores where the source chroma was all-zero.
-    mask = (chroma_norms == 0).flatten()       # (B,)
+    mask = (chroma_norms == 0).flatten()  # (B,)
     result: np.ndarray[Any, np.dtype[np.float64]] = np.array(scores, dtype=np.float64)
     if mask.any():
         result[mask] = 0.0
@@ -102,7 +103,7 @@ def viterbi_smooth(
     # Viterbi DP.
     dp = np.full((num_beats, n_states), -np.inf, dtype=float)
     back = np.zeros((num_beats, n_states), dtype=int)
-    dp[0] = log_emit[0]   # uniform initial -> constant offset, can drop
+    dp[0] = log_emit[0]  # uniform initial -> constant offset, can drop
     for t in range(1, num_beats):
         # For each next-state j, best k is either j (self) or the argmax over k!=j.
         prev = dp[t - 1]
@@ -160,7 +161,7 @@ def merge_segments(
         return []
 
     # First pass: build raw runs.
-    raw: list[tuple[int, int, int]] = []   # (start_beat, end_beat, state)
+    raw: list[tuple[int, int, int]] = []  # (start_beat, end_beat, state)
     start = 0
     for i in range(1, len(state_path)):
         if state_path[i] != state_path[start]:
@@ -192,11 +193,13 @@ def merge_segments(
         root, quality = _state_to_root_quality(state)
         beat_scores = scores[s:e, state] if scores.size else np.array([0.0])
         confidence = float(beat_scores.mean()) if beat_scores.size else 0.0
-        segments.append(ChordSegment(
-            start_s=float(beat_times_s[s]),
-            end_s=float(beat_times_s[e]),
-            root=root,
-            quality=quality,
-            confidence=confidence,
-        ))
+        segments.append(
+            ChordSegment(
+                start_s=float(beat_times_s[s]),
+                end_s=float(beat_times_s[e]),
+                root=root,
+                quality=quality,
+                confidence=confidence,
+            )
+        )
     return segments

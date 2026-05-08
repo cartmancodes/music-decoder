@@ -1,4 +1,5 @@
 """Tests for the madmom_deep_chroma backend."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,8 +29,10 @@ def _beat_grid(beats: list[float]) -> BeatGrid:
         tempo_bpm=120.0,
         beat_times_s=np.asarray(beats, dtype=float),
         downbeat_times_s=np.asarray(beats[::4], dtype=float),
-        ts_numerator=4, ts_denominator=4,
-        ts_confidence=0.6, ts_assumed=False,
+        ts_numerator=4,
+        ts_denominator=4,
+        ts_confidence=0.6,
+        ts_assumed=False,
     )
 
 
@@ -73,7 +76,7 @@ def test_madmom_backend_convert_parses_jams_labels():
     raw_segments = [
         (0.0, 4.0, "C:maj"),
         (4.0, 8.0, "A:min"),
-        (8.0, 9.0, "F:alt"),    # unsupported; should be dropped
+        (8.0, 9.0, "F:alt"),  # unsupported; should be dropped
         (9.0, 12.0, "G:7"),
         (12.0, 16.0, "C:maj"),  # adjacent to a different chord; not merged with first
     ]
@@ -122,8 +125,28 @@ def test_madmom_backend_runs_on_real_audio():
     assert result.skipped_reason is None
     assert len(result.segments) >= 4
     assert result.segments[0].root in (
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "N"
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B",
+        "N",
     )
     assert result.segments[0].quality in (
-        "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug", "",
+        "maj",
+        "min",
+        "7",
+        "maj7",
+        "min7",
+        "dim",
+        "sus4",
+        "aug",
+        "",
     )

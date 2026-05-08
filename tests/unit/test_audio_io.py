@@ -10,14 +10,16 @@ from music_decoder.ingest.audio_file import (
     SilentAudioError,
     load_audio,
 )
-from music_decoder.types import AudioSource
 from music_decoder.tabs.tuning import get_preset
+from music_decoder.types import AudioSource
 
 
 def _source(path: Path) -> AudioSource:
     return AudioSource(
-        path=path, declared_kind="solo_guitar",
-        requested_quality="standard", requested_tuning=get_preset("EADGBE"),
+        path=path,
+        declared_kind="solo_guitar",
+        requested_quality="standard",
+        requested_tuning=get_preset("EADGBE"),
     )
 
 
@@ -34,7 +36,8 @@ def test_load_decodes_sine_wav(fixtures_dir: Path):
 def test_load_high_quality_uses_44100(fixtures_dir: Path):
     src = AudioSource(
         path=fixtures_dir / "audio_samples" / "sine_440.wav",
-        declared_kind="solo_guitar", requested_quality="high",
+        declared_kind="solo_guitar",
+        requested_quality="high",
         requested_tuning=get_preset("EADGBE"),
     )
     audio = load_audio(src)
@@ -51,6 +54,7 @@ def test_load_rejects_too_short(tmp_path: Path):
     sr = 22050
     short = (0.5 * np.sin(2 * np.pi * 440 * np.arange(int(sr * 0.5)) / sr)).astype(np.float32)
     import scipy.io.wavfile as wavfile
+
     p = tmp_path / "tiny.wav"
     wavfile.write(str(p), sr, (short * 32767).astype(np.int16))
     with pytest.raises(ClipTooShortError):

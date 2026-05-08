@@ -7,6 +7,7 @@ returns chord segments as ``(start_s, end_s, jams_label)`` triples.
 We always import ``..madmom_compat`` first so the necessary collections /
 numpy shims are applied before any madmom module is loaded.
 """
+
 from __future__ import annotations
 
 import statistics

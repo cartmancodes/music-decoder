@@ -52,7 +52,14 @@ evaluation:
     hp = load_hyperparameters(p)
     assert isinstance(hp.chord_detection, ChordDetectionParams)
     assert hp.chord_detection.qualities == [
-        "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug",
+        "maj",
+        "min",
+        "7",
+        "maj7",
+        "min7",
+        "dim",
+        "sus4",
+        "aug",
     ]
     assert hp.chord_detection.hmm_self_transition_prob == 0.7
     assert hp.chord_detection.no_chord_threshold == 0.15

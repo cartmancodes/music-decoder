@@ -8,6 +8,7 @@ These tests don't require an actual SF2 — they verify the detection logic,
 the cache-marker round-trip, and the fallback behavior when fluidsynth
 raises.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

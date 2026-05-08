@@ -68,17 +68,18 @@ def load_audio(source: AudioSource) -> LoadedAudio:
         if sr != target_sr:
             raise CorruptAudioError(f"unexpected sample rate {sr}, wanted {target_sr}")
         if raw.dtype == np.int16:
-            samples: np.ndarray[object, np.dtype[np.float32]] = (
-                raw.astype(np.float32) / 32768.0
-            )
+            samples: np.ndarray[object, np.dtype[np.float32]] = raw.astype(np.float32) / 32768.0
         else:
             samples = raw.astype(np.float32)
         if samples.ndim > 1:
             samples = samples.mean(axis=1)
         _validate(samples, sr)
     return LoadedAudio(
-        samples=samples, sr=sr, duration_s=samples.size / sr,
-        sha256=_sha256(source.path), source=source,
+        samples=samples,
+        sr=sr,
+        duration_s=samples.size / sr,
+        sha256=_sha256(source.path),
+        source=source,
     )
 
 

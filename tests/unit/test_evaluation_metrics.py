@@ -75,8 +75,10 @@ def test_tab_string_accuracy_time_aligned_perfect():
     pred = [(60, 4, 1), (62, 4, 3)]
     truth = [(60, 4, 1), (62, 4, 3)]
     acc = tab_string_accuracy(
-        pred, truth,
-        pred_intervals=pred_intervals, gt_intervals=gt_intervals,
+        pred,
+        truth,
+        pred_intervals=pred_intervals,
+        gt_intervals=gt_intervals,
     )
     assert acc == pytest.approx(1.0)
 
@@ -87,11 +89,13 @@ def test_tab_string_accuracy_time_aligned_excludes_unmatched_notes():
     # Two GT notes; predict 4 notes (2 correct + 2 spurious).
     pred_intervals = np.array([[0.0, 0.5], [0.5, 1.0], [1.0, 1.5], [1.5, 2.0]])
     gt_intervals = np.array([[0.0, 0.5], [0.5, 1.0]])
-    pred = [(60, 4, 1), (62, 4, 3), (90, 0, 0), (88, 1, 0)]   # last 2 fake
-    truth = [(60, 4, 1), (62, 3, 7)]   # second has different string from pred
+    pred = [(60, 4, 1), (62, 4, 3), (90, 0, 0), (88, 1, 0)]  # last 2 fake
+    truth = [(60, 4, 1), (62, 3, 7)]  # second has different string from pred
     acc = tab_string_accuracy(
-        pred, truth,
-        pred_intervals=pred_intervals, gt_intervals=gt_intervals,
+        pred,
+        truth,
+        pred_intervals=pred_intervals,
+        gt_intervals=gt_intervals,
     )
     # Only first GT note matches in pitch+time AND string. Second matches in
     # pitch+time but differs in string. Last 2 predictions don't match any GT.
@@ -106,7 +110,9 @@ def test_tab_string_accuracy_time_aligned_no_matches_returns_zero():
     pred = [(60, 4, 1)]
     truth = [(60, 4, 1)]
     acc = tab_string_accuracy(
-        pred, truth,
-        pred_intervals=pred_intervals, gt_intervals=gt_intervals,
+        pred,
+        truth,
+        pred_intervals=pred_intervals,
+        gt_intervals=gt_intervals,
     )
     assert acc == 0.0

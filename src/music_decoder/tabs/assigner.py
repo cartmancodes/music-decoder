@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from music_decoder.tabs.tuning import Tuning
 from music_decoder.types import (
     TabAssignmentResult,
     TabbedNote,
     TranscribedNote,
 )
-from music_decoder.tabs.tuning import Tuning
 
 from .astar import Group, astar_min_cost_path
 from .candidates import chord_combinations, note_candidates
@@ -46,7 +46,10 @@ def assign_tab(
     note_list = list(notes)
     if not note_list:
         return TabAssignmentResult(
-            tabbed_notes=[], tuning=tuning, total_cost=0.0, notes_dropped=[],
+            tabbed_notes=[],
+            tuning=tuning,
+            total_cost=0.0,
+            notes_dropped=[],
         )
     groups = _group_simultaneous(note_list)
     dropped: list[tuple[TranscribedNote, str]] = []
@@ -69,7 +72,9 @@ def assign_tab(
     for chord_group in groups:
         if len(chord_group) == 1:
             cands = note_candidates(
-                pitch=chord_group[0].pitch, tuning=tuning, max_fret=max_fret,
+                pitch=chord_group[0].pitch,
+                tuning=tuning,
+                max_fret=max_fret,
             )
             if not cands:
                 dropped.append((chord_group[0], "out_of_range_for_tuning"))
@@ -79,7 +84,8 @@ def assign_tab(
         else:
             combos = chord_combinations(
                 pitches=[n.pitch for n in chord_group],
-                tuning=tuning, max_fret=max_fret,
+                tuning=tuning,
+                max_fret=max_fret,
             )
             if not combos:
                 for n in chord_group:
@@ -90,27 +96,41 @@ def assign_tab(
 
     if not candidate_groups:
         return TabAssignmentResult(
-            tabbed_notes=[], tuning=tuning, total_cost=0.0, notes_dropped=dropped,
+            tabbed_notes=[],
+            tuning=tuning,
+            total_cost=0.0,
+            notes_dropped=dropped,
         )
 
     path, cost = astar_min_cost_path(
-        candidate_groups, weights=weights, hand_anchor_window=2,
+        candidate_groups,
+        weights=weights,
+        hand_anchor_window=2,
     )
     if cost == float("inf"):
         for chord_group in flat_group_to_notes:
             for n in chord_group:
                 dropped.append((n, "no_valid_path"))
         return TabAssignmentResult(
-            tabbed_notes=[], tuning=tuning, total_cost=float("inf"),
+            tabbed_notes=[],
+            tuning=tuning,
+            total_cost=float("inf"),
             notes_dropped=dropped,
         )
 
     tabbed: list[TabbedNote] = []
     for chord_group, candidate in zip(flat_group_to_notes, path, strict=True):
         for n, pos in zip(chord_group, candidate, strict=True):
-            tabbed.append(TabbedNote(
-                note=n, position=pos, cost_breakdown={"path_total": cost},
-            ))
+            tabbed.append(
+                TabbedNote(
+                    note=n,
+                    position=pos,
+                    cost_breakdown={"path_total": cost},
+                )
+            )
     return TabAssignmentResult(
-        tabbed_notes=tabbed, tuning=tuning, total_cost=cost, notes_dropped=dropped,
+        tabbed_notes=tabbed,
+        tuning=tuning,
+        total_cost=cost,
+        notes_dropped=dropped,
     )

@@ -1,7 +1,8 @@
 """ChordSymbol + Tuning → ranked playable VoicedChord candidates."""
+
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from music_decoder.chords import voicings as canonical
 from music_decoder.errors import InvalidProgressionError
@@ -16,14 +17,14 @@ from music_decoder.types import (
 
 # Chord-quality → chord-tone pitch classes (root = 0)
 _CHORD_PCS: dict[str, tuple[int, ...]] = {
-    "maj":  (0, 4, 7),
-    "min":  (0, 3, 7),
+    "maj": (0, 4, 7),
+    "min": (0, 3, 7),
     "maj7": (0, 4, 7, 11),
     "min7": (0, 3, 7, 10),
-    "7":    (0, 4, 7, 10),
-    "dim":  (0, 3, 6),
+    "7": (0, 4, 7, 10),
+    "dim": (0, 3, 6),
     "sus4": (0, 5, 7),
-    "aug":  (0, 4, 8),
+    "aug": (0, 4, 8),
 }
 
 
@@ -46,9 +47,12 @@ def _is_playable(positions: Sequence[TabPosition]) -> bool:
     return True
 
 
-def _retune(canonical_positions: Sequence[TabPosition],
-            from_tuning: Tuning, to_tuning: Tuning,
-            chord_pcs: set[int] | None = None) -> tuple[TabPosition, ...]:
+def _retune(
+    canonical_positions: Sequence[TabPosition],
+    from_tuning: Tuning,
+    to_tuning: Tuning,
+    chord_pcs: set[int] | None = None,
+) -> tuple[TabPosition, ...]:
     if from_tuning.open_pitches == to_tuning.open_pitches:
         return tuple(canonical_positions)
     out: list[TabPosition] = []
@@ -70,7 +74,7 @@ def _retune(canonical_positions: Sequence[TabPosition],
 
 def voicings_for(chord: ChordSymbol, tuning: Tuning) -> list[VoicedChord]:
     """Return 1-3 playable voicings for `chord` in `tuning`, lowest first."""
-    canonicals = canonical.canonical_voicings_for(chord)   # in EADGBE
+    canonicals = canonical.canonical_voicings_for(chord)  # in EADGBE
     if not canonicals:
         raise InvalidProgressionError(f"No canonical voicing for {chord.to_label()}")
 
@@ -85,18 +89,22 @@ def voicings_for(chord: ChordSymbol, tuning: Tuning) -> list[VoicedChord]:
         # Fallback: root + 5th + octave on the three lowest strings.
         root_pc = VALID_TONICS.index(chord.root)
         root_midi = tuning.open_pitches[0] + ((root_pc - tuning.open_pitches[0]) % 12)
-        candidates.append(VoicedChord(
-            chord=chord,
-            positions=tuple(
-                TabPosition(string=i, fret=root_midi - tuning.open_pitches[i])
-                if 0 <= root_midi - tuning.open_pitches[i] <= 12 else
-                TabPosition(string=i, fret=-1)
-                for i in range(len(tuning.open_pitches))
-            ),
-        ))
+        candidates.append(
+            VoicedChord(
+                chord=chord,
+                positions=tuple(
+                    TabPosition(string=i, fret=root_midi - tuning.open_pitches[i])
+                    if 0 <= root_midi - tuning.open_pitches[i] <= 12
+                    else TabPosition(string=i, fret=-1)
+                    for i in range(len(tuning.open_pitches))
+                ),
+            )
+        )
 
-    candidates.sort(key=lambda v: (
-        max((p.fret for p in v.positions if p.fret >= 0), default=99),
-        sum((p.fret for p in v.positions if p.fret >= 0), 0),
-    ))
+    candidates.sort(
+        key=lambda v: (
+            max((p.fret for p in v.positions if p.fret >= 0), default=99),
+            sum((p.fret for p in v.positions if p.fret >= 0), 0),
+        )
+    )
     return candidates[:3]

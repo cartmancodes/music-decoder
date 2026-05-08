@@ -1,13 +1,12 @@
 """Tab assignment adapters for the public ``analyze()`` pipeline."""
+
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Sequence
+from collections.abc import Iterable, Sequence
 
 from music_decoder.tabs.assigner import assign_tab as _assign_tab_impl
 from music_decoder.tabs.tuning import STANDARD_EADGBE, Tuning
 from music_decoder.types import TabbedNote, TranscribedNote
-
 
 _DEFAULT_WEIGHTS: dict[str, float] = {
     "w_move": 1.0,
@@ -31,7 +30,10 @@ def assign_tabs(
     hyperparameters and returns just the tabbed-note sequence.
     """
     result = _assign_tab_impl(
-        notes, tuning=tuning, weights=_DEFAULT_WEIGHTS, max_fret=max_fret,
+        notes,
+        tuning=tuning,
+        weights=_DEFAULT_WEIGHTS,
+        max_fret=max_fret,
     )
     return tuple(result.tabbed_notes)
 

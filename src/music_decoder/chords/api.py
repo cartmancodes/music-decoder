@@ -4,6 +4,7 @@ The actual algorithm lives in a backend (see ``backends/``). This module is a
 thin dispatcher that picks the requested backend and validates the chord-
 quality vocabulary.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -50,6 +51,7 @@ def detect_chords(
     if backend_name == "madmom_deep_chroma":
         try:
             from .backends.madmom_deep_chroma import MadmomDeepChromaBackend
+
             backend = MadmomDeepChromaBackend()
         except ImportError as e:
             _log.warning(

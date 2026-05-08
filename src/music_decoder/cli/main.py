@@ -6,6 +6,7 @@ Subcommands:
 - ui: launch the Streamlit UI
 - doctor: verify ffmpeg, fluidsynth, models
 """
+
 from __future__ import annotations
 
 import json
@@ -21,10 +22,10 @@ import click
 from music_decoder.api import analyze, compose
 from music_decoder.errors import MusicDecoderError
 from music_decoder.tabs.tuning import (
+    D_STANDARD,
     DADGAD,
     DROP_C,
     DROP_D,
-    D_STANDARD,
     EB_HALF_STEP_DOWN,
     STANDARD_EADGBE,
 )
@@ -65,11 +66,14 @@ def main() -> None:
 @click.option("--solo-guitar/--full-mix", default=False)
 @click.option("--no-separation", is_flag=True, default=False)
 @click.option("--out", type=click.Path(file_okay=False), default=None)
-@click.option("--format", "fmt", type=click.Choice(["pretty", "json"]),
-              default="pretty")
+@click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_analyze(
-    source: str, tuning: str, solo_guitar: bool, no_separation: bool,
-    out: str | None, fmt: str,
+    source: str,
+    tuning: str,
+    solo_guitar: bool,
+    no_separation: bool,
+    out: str | None,
+    fmt: str,
 ) -> None:
     """Identify chord progression + guitar tab from a file or YouTube URL."""
     try:
@@ -88,39 +92,52 @@ def cli_analyze(
     else:
         click.echo(f"Source:     {result.source}")
         click.echo(f"Duration:   {result.duration_s:.2f}s @ {result.sample_rate_hz} Hz")
-        click.echo(f"Key:        {result.key.tonic} {result.key.mode}"
-                   f" (corr={result.key.correlation:.2f})")
+        click.echo(
+            f"Key:        {result.key.tonic} {result.key.mode} (corr={result.key.correlation:.2f})"
+        )
         click.echo(f"Tempo:      {result.tempo_bpm:.1f} BPM")
         click.echo(f"Chords ({len(result.chord_progression)}):")
         for seg in result.chord_progression:
-            click.echo(f"  {seg.start_s:6.2f}–{seg.end_s:6.2f}s  {seg.chord.to_label()}")
+            click.echo(f"  {seg.start_s:6.2f}-{seg.end_s:6.2f}s  {seg.chord.to_label()}")
 
 
 @main.command("compose")
 @click.option("--scale", required=True, help="e.g. 'C:major' or 'A:minor'")
-@click.option("--progression", required=True,
-              help="space-separated chord symbols, e.g. 'Cmaj7 Am7 Dm7 G7'")
-@click.option("--style", type=click.Choice(["arpeggio", "strum", "fingerstyle"]),
-              default="fingerstyle")
+@click.option(
+    "--progression", required=True, help="space-separated chord symbols, e.g. 'Cmaj7 Am7 Dm7 G7'"
+)
+@click.option(
+    "--style", type=click.Choice(["arpeggio", "strum", "fingerstyle"]), default="fingerstyle"
+)
 @click.option("--tempo", type=float, default=100.0)
 @click.option("--bars", type=int, default=1)
 @click.option("--seed", type=int, default=None)
 @click.option("--tuning", type=click.Choice(list(_TUNINGS)), default="EADGBE")
 @click.option("--out", type=click.Path(file_okay=False), required=True)
-@click.option("--format", "fmt", type=click.Choice(["pretty", "json"]),
-              default="pretty")
+@click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
-    scale: str, progression: str, style: str, tempo: float, bars: int,
-    seed: int | None, tuning: str, out: str, fmt: str,
+    scale: str,
+    progression: str,
+    style: str,
+    tempo: float,
+    bars: int,
+    seed: int | None,
+    tuning: str,
+    out: str,
+    fmt: str,
 ) -> None:
     """Generate a simple arrangement from a scale + chord progression."""
     try:
         s = Scale.parse(scale)
         chords = [ChordSymbol.parse(c) for c in progression.split()]
         result = compose(
-            scale=s, progression=chords,
-            bars_per_chord=bars, tempo_bpm=tempo,
-            style=style, tuning=_TUNINGS[tuning], seed=seed,
+            scale=s,
+            progression=chords,
+            bars_per_chord=bars,
+            tempo_bpm=tempo,
+            style=style,
+            tuning=_TUNINGS[tuning],
+            seed=seed,
             out_dir=Path(out),
         )
     except MusicDecoderError as e:
@@ -141,9 +158,17 @@ def cli_compose(
 def cli_ui() -> None:
     """Launch the Streamlit UI."""
     entry = Path(__file__).parents[1] / "ui" / "streamlit_app.py"
-    cmd = [sys.executable, "-m", "streamlit", "run", str(entry),
-           "--server.headless", "false",
-           "--browser.gatherUsageStats", "false"]
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(entry),
+        "--server.headless",
+        "false",
+        "--browser.gatherUsageStats",
+        "false",
+    ]
     raise SystemExit(subprocess.call(cmd, env=os.environ.copy()))
 
 
@@ -158,21 +183,25 @@ def _doctor_checks() -> int:
                 click.echo(f"  hint: {hint}")
             rc = 1
 
-    check("ffmpeg on PATH", shutil.which("ffmpeg") is not None,
-          "Install ffmpeg: brew install ffmpeg / apt install ffmpeg")
+    check(
+        "ffmpeg on PATH",
+        shutil.which("ffmpeg") is not None,
+        "Install ffmpeg: brew install ffmpeg / apt install ffmpeg",
+    )
 
     try:
         import fluidsynth  # noqa: F401
+
         check("fluidsynth", True)
     except Exception:
         check("fluidsynth", False, "pip install pyfluidsynth + brew install fluidsynth")
 
     try:
         from music_decoder.config.runtime import load_runtime_config
+
         cfg = load_runtime_config()
         sf = Path(cfg.fluidsynth_soundfont).expanduser()
-        check("soundfont present", sf.exists() if sf.is_absolute() else True,
-              f"expected at {sf}")
+        check("soundfont present", sf.exists() if sf.is_absolute() else True, f"expected at {sf}")
     except Exception as e:
         check("soundfont present", False, str(e))
 

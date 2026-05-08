@@ -1,4 +1,5 @@
 """Tests for the madmom compatibility shim."""
+
 from __future__ import annotations
 
 import collections
@@ -35,4 +36,5 @@ def test_numpy_aliases_are_builtins():
 def test_importing_madmom_after_shim_works():
     # The actual smoke test: madmom must import without error after the shim.
     import madmom
+
     assert madmom.__version__ is not None

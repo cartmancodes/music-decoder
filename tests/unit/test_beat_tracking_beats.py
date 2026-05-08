@@ -13,7 +13,7 @@ def _click_track(bpm: float, duration_s: float, sr: int = 22050) -> np.ndarray:
     while t < duration_s:
         start = int(t * sr)
         if start + click_len < n:
-            out[start:start + click_len] = 1.0
+            out[start : start + click_len] = 1.0
         t += interval_s
     return out
 

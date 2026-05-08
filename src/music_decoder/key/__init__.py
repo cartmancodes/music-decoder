@@ -1,4 +1,5 @@
 """Key detection adapters for the public ``analyze()`` pipeline."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,9 +25,7 @@ def estimate_key(
     else:
         pc = np.asarray(chroma, dtype=np.float64)
     if pc.shape[-1] != 12:
-        raise KeyDetectionError(
-            f"chroma must have 12 pitch classes, got shape {chroma.shape!r}"
-        )
+        raise KeyDetectionError(f"chroma must have 12 pitch classes, got shape {chroma.shape!r}")
     result = estimate_global_key(pc)
     if result.consensus_key is not None:
         return result.consensus_key

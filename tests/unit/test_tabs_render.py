@@ -1,5 +1,5 @@
 from music_decoder.tabs.render import render_ascii_tab
-from music_decoder.types import Note, TabPosition, TabbedNote
+from music_decoder.types import Note, TabbedNote, TabPosition
 
 
 def _tabbed(t, p, string, fret):

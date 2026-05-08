@@ -3,6 +3,7 @@ Regression test: the real pipeline runs against synthetic fixtures.
 Metrics are measured and checked against acceptance thresholds and a
 stored baseline so future runs can detect regressions.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -10,14 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from music_decoder.ingest.audio_file import load_audio
-from music_decoder.dsp.beats import track_beats
-from music_decoder.chords.api import detect_chords
-from music_decoder.config.hyperparameters import load_hyperparameters
-from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
 from music_decoder.evaluation.fixtures.guitarset import GuitarSetFixtures
-from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
 from music_decoder.evaluation.regression import (
     check_against_baseline,
     check_against_thresholds,
@@ -25,60 +19,91 @@ from music_decoder.evaluation.regression import (
     load_thresholds,
 )
 from music_decoder.evaluation.runner import run_evaluation
-from music_decoder.key.api import detect_key
+
+from music_decoder.chords.api import detect_chords
+from music_decoder.config.hyperparameters import load_hyperparameters
+from music_decoder.dsp.beats import track_beats
 from music_decoder.dsp.chroma import compute_chroma_with_hpss
-from music_decoder.types import AudioSource
+from music_decoder.evaluation.fixtures.base import Fixture, GroundTruth
+from music_decoder.evaluation.fixtures.synthetic import SyntheticFixtures
+from music_decoder.ingest.audio_file import load_audio
+from music_decoder.key.api import detect_key
 from music_decoder.tabs.assigner import assign_tab
 from music_decoder.tabs.tuning import get_preset
 from music_decoder.transcription.basic_pitch_wrapper import transcribe_basic_pitch
 from music_decoder.transcription.post_processing import apply_post_processing
+from music_decoder.types import AudioSource
 
 
 def _real_pipeline(audio_path: Path, fixture: Fixture) -> dict[str, object]:
     hp = load_hyperparameters(Path("config/hyperparameters.yaml"))
     src = AudioSource(
-        path=audio_path, declared_kind="solo_guitar",
-        requested_quality="standard", requested_tuning=get_preset("EADGBE"),
+        path=audio_path,
+        declared_kind="solo_guitar",
+        requested_quality="standard",
+        requested_tuning=get_preset("EADGBE"),
     )
     audio = load_audio(src)
     transcription = transcribe_basic_pitch(
-        audio, hp.basic_pitch, output_dir=Path("/tmp/md_eval_tmp"),
+        audio,
+        hp.basic_pitch,
+        output_dir=Path("/tmp/md_eval_tmp"),
     )
-    grid = track_beats(audio.samples, sr=audio.sr,
-                       start_bpm=hp.beat_tracking.start_bpm,
-                       tightness=hp.beat_tracking.tightness)
+    grid = track_beats(
+        audio.samples,
+        sr=audio.sr,
+        start_bpm=hp.beat_tracking.start_bpm,
+        tightness=hp.beat_tracking.tightness,
+    )
     cleaned = apply_post_processing(
-        transcription.notes, params=hp.post_processing,
+        transcription.notes,
+        params=hp.post_processing,
         beats=grid.beat_times_s,
     )
-    key = detect_key(audio.samples, sr=audio.sr,
-                     hpss_margin=hp.key_detection.hpss_margin,
-                     segment_length_s=hp.key_detection.windowed_segment_length_s,
-                     hop_s=hp.key_detection.windowed_hop_s)
+    key = detect_key(
+        audio.samples,
+        sr=audio.sr,
+        hpss_margin=hp.key_detection.hpss_margin,
+        segment_length_s=hp.key_detection.windowed_segment_length_s,
+        hop_s=hp.key_detection.windowed_hop_s,
+    )
     tab_result = assign_tab(
-        cleaned, tuning=get_preset("EADGBE"),
-        weights=hp.tab_assignment.weights, max_fret=hp.tab_assignment.max_fret,
+        cleaned,
+        tuning=get_preset("EADGBE"),
+        weights=hp.tab_assignment.weights,
+        max_fret=hp.tab_assignment.max_fret,
     )
     chroma = compute_chroma_with_hpss(
-        audio.samples, sr=audio.sr, hpss_margin=hp.key_detection.hpss_margin,
+        audio.samples,
+        sr=audio.sr,
+        hpss_margin=hp.key_detection.hpss_margin,
     )
     chord_result = detect_chords(
-        chroma=chroma, sr=audio.sr, hop_length=512,
-        beat_grid=grid, params=hp.chord_detection,
+        chroma=chroma,
+        sr=audio.sr,
+        hop_length=512,
+        beat_grid=grid,
+        params=hp.chord_detection,
         audio_path=audio_path,
     )
     intervals = np.array([(n.start_s, n.end_s) for n in cleaned], dtype=float)
     pitches = np.array([n.pitch for n in cleaned], dtype=float)
-    tab_intervals = np.array(
-        [(t.note.start_s, t.note.end_s) for t in tab_result.tabbed_notes],
-        dtype=float,
-    ) if tab_result.tabbed_notes else np.zeros((0, 2))
+    tab_intervals = (
+        np.array(
+            [(t.note.start_s, t.note.end_s) for t in tab_result.tabbed_notes],
+            dtype=float,
+        )
+        if tab_result.tabbed_notes
+        else np.zeros((0, 2))
+    )
     consensus = key.consensus_key
     return {
-        "intervals": intervals, "pitches_midi": pitches,
+        "intervals": intervals,
+        "pitches_midi": pitches,
         "key": (consensus.tonic, consensus.mode) if consensus else None,
-        "tab": [(t.note.pitch, t.position.string, t.position.fret)
-                for t in tab_result.tabbed_notes],
+        "tab": [
+            (t.note.pitch, t.position.string, t.position.fret) for t in tab_result.tabbed_notes
+        ],
         "tab_intervals": tab_intervals,
         "chord_segments": chord_result.segments,
     }
@@ -91,8 +116,8 @@ def _synthetic_fixtures() -> list[Fixture]:
 # A small selection of GuitarSet excerpts spanning genres and playing styles.
 # These IDs are taken from the canonical GuitarSet release.
 _GUITARSET_TRACK_IDS = [
-    "00_BN1-129-Eb_comp",   # bossa nova comping
-    "00_BN1-129-Eb_solo",   # bossa nova solo
+    "00_BN1-129-Eb_comp",  # bossa nova comping
+    "00_BN1-129-Eb_solo",  # bossa nova solo
     "00_Funk1-114-Ab_comp",
     "00_Jazz1-200-B_comp",
     "00_Rock1-130-A_comp",
@@ -116,10 +141,15 @@ def trivial_fixture(tmp_path: Path) -> Fixture:
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"x")
     return Fixture(
-        name="trivial", source="manual", audio_path=audio,
+        name="trivial",
+        source="manual",
+        audio_path=audio,
         ground_truth=GroundTruth(
-            intervals=np.array([[0.0, 0.5]]), pitches_midi=np.array([60]),
-            key=("C", "major"), tempo_bpm=120.0, tab=[(60, 4, 1)],
+            intervals=np.array([[0.0, 0.5]]),
+            pitches_midi=np.array([60]),
+            key=("C", "major"),
+            tempo_bpm=120.0,
+            tab=[(60, 4, 1)],
         ),
     )
 

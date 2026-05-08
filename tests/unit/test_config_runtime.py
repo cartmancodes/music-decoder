@@ -53,6 +53,7 @@ def test_runtime_config_has_youtube_cache_dir(tmp_path, monkeypatch):
         "composition_out_dir: ~/.music-decoder/compositions\n"
     )
     from music_decoder.config.runtime import load_runtime_config
+
     cfg = load_runtime_config(yaml_path)
     assert str(cfg.youtube_cache_dir).endswith("yt_cache")
     assert str(cfg.composition_out_dir).endswith("compositions")

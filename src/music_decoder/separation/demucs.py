@@ -25,9 +25,10 @@ def _apply_demucs(
     target_sr = model.samplerate
     if sr != target_sr:
         from librosa import resample
+
         samples = resample(samples, orig_sr=sr, target_sr=target_sr)
     audio_tensor = torch.from_numpy(samples).float().unsqueeze(0).unsqueeze(0)
-    audio_tensor = audio_tensor.repeat(1, 2, 1)   # demucs wants stereo
+    audio_tensor = audio_tensor.repeat(1, 2, 1)  # demucs wants stereo
     audio_tensor = audio_tensor.to(device)
 
     with torch.no_grad():
@@ -38,6 +39,7 @@ def _apply_demucs(
     guitar = sources[0, guitar_idx].mean(dim=0).cpu().numpy()
     if target_sr != sr:
         from librosa import resample
+
         guitar = resample(guitar, orig_sr=target_sr, target_sr=sr)
     if guitar.size > samples.size:
         guitar = guitar[: samples.size]
@@ -47,19 +49,24 @@ def _apply_demucs(
 def isolate_guitar(audio: LoadedAudio) -> SeparationResult:
     if audio.source.declared_kind == "solo_guitar":
         return SeparationResult(
-            guitar_samples=None, sr=audio.sr,
-            skipped_reason="solo_guitar declared", bleed_estimate_db=None,
+            guitar_samples=None,
+            sr=audio.sr,
+            skipped_reason="solo_guitar declared",
+            bleed_estimate_db=None,
         )
     try:
         guitar = _apply_demucs(audio.samples, audio.sr)
     except Exception as e:
         _log.error("demucs_failed", extra={"error": str(e)})
         return SeparationResult(
-            guitar_samples=None, sr=audio.sr,
+            guitar_samples=None,
+            sr=audio.sr,
             skipped_reason=f"demucs_failed: {e}",
             bleed_estimate_db=None,
         )
     return SeparationResult(
-        guitar_samples=guitar, sr=audio.sr,
-        skipped_reason=None, bleed_estimate_db=None,
+        guitar_samples=guitar,
+        sr=audio.sr,
+        skipped_reason=None,
+        bleed_estimate_db=None,
     )

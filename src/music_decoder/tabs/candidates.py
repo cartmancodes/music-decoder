@@ -3,14 +3,17 @@ from __future__ import annotations
 
 from itertools import product
 
-from music_decoder.types import TabPosition
 from music_decoder.tabs.tuning import Tuning
+from music_decoder.types import TabPosition
 
 _MAX_CHORD_SPAN = 5
 
 
 def note_candidates(
-    *, pitch: int, tuning: Tuning, max_fret: int,
+    *,
+    pitch: int,
+    tuning: Tuning,
+    max_fret: int,
 ) -> list[TabPosition]:
     out: list[TabPosition] = []
     for s, open_p in enumerate(tuning.open_pitches):
@@ -21,10 +24,12 @@ def note_candidates(
 
 
 def chord_combinations(
-    pitches: list[int], *, tuning: Tuning, max_fret: int,
+    pitches: list[int],
+    *,
+    tuning: Tuning,
+    max_fret: int,
 ) -> list[tuple[TabPosition, ...]]:
-    per_pitch = [note_candidates(pitch=p, tuning=tuning, max_fret=max_fret)
-                 for p in pitches]
+    per_pitch = [note_candidates(pitch=p, tuning=tuning, max_fret=max_fret) for p in pitches]
     if any(len(c) == 0 for c in per_pitch):
         return []
     combos: list[tuple[TabPosition, ...]] = []

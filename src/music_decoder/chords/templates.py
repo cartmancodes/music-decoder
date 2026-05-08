@@ -18,6 +18,7 @@ range of chords that real-world detectors (e.g. madmom) emit:
     sus4   — suspended 4th         (0, 5, 7)        [Phase B-3]
     aug    — augmented triad       (0, 4, 8)        [Phase B-3]
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,10 +26,28 @@ from typing import Any
 import numpy as np
 
 ROOTS: tuple[str, ...] = (
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    "C",
+    "C#",
+    "D",
+    "D#",
+    "E",
+    "F",
+    "F#",
+    "G",
+    "G#",
+    "A",
+    "A#",
+    "B",
 )
 QUALITIES: tuple[str, ...] = (
-    "maj", "min", "7", "maj7", "min7", "dim", "sus4", "aug",
+    "maj",
+    "min",
+    "7",
+    "maj7",
+    "min7",
+    "dim",
+    "sus4",
+    "aug",
 )
 NO_CHORD = "N"
 

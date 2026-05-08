@@ -1,10 +1,11 @@
 """Music Decoder: chord progressions, guitar tabs, composition suggestions."""
+
 from music_decoder.api import analyze, compose
 from music_decoder.tabs.tuning import (
+    D_STANDARD,
     DADGAD,
     DROP_C,
     DROP_D,
-    D_STANDARD,
     EB_HALF_STEP_DOWN,
     STANDARD_EADGBE,
 )
@@ -16,15 +17,19 @@ from music_decoder.types import (
     KeyEstimate,
     Note,
     Scale,
-    TabPosition,
     TabbedNote,
+    TabPosition,
     Tuning,
     VoicedChord,
 )
 
 __all__ = [
-    "analyze",
-    "compose",
+    "DADGAD",
+    "DROP_C",
+    "DROP_D",
+    "D_STANDARD",
+    "EB_HALF_STEP_DOWN",
+    "STANDARD_EADGBE",
     "AnalysisResult",
     "ChordSegment",
     "ChordSymbol",
@@ -36,12 +41,8 @@ __all__ = [
     "TabbedNote",
     "Tuning",
     "VoicedChord",
-    "STANDARD_EADGBE",
-    "DROP_D",
-    "DROP_C",
-    "EB_HALF_STEP_DOWN",
-    "D_STANDARD",
-    "DADGAD",
+    "analyze",
+    "compose",
 ]
 
 __version__ = "0.2.0"

@@ -12,6 +12,7 @@ We patch the affected attributes before any madmom module is imported. The
 shim is idempotent. Importing this module is the public API; the function
 is also exposed for tests.
 """
+
 from __future__ import annotations
 
 import collections

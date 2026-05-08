@@ -4,6 +4,7 @@ Audio is downloaded as 'bestaudio', extracted to WAV via the ffmpeg
 post-processor, and cached under <cache_dir>/<video_id>.wav. Cache hits
 short-circuit the download.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,9 +14,7 @@ import yt_dlp
 
 from music_decoder.errors import YouTubeError
 
-_YT_RE = re.compile(
-    r"^https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]{11})"
-)
+_YT_RE = re.compile(r"^https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]{11})")
 
 
 def is_youtube_url(s: str) -> bool:
@@ -42,11 +41,13 @@ def fetch_audio(url: str, *, cache_dir: Path) -> Path:
         "no_warnings": True,
         "format": "bestaudio/best",
         "outtmpl": str(cache_dir / f"{video_id}.%(ext)s"),
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "wav",
-            "preferredquality": "0",
-        }],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "wav",
+                "preferredquality": "0",
+            }
+        ],
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

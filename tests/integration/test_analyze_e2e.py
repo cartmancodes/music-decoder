@@ -5,6 +5,7 @@ the basic shape of the result. Metric-gated correctness lives in
 ``test_regression.py``; this file only checks that the pipeline produces a
 non-trivial result without raising.
 """
+
 from __future__ import annotations
 
 import pytest

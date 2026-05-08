@@ -5,6 +5,7 @@ imported by the simple name the public surface exposes (``track_beats``,
 ``estimate_key`` etc.) so that tests can mock them in isolation via
 ``mock.patch("music_decoder.api.<stage>")``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

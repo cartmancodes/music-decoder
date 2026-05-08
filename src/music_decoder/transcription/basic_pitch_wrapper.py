@@ -16,14 +16,17 @@ from music_decoder.types import (
 
 
 def transcribe_basic_pitch(
-    audio: LoadedAudio, params: BasicPitchParams, *, output_dir: Path,
+    audio: LoadedAudio,
+    params: BasicPitchParams,
+    *,
+    output_dir: Path,
 ) -> TranscriptionResult:
     from basic_pitch import ICASSP_2022_MODEL_PATH
     from basic_pitch.inference import predict
 
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_midi_path = output_dir / "raw_basic_pitch.mid"
-    post_midi_path = output_dir / "post_basic_pitch.mid"   # post-processing fills it later
+    post_midi_path = output_dir / "post_basic_pitch.mid"  # post-processing fills it later
 
     # Prefer CoreML on macOS (avoids TF version-mismatch errors when TF is installed)
     model_path: Path = ICASSP_2022_MODEL_PATH
@@ -46,20 +49,26 @@ def transcribe_basic_pitch(
             maximum_frequency=params.maximum_frequency_hz,
         )
     midi_data.write(str(raw_midi_path))
-    midi_data.write(str(post_midi_path))   # placeholder until post-processing runs
+    midi_data.write(str(post_midi_path))  # placeholder until post-processing runs
 
     notes: list[TranscribedNote] = []
     for start, end, pitch, amplitude, _pitch_bend in note_events:
-        notes.append(TranscribedNote(
-            start_s=float(start), end_s=float(end),
-            pitch=int(pitch), velocity=round(min(127, amplitude * 127)),
-            confidence=float(min(1.0, max(0.0, amplitude))),
-        ))
+        notes.append(
+            TranscribedNote(
+                start_s=float(start),
+                end_s=float(end),
+                pitch=int(pitch),
+                velocity=round(min(127, amplitude * 127)),
+                confidence=float(min(1.0, max(0.0, amplitude))),
+            )
+        )
     median_conf = statistics.median([n.confidence for n in notes]) if notes else 0.0
 
     return TranscriptionResult(
-        notes=notes, model="basic-pitch",
-        raw_midi_path=raw_midi_path, post_midi_path=post_midi_path,
+        notes=notes,
+        model="basic-pitch",
+        raw_midi_path=raw_midi_path,
+        post_midi_path=post_midi_path,
         hyperparameters={
             "onset_threshold": params.onset_threshold,
             "frame_threshold": params.frame_threshold,

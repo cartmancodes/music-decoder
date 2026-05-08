@@ -4,13 +4,14 @@ Moved from ``music_decoder.ui.components.tablature`` in the v2 refactor.
 Both ``num_strings`` (v2) and ``n_strings`` (legacy) are accepted as keyword
 arguments for backward compatibility.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
 
 from music_decoder.types import TabbedNote
 
-_STRING_LABELS = ("E", "A", "D", "G", "B", "e")   # standard EADGBE labels
+_STRING_LABELS = ("E", "A", "D", "G", "B", "e")  # standard EADGBE labels
 
 
 def render_ascii_tab(
@@ -100,9 +101,7 @@ def render_svg_fretboard(
         cy = margin_y + (n - 1 - t.position.string) * string_h
         c = t.note.confidence
         fill = "green" if c >= 0.8 else ("gold" if c >= 0.5 else "red")
-        parts.append(
-            f'<circle cx="{cx}" cy="{cy}" r="8" fill="{fill}" stroke="#222"/>'
-        )
+        parts.append(f'<circle cx="{cx}" cy="{cy}" r="8" fill="{fill}" stroke="#222"/>')
         parts.append(
             f'<text x="{cx}" y="{cy + 4}" font-size="10" fill="#fff" '
             f'text-anchor="middle">{t.position.fret}</text>'

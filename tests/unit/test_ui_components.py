@@ -1,5 +1,9 @@
 import numpy as np
 
+from music_decoder.tabs.render import (
+    render_ascii_tab,
+    render_svg_fretboard,
+)
 from music_decoder.types import (
     TabbedNote,
     TabPosition,
@@ -7,10 +11,6 @@ from music_decoder.types import (
 )
 from music_decoder.ui.components.chromagram import render_chromagram_figure
 from music_decoder.ui.components.confidence import confidence_color
-from music_decoder.tabs.render import (
-    render_ascii_tab,
-    render_svg_fretboard,
-)
 from music_decoder.ui.components.waveform import render_waveform_figure
 
 
@@ -33,8 +33,8 @@ def test_render_ascii_tab_six_rows_for_eadgbe():
     text = render_ascii_tab(notes, n_strings=6, columns=8)
     rows = text.strip().split("\n")
     assert len(rows) == 6
-    assert rows[0].startswith("e|")    # high E
-    assert rows[5].startswith("E|")    # low E
+    assert rows[0].startswith("e|")  # high E
+    assert rows[5].startswith("E|")  # low E
 
 
 def test_render_svg_fretboard_returns_svg():

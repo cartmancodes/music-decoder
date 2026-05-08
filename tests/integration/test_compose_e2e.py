@@ -4,6 +4,7 @@ Generates a short progression in C major, validates that the MIDI/WAV
 artifacts are written, and confirms that every melody pitch falls inside the
 diatonic C-major pitch-class set.
 """
+
 from __future__ import annotations
 
 import pretty_midi

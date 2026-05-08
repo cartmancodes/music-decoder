@@ -4,6 +4,7 @@ This is the v1 algorithm extracted into a backend class so it can sit behind
 the same ``ChordBackend`` protocol as the madmom backend. Behaviour is
 unchanged from the previous ``api.detect_chords`` implementation.
 """
+
 from __future__ import annotations
 
 import statistics
@@ -47,7 +48,9 @@ class TemplateHmmBackend:
             )
 
         beat_chroma = beat_sync_chroma(
-            chroma, sr=sr, hop_length=hop_length,
+            chroma,
+            sr=sr,
+            hop_length=hop_length,
             beat_times_s=beat_grid.beat_times_s,
         )
         if beat_chroma.shape[1] == 0:
@@ -67,10 +70,13 @@ class TemplateHmmBackend:
             scores[below_threshold, n_idx] = 1.0
 
         state_path = viterbi_smooth(
-            scores, p_self=params.hmm_self_transition_prob,
+            scores,
+            p_self=params.hmm_self_transition_prob,
         )
         segments = merge_segments(
-            state_path, beat_grid.beat_times_s, scores,
+            state_path,
+            beat_grid.beat_times_s,
+            scores,
             min_segment_duration_s=params.min_segment_duration_s,
         )
 

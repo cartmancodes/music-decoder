@@ -5,6 +5,7 @@ Exposes :func:`render_wav` as a thin alias over the existing
 ``compose.api``) can import a stable name regardless of the underlying
 backend implementation.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,4 +21,4 @@ def render_wav(midi_path: Path, out_path: Path) -> Path:
     return synthesize_midi_to_wav(midi_path, out_path)
 
 
-__all__ = ["render_wav", "synthesize_midi_to_wav", "SynthBackend"]
+__all__ = ["SynthBackend", "render_wav", "synthesize_midi_to_wav"]

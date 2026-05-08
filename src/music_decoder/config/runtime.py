@@ -8,9 +8,7 @@ import yaml
 
 _REQUIRED = ("youtube_cache_dir", "composition_out_dir", "log_level")
 _ENV_PREFIX = "MUSIC_DECODER_"
-_DEFAULT_CONFIG_PATH = (
-    Path(__file__).resolve().parents[3] / "config" / "runtime.yaml"
-)
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "runtime.yaml"
 
 
 @dataclass(frozen=True)
@@ -33,7 +31,7 @@ def load_runtime_config(path: Path | None = None) -> RuntimeConfig:
     raw: dict[str, object] = yaml.safe_load(path.read_text()) or {}
     for key, val in os.environ.items():
         if key.startswith(_ENV_PREFIX):
-            raw[key[len(_ENV_PREFIX):].lower()] = val
+            raw[key[len(_ENV_PREFIX) :].lower()] = val
     missing = [k for k in _REQUIRED if k not in raw]
     if missing:
         raise ValueError(f"Missing required config keys: {missing}")

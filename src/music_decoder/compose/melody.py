@@ -1,7 +1,8 @@
 """Diatonic + Markov melody generator over a chord progression."""
+
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -13,14 +14,14 @@ _MINOR_PCS = (0, 2, 3, 5, 7, 8, 10)
 
 # Chord-quality → relative pitch classes (root = 0)
 _CHORD_PCS: dict[str, tuple[int, ...]] = {
-    "maj":  (0, 4, 7),
-    "min":  (0, 3, 7),
+    "maj": (0, 4, 7),
+    "min": (0, 3, 7),
     "maj7": (0, 4, 7, 11),
     "min7": (0, 3, 7, 10),
-    "7":    (0, 4, 7, 10),
-    "dim":  (0, 3, 6),
+    "7": (0, 4, 7, 10),
+    "dim": (0, 3, 6),
     "sus4": (0, 5, 7),
-    "aug":  (0, 4, 8),
+    "aug": (0, 4, 8),
 }
 
 
@@ -36,8 +37,7 @@ def _chord_tones(chord: ChordSymbol) -> tuple[int, ...]:
     return tuple((r + root_pc) % 12 for r in rel)
 
 
-def _scale_pitches_in_range(scale_pcs: tuple[int, ...],
-                            low: int, high: int) -> list[int]:
+def _scale_pitches_in_range(scale_pcs: tuple[int, ...], low: int, high: int) -> list[int]:
     return [p for p in range(low, high + 1) if (p % 12) in scale_pcs]
 
 
@@ -48,8 +48,8 @@ def generate_melody(
     bars_per_chord: int = 1,
     tempo_bpm: float = 100.0,
     notes_per_bar: int = 4,
-    pitch_low: int = 60,            # C4
-    pitch_high: int = 84,           # C6
+    pitch_low: int = 60,  # C4
+    pitch_high: int = 84,  # C6
     seed: int | None = None,
     strong_beat_chord_tone_prob: float = 0.7,
     weak_beat_chord_tone_prob: float = 0.3,
@@ -76,13 +76,14 @@ def generate_melody(
         chord_pcs = set(_chord_tones(chord))
         for _bar in range(bars_per_chord):
             for nidx in range(notes_per_bar):
-                strong = (nidx % (notes_per_bar // 2) == 0)
+                strong = nidx % (notes_per_bar // 2) == 0
                 p_chord = strong_beat_chord_tone_prob if strong else weak_beat_chord_tone_prob
                 use_chord_tone = rng.random() < p_chord
-                pool = [
-                    p for p in scale_pitches
-                    if (p % 12) in chord_pcs
-                ] if use_chord_tone else scale_pitches
+                pool = (
+                    [p for p in scale_pitches if (p % 12) in chord_pcs]
+                    if use_chord_tone
+                    else scale_pitches
+                )
 
                 # Markov constraint: prefer pitches within max-interval of prev_pitch.
                 near = [p for p in pool if abs(p - prev_pitch) <= markov_max_interval_semitones]
@@ -92,10 +93,15 @@ def generate_melody(
                 velocity = velocity_strong if strong else velocity_weak
                 start = t
                 end = t + seconds_per_note * 0.95
-                out.append(Note(
-                    start_s=start, end_s=end, pitch=pitch,
-                    velocity=velocity, confidence=1.0,
-                ))
+                out.append(
+                    Note(
+                        start_s=start,
+                        end_s=end,
+                        pitch=pitch,
+                        velocity=velocity,
+                        confidence=1.0,
+                    )
+                )
                 prev_pitch = pitch
                 t += seconds_per_note
     return out

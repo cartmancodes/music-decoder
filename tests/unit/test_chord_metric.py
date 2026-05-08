@@ -5,8 +5,7 @@ from music_decoder.types import ChordSegment
 
 
 def _seg(start: float, end: float, root: str, quality: str) -> ChordSegment:
-    return ChordSegment(start_s=start, end_s=end, root=root,
-                        quality=quality, confidence=1.0)
+    return ChordSegment(start_s=start, end_s=end, root=root, quality=quality, confidence=1.0)
 
 
 def test_perfect_match():

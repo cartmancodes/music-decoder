@@ -19,7 +19,8 @@ def test_correlate_returns_24_keys():
     pc = np.zeros(12)
     pc[0] = 1.0  # pure C
     estimates = correlate_against_profiles(
-        pc, profile="krumhansl_kessler",
+        pc,
+        profile="krumhansl_kessler",
     )
     assert len(estimates) == 24
     by_key = {(e.tonic, e.mode): e.correlation for e in estimates}

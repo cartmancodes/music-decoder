@@ -6,6 +6,7 @@ ingest → dsp → key → chords → transcription → tabs and through the pub
 shape that the legacy ``pipeline.contracts`` module exported so that the
 import-migration phase is purely mechanical.
 """
+
 from __future__ import annotations
 
 import re
@@ -19,7 +20,18 @@ import numpy as np
 # ---- Music primitives ------------------------------------------------------
 
 VALID_TONICS: tuple[str, ...] = (
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    "C",
+    "C#",
+    "D",
+    "D#",
+    "E",
+    "F",
+    "F#",
+    "G",
+    "G#",
+    "A",
+    "A#",
+    "B",
 )
 _FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
@@ -28,18 +40,24 @@ ChordQuality = Literal["maj", "min", "maj7", "min7", "7", "dim", "sus4", "aug"]
 _QUALITY_PATTERNS: tuple[tuple[str, ChordQuality], ...] = (
     ("maj7", "maj7"),
     ("min7", "min7"),
-    ("m7",   "min7"),
-    ("dim",  "dim"),
+    ("m7", "min7"),
+    ("dim", "dim"),
     ("sus4", "sus4"),
-    ("aug",  "aug"),
-    ("m",    "min"),
-    ("7",    "7"),
-    ("",     "maj"),
+    ("aug", "aug"),
+    ("m", "min"),
+    ("7", "7"),
+    ("", "maj"),
 )
 
 _QUALITY_TO_LABEL: dict[ChordQuality, str] = {
-    "maj": "", "min": "m", "maj7": "maj7", "min7": "m7",
-    "7": "7", "dim": "dim", "sus4": "sus4", "aug": "aug",
+    "maj": "",
+    "min": "m",
+    "maj7": "maj7",
+    "min7": "m7",
+    "7": "7",
+    "dim": "dim",
+    "sus4": "sus4",
+    "aug": "aug",
 }
 
 
@@ -49,7 +67,7 @@ class Scale:
     mode: Literal["major", "minor"]
 
     @classmethod
-    def parse(cls, label: str) -> "Scale":
+    def parse(cls, label: str) -> Scale:
         if ":" not in label:
             raise ValueError(f"Scale label must be 'TONIC:mode', got {label!r}")
         tonic, mode = label.split(":", 1)
@@ -67,7 +85,7 @@ class ChordSymbol:
     quality: ChordQuality
 
     @classmethod
-    def parse(cls, label: str) -> "ChordSymbol":
+    def parse(cls, label: str) -> ChordSymbol:
         m = re.match(r"^([A-G][#b]?)(.*)$", label)
         if not m:
             raise ValueError(f"Cannot parse chord symbol {label!r}")
@@ -86,14 +104,17 @@ class ChordSymbol:
 
 # ---- Tuning ----------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Tuning:
     """Open-string MIDI pitches, ordered low to high (string 0 = lowest)."""
+
     name: str
     open_pitches: tuple[int, ...]
 
 
 # ---- Audio ingestion -------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class AudioSource:
@@ -114,6 +135,7 @@ class LoadedAudio:
 
 # ---- Separation ------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SeparationResult:
     guitar_samples: np.ndarray[Any, np.dtype[np.float32]] | None
@@ -123,6 +145,7 @@ class SeparationResult:
 
 
 # ---- Transcription ---------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class TranscribedNote:
@@ -149,6 +172,7 @@ Note = TranscribedNote
 
 # ---- Key detection ---------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class KeyEstimate:
     tonic: str
@@ -168,6 +192,7 @@ class KeyDetectionResult:
 
 # ---- Beat tracking ---------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class BeatGrid:
     tempo_bpm: float
@@ -181,9 +206,11 @@ class BeatGrid:
 
 # ---- Tab assignment --------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class TabPosition:
     """Fingering position. fret=-1 = string muted (used in chord voicings)."""
+
     string: int
     fret: int
 
@@ -205,6 +232,7 @@ class TabAssignmentResult:
 
 # ---- Chord recognition ----------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ChordSegment:
     """One chord-segment from the chord recognizer.
@@ -213,6 +241,7 @@ class ChordSegment:
     detection backends can construct it without change) and exposes a
     ``chord`` property that coerces to the public :class:`ChordSymbol`.
     """
+
     start_s: float
     end_s: float
     root: str
@@ -233,13 +262,15 @@ class ChordRecognitionResult:
 
 # ---- Voicings (composition) -----------------------------------------------
 
+
 @dataclass(frozen=True)
 class VoicedChord:
     chord: ChordSymbol
-    positions: tuple[TabPosition, ...]   # one per string; fret -1 = muted
+    positions: tuple[TabPosition, ...]  # one per string; fret -1 = muted
 
 
 # ---- Top-level public results ---------------------------------------------
+
 
 @dataclass(frozen=True)
 class AnalysisResult:
@@ -266,6 +297,7 @@ class Composition:
 
 
 # ---- Legacy orchestration values (kept for surviving call sites) ----------
+
 
 @dataclass(frozen=True)
 class StageEvent:

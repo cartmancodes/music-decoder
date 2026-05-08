@@ -20,8 +20,11 @@ def test_fixture_has_audio_path_and_truth(tmp_path):
     audio = tmp_path / "x.wav"
     audio.write_bytes(b"x")
     gt = GroundTruth(
-        intervals=np.zeros((0, 2)), pitches_midi=np.zeros(0),
-        key=None, tempo_bpm=None, tab=None,
+        intervals=np.zeros((0, 2)),
+        pitches_midi=np.zeros(0),
+        key=None,
+        tempo_bpm=None,
+        tab=None,
     )
     fx = Fixture(name="x", source="manual", audio_path=audio, ground_truth=gt)
     assert fx.audio_path == audio

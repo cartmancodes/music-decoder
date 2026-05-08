@@ -1,4 +1,5 @@
 """Source separation adapters for the public ``analyze()`` pipeline."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,7 +25,7 @@ def run_separation(
 
     try:
         guitar = _apply_demucs(samples, sr)
-    except Exception as e:   # pragma: no cover — exercised in integration tests
+    except Exception as e:  # pragma: no cover — exercised in integration tests
         raise SeparationError(f"demucs_failed: {e}") from e
     return guitar, sr
 

@@ -14,7 +14,7 @@ def test_strong_4_4_pattern_detects_4_4():
 
 
 def test_unclear_pattern_falls_back_to_4_4_assumed():
-    strengths = np.full(20, 0.5)   # uniform → no autocorrelation peaks
+    strengths = np.full(20, 0.5)  # uniform → no autocorrelation peaks
     result = infer_time_signature(strengths, min_confidence=0.5)
     assert result.numerator == 4
     assert result.denominator == 4

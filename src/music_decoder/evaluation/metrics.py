@@ -8,9 +8,25 @@ import numpy as np
 
 from music_decoder.types import ChordSegment, KeyEstimate, TabbedNote
 
-_PITCH_CLASS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
-                "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
-                "A#": 10, "Bb": 10, "B": 11}
+_PITCH_CLASS = {
+    "C": 0,
+    "C#": 1,
+    "Db": 1,
+    "D": 2,
+    "D#": 3,
+    "Eb": 3,
+    "E": 4,
+    "F": 5,
+    "F#": 6,
+    "Gb": 6,
+    "G": 7,
+    "G#": 8,
+    "Ab": 8,
+    "A": 9,
+    "A#": 10,
+    "Bb": 10,
+    "B": 11,
+}
 
 NDArray = np.ndarray[Any, np.dtype[Any]]
 
@@ -20,9 +36,12 @@ def _midi_to_hz(midi: NDArray) -> NDArray:
 
 
 def note_f_measure(
-    pred_intervals: NDArray, pred_pitches_midi: NDArray,
-    gt_intervals: NDArray, gt_pitches_midi: NDArray,
-    onset_tolerance_s: float = 0.05, pitch_tolerance_cents: float = 50.0,
+    pred_intervals: NDArray,
+    pred_pitches_midi: NDArray,
+    gt_intervals: NDArray,
+    gt_pitches_midi: NDArray,
+    onset_tolerance_s: float = 0.05,
+    pitch_tolerance_cents: float = 50.0,
 ) -> float:
     if len(pred_intervals) == 0 and len(gt_intervals) == 0:
         return 1.0
@@ -31,8 +50,10 @@ def note_f_measure(
     pred_hz = _midi_to_hz(np.asarray(pred_pitches_midi))
     gt_hz = _midi_to_hz(np.asarray(gt_pitches_midi))
     _p, _r, f, _ = mir_eval.transcription.precision_recall_f1_overlap(
-        np.asarray(gt_intervals), gt_hz,
-        np.asarray(pred_intervals), pred_hz,
+        np.asarray(gt_intervals),
+        gt_hz,
+        np.asarray(pred_intervals),
+        pred_hz,
         onset_tolerance=onset_tolerance_s,
         pitch_tolerance=pitch_tolerance_cents,
         offset_ratio=None,
@@ -41,7 +62,8 @@ def note_f_measure(
 
 
 def onset_f_measure(
-    pred_intervals: NDArray, gt_intervals: NDArray,
+    pred_intervals: NDArray,
+    gt_intervals: NDArray,
     tolerance_s: float = 0.05,
 ) -> float:
     if len(pred_intervals) == 0 and len(gt_intervals) == 0:
@@ -55,14 +77,18 @@ def onset_f_measure(
 
 
 def pitch_class_accuracy(
-    pred_intervals: NDArray, pred_pitches_midi: NDArray,
-    gt_intervals: NDArray, gt_pitches_midi: NDArray,
+    pred_intervals: NDArray,
+    pred_pitches_midi: NDArray,
+    gt_intervals: NDArray,
+    gt_pitches_midi: NDArray,
     frame_rate_hz: float = 100.0,
 ) -> float:
     if len(gt_intervals) == 0:
         return 1.0 if len(pred_intervals) == 0 else 0.0
-    end = max(float(np.asarray(gt_intervals).max()),
-              float(np.asarray(pred_intervals).max()) if len(pred_intervals) else 0.0)
+    end = max(
+        float(np.asarray(gt_intervals).max()),
+        float(np.asarray(pred_intervals).max()) if len(pred_intervals) else 0.0,
+    )
     n_frames = max(int(np.ceil(end * frame_rate_hz)) + 1, 1)
     times = np.arange(n_frames) / frame_rate_hz
 
@@ -174,16 +200,17 @@ def tab_string_accuracy(
         # Legacy index-aligned mode.
         n = max(len(pred_list), len(truth_list))
         correct = sum(
-            1 for p, t in zip(pred_list, truth_list, strict=False)
-            if p[0] == t[0] and p[1] == t[1]
+            1 for p, t in zip(pred_list, truth_list, strict=False) if p[0] == t[0] and p[1] == t[1]
         )
         return correct / n
 
     pred_pitches_hz = _midi_to_hz(np.array([p[0] for p in pred_list], dtype=float))
     gt_pitches_hz = _midi_to_hz(np.array([t[0] for t in truth_list], dtype=float))
     matching = mir_eval.transcription.match_notes(
-        np.asarray(gt_intervals), gt_pitches_hz,
-        np.asarray(pred_intervals), pred_pitches_hz,
+        np.asarray(gt_intervals),
+        gt_pitches_hz,
+        np.asarray(pred_intervals),
+        pred_pitches_hz,
         onset_tolerance=onset_tolerance_s,
         pitch_tolerance=50.0,
         offset_ratio=None,
@@ -191,8 +218,7 @@ def tab_string_accuracy(
     if not matching:
         return 0.0
     correct = sum(
-        1 for gt_idx, pred_idx in matching
-        if pred_list[pred_idx][1] == truth_list[gt_idx][1]
+        1 for gt_idx, pred_idx in matching if pred_list[pred_idx][1] == truth_list[gt_idx][1]
     )
     return correct / len(matching)
 

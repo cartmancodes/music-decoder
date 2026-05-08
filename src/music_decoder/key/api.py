@@ -4,9 +4,9 @@ from typing import Any
 
 import numpy as np
 
+from music_decoder.dsp.chroma import compute_chroma_with_hpss
 from music_decoder.types import KeyDetectionResult
 
-from music_decoder.dsp.chroma import compute_chroma_with_hpss
 from .global_estimator import estimate_global_key
 from .windowed import detect_windowed_keys
 
@@ -25,8 +25,11 @@ def detect_key(
     pc = chroma.mean(axis=1)
     global_result = estimate_global_key(pc)
     windowed = detect_windowed_keys(
-        chroma, sr=sr, hop_length=_DEFAULT_HOP_LENGTH,
-        segment_length_s=segment_length_s, hop_s=hop_s,
+        chroma,
+        sr=sr,
+        hop_length=_DEFAULT_HOP_LENGTH,
+        segment_length_s=segment_length_s,
+        hop_s=hop_s,
     )
     return KeyDetectionResult(
         global_top3_per_profile=global_result.global_top3_per_profile,

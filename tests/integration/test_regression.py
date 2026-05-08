@@ -5,6 +5,7 @@ metric, and asserts the score meets the threshold pinned in the YAML. Marked
 ``regression`` so it is excluded from the default ``pytest`` invocation;
 ``make regression`` (or ``pytest -m regression``) opts in.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -41,11 +42,11 @@ def test_chord_recognition_score(fixture):
         use_separation=False,
     )
     score = chord_recognition_score(
-        res.chord_progression, fixture.gt.chord_progression,
+        res.chord_progression,
+        fixture.gt.chord_progression,
     )
     assert score >= _thresholds()["chord_recognition_score"], (
-        f"chord_recognition_score={score:.3f} below "
-        f"{_thresholds()['chord_recognition_score']}"
+        f"chord_recognition_score={score:.3f} below {_thresholds()['chord_recognition_score']}"
     )
 
 
@@ -63,8 +64,7 @@ def test_key_mirex_score(fixture):
     )
     score = key_mirex_score(res.key, fixture.gt.key)
     assert score >= _thresholds()["key_mirex_score"], (
-        f"key_mirex_score={score:.3f} below "
-        f"{_thresholds()['key_mirex_score']}"
+        f"key_mirex_score={score:.3f} below {_thresholds()['key_mirex_score']}"
     )
 
 
@@ -84,6 +84,5 @@ def test_tab_string_accuracy(fixture):
     )
     score = tab_string_accuracy(res.tab, fixture.gt.tab)
     assert score >= _thresholds()["tab_string_accuracy"], (
-        f"tab_string_accuracy={score:.3f} below "
-        f"{_thresholds()['tab_string_accuracy']}"
+        f"tab_string_accuracy={score:.3f} below {_thresholds()['tab_string_accuracy']}"
     )

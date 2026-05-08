@@ -1,4 +1,5 @@
 """Single-page Streamlit UI with Analyze / Compose / About tabs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,14 +10,23 @@ from music_decoder import analyze, compose
 from music_decoder.config.runtime import load_runtime_config
 from music_decoder.errors import MusicDecoderError
 from music_decoder.tabs.tuning import (
-    STANDARD_EADGBE, DROP_D, DROP_C, EB_HALF_STEP_DOWN, D_STANDARD, DADGAD,
+    D_STANDARD,
+    DADGAD,
+    DROP_C,
+    DROP_D,
+    EB_HALF_STEP_DOWN,
+    STANDARD_EADGBE,
 )
 from music_decoder.types import ChordSymbol, Scale
 from music_decoder.ui.components.chord_progression import render_chord_timeline
 
 _TUNINGS = {
-    "EADGBE": STANDARD_EADGBE, "Drop D": DROP_D, "Eb": EB_HALF_STEP_DOWN,
-    "D standard": D_STANDARD, "Drop C": DROP_C, "DADGAD": DADGAD,
+    "EADGBE": STANDARD_EADGBE,
+    "Drop D": DROP_D,
+    "Eb": EB_HALF_STEP_DOWN,
+    "D standard": D_STANDARD,
+    "Drop C": DROP_C,
+    "DADGAD": DADGAD,
 }
 
 
@@ -58,12 +68,14 @@ def _render_analyze(out_dir: Path) -> None:
 
     if st.button("Analyze") and source is not None:
         bar = st.progress(0.0, text="starting…")
+
         def cb(stage: str, frac: float) -> None:
-            bar.progress(min(max(frac, 0.0), 1.0), text=f"{stage} {int(frac*100)}%")
+            bar.progress(min(max(frac, 0.0), 1.0), text=f"{stage} {int(frac * 100)}%")
+
         try:
             res = analyze(
                 source,
-                declared_kind=declared,                  # type: ignore[arg-type]
+                declared_kind=declared,  # type: ignore[arg-type]
                 tuning=_TUNINGS[tuning_name],
                 use_separation=use_sep,
                 progress=cb,
@@ -72,13 +84,16 @@ def _render_analyze(out_dir: Path) -> None:
             st.error(str(e))
             return
         st.success("Done.")
-        st.write(f"**Key:** {res.key.tonic} {res.key.mode}  "
-                 f"**Tempo:** {res.tempo_bpm:.1f} BPM  "
-                 f"**Duration:** {res.duration_s:.1f}s")
+        st.write(
+            f"**Key:** {res.key.tonic} {res.key.mode}  "
+            f"**Tempo:** {res.tempo_bpm:.1f} BPM  "
+            f"**Duration:** {res.duration_s:.1f}s"
+        )
         st.subheader("Chord progression")
         render_chord_timeline(res.chord_progression)
         st.subheader("Tablature")
         from music_decoder.tabs.render import render_ascii_tab
+
         st.code(render_ascii_tab(list(res.tab), num_strings=6))
         st.subheader("Original audio")
         st.audio(str(res.audio_path))
@@ -86,9 +101,23 @@ def _render_analyze(out_dir: Path) -> None:
 
 def _render_compose(out_dir: Path) -> None:
     st.header("Compose")
-    tonic = st.selectbox("Tonic", [
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-    ])
+    tonic = st.selectbox(
+        "Tonic",
+        [
+            "C",
+            "C#",
+            "D",
+            "D#",
+            "E",
+            "F",
+            "F#",
+            "G",
+            "G#",
+            "A",
+            "A#",
+            "B",
+        ],
+    )
     mode = st.selectbox("Mode", ["major", "minor"])
     progression = st.text_input("Progression (space-separated)", value="Cmaj7 Am7 Dm7 G7")
     style = st.selectbox("Style", ["fingerstyle", "strum", "arpeggio"])
@@ -102,10 +131,13 @@ def _render_compose(out_dir: Path) -> None:
         try:
             chords = [ChordSymbol.parse(c) for c in progression.split()]
             res = compose(
-                scale=Scale(tonic=tonic, mode=mode),                  # type: ignore[arg-type]
+                scale=Scale(tonic=tonic, mode=mode),  # type: ignore[arg-type]
                 progression=chords,
-                bars_per_chord=bars, tempo_bpm=float(tempo),
-                style=style, tuning=_TUNINGS[tuning_name], seed=seed,
+                bars_per_chord=bars,
+                tempo_bpm=float(tempo),
+                style=style,
+                tuning=_TUNINGS[tuning_name],
+                seed=seed,
                 out_dir=out_dir,
             )
         except (MusicDecoderError, ValueError) as e:
@@ -114,17 +146,18 @@ def _render_compose(out_dir: Path) -> None:
         st.success("Done.")
         st.audio(str(res.wav_path))
         st.code(res.ascii_tab)
-        st.download_button("Download MIDI",
-                           data=res.midi_path.read_bytes(),
-                           file_name=res.midi_path.name)
-        st.download_button("Download WAV",
-                           data=res.wav_path.read_bytes(),
-                           file_name=res.wav_path.name)
+        st.download_button(
+            "Download MIDI", data=res.midi_path.read_bytes(), file_name=res.midi_path.name
+        )
+        st.download_button(
+            "Download WAV", data=res.wav_path.read_bytes(), file_name=res.wav_path.name
+        )
 
 
 def _render_about() -> None:
     import music_decoder
     from music_decoder.config.hyperparameters import load_hyperparameters
+
     st.write(f"Version: `{music_decoder.__version__}`")
     st.write(f"Hyperparameter set: `{load_hyperparameters().id}`")
 

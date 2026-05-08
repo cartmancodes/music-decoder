@@ -2,13 +2,13 @@
 import numpy as np
 import pytest
 
-from music_decoder.types import TranscribedNote
 from music_decoder.transcription.post_processing import (
     drop_short_notes,
     median_filter_pitch_contour,
     merge_same_pitch,
     snap_to_beats,
 )
+from music_decoder.types import TranscribedNote
 
 
 def _n(start, end, pitch=60, conf=0.9):
@@ -30,8 +30,8 @@ def test_drop_short_notes_keeps_exact_threshold():
 def test_merge_same_pitch_combines_close_notes():
     notes = [
         _n(0.0, 0.5, pitch=60, conf=0.9),
-        _n(0.52, 1.0, pitch=60, conf=0.7),   # gap 0.02s, same pitch
-        _n(1.5, 2.0, pitch=60, conf=0.8),    # too far apart to merge
+        _n(0.52, 1.0, pitch=60, conf=0.7),  # gap 0.02s, same pitch
+        _n(1.5, 2.0, pitch=60, conf=0.8),  # too far apart to merge
     ]
     out = merge_same_pitch(notes, gap_s=0.05)
     assert len(out) == 2
@@ -60,12 +60,11 @@ def test_median_filter_window_must_be_odd():
 
 def test_snap_to_beats_moves_high_confidence_onsets():
     notes = [
-        _n(0.49, 1.0, pitch=60, conf=0.95),   # close to beat at 0.5
-        _n(0.55, 1.0, pitch=62, conf=0.30),   # low confidence: don't snap
+        _n(0.49, 1.0, pitch=60, conf=0.95),  # close to beat at 0.5
+        _n(0.55, 1.0, pitch=62, conf=0.30),  # low confidence: don't snap
     ]
     beats = np.array([0.0, 0.5, 1.0, 1.5])
-    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7,
-                        max_snap_s=0.05)
+    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7, max_snap_s=0.05)
     assert out[0].start_s == 0.5
     assert out[1].start_s == 0.55
 
@@ -73,9 +72,8 @@ def test_snap_to_beats_moves_high_confidence_onsets():
 def test_snap_to_beats_does_not_move_far_onsets():
     notes = [_n(0.30, 0.50, conf=0.95)]
     beats = np.array([0.0, 0.5, 1.0])
-    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7,
-                        max_snap_s=0.05)
-    assert out[0].start_s == 0.30   # 0.20s away from nearest beat → no snap
+    out = snap_to_beats(notes, beats=beats, confidence_threshold=0.7, max_snap_s=0.05)
+    assert out[0].start_s == 0.30  # 0.20s away from nearest beat → no snap
 
 
 def test_apply_post_processing_chains_filters():
@@ -83,12 +81,13 @@ def test_apply_post_processing_chains_filters():
     from music_decoder.transcription.post_processing import apply_post_processing
 
     notes = [
-        _n(0.0, 0.01, pitch=60, conf=0.9),     # too short → dropped
-        _n(0.49, 0.99, pitch=60, conf=0.95),   # snapped to 0.5
-        _n(0.52, 1.0, pitch=60, conf=0.95),    # merged with previous
+        _n(0.0, 0.01, pitch=60, conf=0.9),  # too short → dropped
+        _n(0.49, 0.99, pitch=60, conf=0.95),  # snapped to 0.5
+        _n(0.52, 1.0, pitch=60, conf=0.95),  # merged with previous
     ]
     params = PostProcessingParams(
-        median_filter_window=3, min_note_duration_s=0.05,
+        median_filter_window=3,
+        min_note_duration_s=0.05,
         same_pitch_merge_gap_s=0.05,
         rhythmic_snap_confidence_threshold=0.7,
     )

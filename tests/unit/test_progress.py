@@ -10,6 +10,10 @@ def test_null_progress_callable_does_nothing():
 
 def test_progress_callback_protocol_accepts_lambda():
     calls = []
-    cb: ProgressCallback = lambda stage, fraction: calls.append((stage, fraction))
-    cb("a", 0.5)
+
+    def cb(stage: str, fraction: float) -> None:
+        calls.append((stage, fraction))
+
+    progress: ProgressCallback = cb
+    progress("a", 0.5)
     assert calls == [("a", 0.5)]

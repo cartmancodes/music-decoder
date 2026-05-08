@@ -1,10 +1,12 @@
 """Public synchronous compose() entry point."""
+
 from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Literal
 
 from music_decoder.compose.arrangement import build_midi
 from music_decoder.compose.melody import generate_melody
@@ -18,8 +20,8 @@ from music_decoder.types import (
     Composition,
     Note,
     Scale,
-    TabPosition,
     TabbedNote,
+    TabPosition,
     Tuning,
     VoicedChord,
 )
@@ -67,8 +69,11 @@ def compose(
 
     voicings_list: list[VoicedChord] = [voicings_for(c, tuning)[0] for c in progression]
     melody = generate_melody(
-        scale=scale, progression=progression,
-        bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm, seed=seed,
+        scale=scale,
+        progression=progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        seed=seed,
     )
 
     payload_hash = hashlib.sha1(
@@ -80,9 +85,13 @@ def compose(
 
     midi_path = work / "composition.mid"
     build_midi(
-        melody=melody, voicings=voicings_list,
-        bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm,
-        style=style, out_path=midi_path, tuning=tuning,
+        melody=melody,
+        voicings=voicings_list,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        style=style,
+        out_path=midi_path,
+        tuning=tuning,
     )
     wav_path = work / "composition.wav"
     render_wav(midi_path, wav_path)

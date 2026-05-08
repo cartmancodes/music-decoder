@@ -17,17 +17,15 @@ from .profiles import (
 _NdFloat = np.ndarray[Any, np.dtype[np.float64]]
 
 _PROFILES: dict[str, tuple[_NdFloat, _NdFloat]] = {
-    "krumhansl_kessler": (np.array(KRUMHANSL_KESSLER_MAJOR),
-                          np.array(KRUMHANSL_KESSLER_MINOR)),
-    "temperley":         (np.array(TEMPERLEY_MAJOR),
-                          np.array(TEMPERLEY_MINOR)),
+    "krumhansl_kessler": (np.array(KRUMHANSL_KESSLER_MAJOR), np.array(KRUMHANSL_KESSLER_MINOR)),
+    "temperley": (np.array(TEMPERLEY_MAJOR), np.array(TEMPERLEY_MINOR)),
 }
 
 
 def _pearson(x: _NdFloat, y: _NdFloat) -> float:
     xc = x - x.mean()
     yc = y - y.mean()
-    denom = np.sqrt((xc ** 2).sum() * (yc ** 2).sum())
+    denom = np.sqrt((xc**2).sum() * (yc**2).sum())
     if denom == 0:
         return 0.0
     return float((xc * yc).sum() / denom)
@@ -53,8 +51,11 @@ def correlate_against_profiles(
     second = sorted_corrs[1][2] if len(sorted_corrs) > 1 else top
     return [
         KeyEstimate(
-            tonic=tonic, mode=mode, profile=profile,
-            correlation=corr, margin=corr - second,
+            tonic=tonic,
+            mode=mode,
+            profile=profile,
+            correlation=corr,
+            margin=corr - second,
         )
         for (tonic, mode, corr) in sorted_corrs
     ]
