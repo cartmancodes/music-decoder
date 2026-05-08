@@ -3,14 +3,38 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from music_decoder.logging_setup import get_logger
 from music_decoder.types import BeatGrid, ChordSegment
 
 # Minimum beats the template-HMM backend needs (matches its internal threshold).
 _MIN_BEATS = 4
+
+_log = get_logger("chord_detection.adapter")
+
+
+def _resolve_backend() -> str:
+    """Return the chord-detection backend chosen for this run.
+
+    Reads ``config/hyperparameters.yaml`` at call time so a single edit of
+    that file can switch the public ``analyze()`` pipeline between the
+    DSP-only ``template_hmm`` and madmom's ``madmom_deep_chroma`` without
+    a code change. Falls back to ``madmom_deep_chroma`` if the YAML cannot
+    be loaded (downstream the dispatcher in ``chords/api.py`` will further
+    fall back to ``template_hmm`` when madmom itself is unimportable).
+    """
+    try:
+        from music_decoder.config.hyperparameters import load_hyperparameters
+
+        hp = load_hyperparameters()
+    except Exception as e:  # pragma: no cover - defensive
+        _log.warning("hyperparameters_load_failed", extra={"error": str(e)})
+        return "madmom_deep_chroma"
+    return hp.chord_detection.backend
 
 
 def _synthetic_beat_grid(duration_s: float) -> BeatGrid:
@@ -44,8 +68,11 @@ def recognize_chords(
 
     Adapter that:
       1. Computes HPSS chroma at the default hop length (512).
-      2. Calls the chord-detection API with default :class:`ChordDetectionParams`.
-      3. Unwraps :class:`ChordRecognitionResult` to the bare segment tuple.
+      2. Reads the requested backend from ``config/hyperparameters.yaml``.
+      3. Calls the chord-detection API; the dispatcher falls back to
+         ``template_hmm`` when ``madmom_deep_chroma`` is requested but
+         madmom is unimportable.
+      4. Unwraps :class:`ChordRecognitionResult` to the bare segment tuple.
 
     Falls back to a synthetic uniform beat grid spanning the audio when the
     supplied grid is degenerate (fewer than the backend-required beats); this
@@ -54,18 +81,21 @@ def recognize_chords(
     """
     # Lazy imports: ``music_decoder.chords.api`` pulls in the template-HMM
     # backend on import; keep ``import music_decoder.chords`` itself cheap.
+    import tempfile
+
     from music_decoder.chords.api import detect_chords
     from music_decoder.chords.templates import QUALITIES
     from music_decoder.config.hyperparameters import ChordDetectionParams
     from music_decoder.dsp.chroma import compute_chroma_with_hpss
 
+    backend = _resolve_backend()
     chroma = compute_chroma_with_hpss(samples, sr=sr, hpss_margin=8.0)
     params = ChordDetectionParams(
         qualities=list(QUALITIES),
         hmm_self_transition_prob=0.9,
         no_chord_threshold=0.3,
         min_segment_duration_s=0.25,
-        backend="template_hmm",
+        backend=backend,
     )
 
     # If the beat grid degenerates, swap in a synthetic 4-beat grid spanning
@@ -75,13 +105,38 @@ def recognize_chords(
         duration_s = float(samples.shape[-1]) / float(sr) if samples.size else 1.0
         beat_grid = _synthetic_beat_grid(duration_s)
 
-    result = detect_chords(
-        chroma=chroma,
-        sr=sr,
-        hop_length=512,
-        beat_grid=beat_grid,
-        params=params,
-    )
+    # The madmom backend operates on the audio file directly, not on
+    # pre-computed chroma. Materialize a temp WAV once when madmom is
+    # requested so it has something to read; template_hmm ignores audio_path.
+    audio_path: Path | None = None
+    tmp_audio: Path | None = None
+    if backend == "madmom_deep_chroma":
+        try:
+            import scipy.io.wavfile as wavfile
+
+            tmp_audio = Path(tempfile.mkstemp(suffix=".wav")[1])
+            pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+            wavfile.write(str(tmp_audio), sr, pcm)
+            audio_path = tmp_audio
+        except Exception as e:  # pragma: no cover - defensive
+            _log.warning("madmom_temp_wav_failed", extra={"error": str(e)})
+            audio_path = None
+
+    try:
+        result = detect_chords(
+            chroma=chroma,
+            sr=sr,
+            hop_length=512,
+            beat_grid=beat_grid,
+            params=params,
+            audio_path=audio_path,
+        )
+    finally:
+        if tmp_audio is not None and tmp_audio.exists():
+            try:
+                tmp_audio.unlink()
+            except OSError:
+                pass
 
     if result.skipped_reason is not None and not result.segments:
         # Final safety net: if the backend still bailed (e.g. chroma window

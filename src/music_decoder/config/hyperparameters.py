@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -96,19 +96,80 @@ def _section(raw: dict[str, Any], key: str) -> dict[str, Any]:
     return raw[key]  # type: ignore[no-any-return]
 
 
-def load_hyperparameters(path: Path) -> HyperparameterSet:
+# Per-section defaults applied when a key is missing in the YAML. Keeps the
+# v2 YAML free of plumbing-only fields (e.g. `hmm_self_transition_prob`)
+# while still letting `load_hyperparameters()` succeed against the canonical
+# `config/hyperparameters.yaml`. The defaults match what each adapter pins
+# in code today.
+_DEFAULTS: dict[str, dict[str, Any]] = {
+    "crepe": {"model_capacity": "full", "step_size_ms": 10, "viterbi": True},
+    "key_detection": {"modulation_penalty": 0.3},
+    "beat_tracking": {"ts_min_confidence": 0.5},
+    "chord_detection": {
+        "hmm_self_transition_prob": 0.9,
+        "no_chord_threshold": 0.3,
+    },
+    "ui": {"confidence_thresholds": {"high": 0.8, "medium": 0.5}},
+    "evaluation": {
+        "thresholds": {
+            "note_f_measure": 0.65,
+            "key_mirex_score": 0.75,
+            "tab_string_accuracy": 0.55,
+        },
+        "regression_tolerance": 0.02,
+    },
+}
+
+
+def _build(cls: type, raw_section: dict[str, Any], defaults: dict[str, Any]) -> Any:
+    """Construct a frozen-dataclass section, falling back to defaults for
+    fields the YAML omits. Unknown keys are dropped silently."""
+    allowed = {f.name for f in fields(cls)}
+    merged = {**defaults, **{k: v for k, v in raw_section.items() if k in allowed}}
+    return cls(**{k: v for k, v in merged.items() if k in allowed})
+
+
+_PROJECT_ROOT_HP = Path(__file__).resolve().parents[3] / "config" / "hyperparameters.yaml"
+
+
+def load_hyperparameters(path: Path | None = None) -> HyperparameterSet:
+    """Load the pinned hyperparameter set.
+
+    With no argument resolves the project-root ``config/hyperparameters.yaml``
+    so call sites inside the public adapters can read the YAML at call time
+    without juggling paths. Missing optional fields fall back to per-section
+    defaults (see ``_DEFAULTS``); a missing top-level ``id`` is still an error.
+    """
+    if path is None:
+        path = _PROJECT_ROOT_HP
     raw = yaml.safe_load(path.read_text()) or {}
     if not isinstance(raw, dict) or "id" not in raw:
         raise ValueError("hyperparameters yaml must have a top-level 'id'")
     return HyperparameterSet(
         id=str(raw["id"]),
-        basic_pitch=BasicPitchParams(**_section(raw, "basic_pitch")),
-        crepe=CrepeParams(**_section(raw, "crepe")),
-        post_processing=PostProcessingParams(**_section(raw, "post_processing")),
-        key_detection=KeyDetectionParams(**_section(raw, "key_detection")),
-        beat_tracking=BeatTrackingParams(**_section(raw, "beat_tracking")),
-        chord_detection=ChordDetectionParams(**_section(raw, "chord_detection")),
-        tab_assignment=TabAssignmentParams(**_section(raw, "tab_assignment")),
-        ui=UIParams(**_section(raw, "ui")),
-        evaluation=EvaluationParams(**_section(raw, "evaluation")),
+        basic_pitch=_build(BasicPitchParams, _section(raw, "basic_pitch"), {}),
+        crepe=_build(CrepeParams, raw.get("crepe", {}) or {}, _DEFAULTS["crepe"]),
+        post_processing=_build(
+            PostProcessingParams, _section(raw, "post_processing"), {}
+        ),
+        key_detection=_build(
+            KeyDetectionParams,
+            _section(raw, "key_detection"),
+            _DEFAULTS["key_detection"],
+        ),
+        beat_tracking=_build(
+            BeatTrackingParams,
+            _section(raw, "beat_tracking"),
+            _DEFAULTS["beat_tracking"],
+        ),
+        chord_detection=_build(
+            ChordDetectionParams,
+            _section(raw, "chord_detection"),
+            _DEFAULTS["chord_detection"],
+        ),
+        tab_assignment=_build(TabAssignmentParams, _section(raw, "tab_assignment"), {}),
+        ui=_build(UIParams, raw.get("ui", {}) or {}, _DEFAULTS["ui"]),
+        evaluation=_build(
+            EvaluationParams, raw.get("evaluation", {}) or {}, _DEFAULTS["evaluation"]
+        ),
     )
