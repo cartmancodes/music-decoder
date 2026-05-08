@@ -27,11 +27,11 @@ def render_ascii_tab(
     passed; defaults to 6.
     """
     if num_strings is None and n_strings is None:
-        n = 6
+        n: int = 6
     elif num_strings is not None and n_strings is not None and num_strings != n_strings:
         raise TypeError("pass either num_strings or n_strings, not both with different values")
     else:
-        n = num_strings if num_strings is not None else n_strings
+        n = num_strings if num_strings is not None else (n_strings or 6)
 
     sorted_notes = sorted(notes, key=lambda t: t.note.start_s)
     if not sorted_notes:
@@ -67,11 +67,11 @@ def render_svg_fretboard(
     passed; defaults to 6.
     """
     if num_strings is None and n_strings is None:
-        n = 6
+        n: int = 6
     elif num_strings is not None and n_strings is not None and num_strings != n_strings:
         raise TypeError("pass either num_strings or n_strings, not both with different values")
     else:
-        n = num_strings if num_strings is not None else n_strings
+        n = num_strings if num_strings is not None else (n_strings or 6)
 
     width, height = 800, 200
     margin_x, margin_y = 40, 20

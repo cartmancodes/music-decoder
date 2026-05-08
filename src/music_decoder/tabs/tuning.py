@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+# Re-export the canonical Tuning dataclass from music_decoder.types so the
+# CLI / compose / tabs modules all share one nominal type. (Historically
+# tabs/tuning.py defined its own structurally-identical Tuning, which made
+# mypy --strict flag every cross-module call site.)
+from music_decoder.types import Tuning
 
-
-@dataclass(frozen=True)
-class Tuning:
-    """Open-string MIDI pitches, ordered low to high (string 0 = lowest)."""
-
-    name: str
-    open_pitches: tuple[int, ...]
+__all__ = [
+    "DADGAD",
+    "DROP_C",
+    "DROP_D",
+    "D_STANDARD",
+    "EB_HALF_STEP_DOWN",
+    "PRESETS",
+    "STANDARD_EADGBE",
+    "Tuning",
+    "get_preset",
+]
 
 
 PRESETS: dict[str, Tuning] = {

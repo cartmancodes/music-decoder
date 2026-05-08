@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yt_dlp
+import yt_dlp  # type: ignore[import-untyped]
 
 from music_decoder.errors import YouTubeError
 

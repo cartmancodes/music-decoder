@@ -16,6 +16,7 @@ import subprocess
 import sys
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
+from typing import Literal, cast
 
 import click
 
@@ -43,7 +44,7 @@ _TUNINGS = {
 
 
 def _serialize(obj: object) -> object:
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return {k: _serialize(v) for k, v in asdict(obj).items()}
     if isinstance(obj, Path):
         return str(obj)
@@ -135,7 +136,7 @@ def cli_compose(
             progression=chords,
             bars_per_chord=bars,
             tempo_bpm=tempo,
-            style=style,
+            style=cast(Literal["arpeggio", "strum", "fingerstyle"], style),
             tuning=_TUNINGS[tuning],
             seed=seed,
             out_dir=Path(out),

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal, cast
 
 import streamlit as st
 
 from music_decoder import analyze, compose
 from music_decoder.config.runtime import load_runtime_config
 from music_decoder.errors import MusicDecoderError
+from music_decoder.progress import ProgressCallback
 from music_decoder.tabs.tuning import (
     D_STANDARD,
     DADGAD,
@@ -69,16 +71,20 @@ def _render_analyze(out_dir: Path) -> None:
     if st.button("Analyze") and source is not None:
         bar = st.progress(0.0, text="starting…")
 
-        def cb(stage: str, frac: float) -> None:
-            bar.progress(min(max(frac, 0.0), 1.0), text=f"{stage} {int(frac * 100)}%")
+        def cb(stage: str, fraction: float) -> None:
+            bar.progress(
+                min(max(fraction, 0.0), 1.0),
+                text=f"{stage} {int(fraction * 100)}%",
+            )
 
+        progress: ProgressCallback = cb
         try:
             res = analyze(
                 source,
                 declared_kind=declared,  # type: ignore[arg-type]
                 tuning=_TUNINGS[tuning_name],
                 use_separation=use_sep,
-                progress=cb,
+                progress=progress,
             )
         except MusicDecoderError as e:
             st.error(str(e))
@@ -135,7 +141,7 @@ def _render_compose(out_dir: Path) -> None:
                 progression=chords,
                 bars_per_chord=bars,
                 tempo_bpm=float(tempo),
-                style=style,
+                style=cast(Literal["arpeggio", "strum", "fingerstyle"], style),
                 tuning=_TUNINGS[tuning_name],
                 seed=seed,
                 out_dir=out_dir,
@@ -159,7 +165,11 @@ def _render_about() -> None:
     from music_decoder.config.hyperparameters import load_hyperparameters
 
     st.write(f"Version: `{music_decoder.__version__}`")
-    st.write(f"Hyperparameter set: `{load_hyperparameters().id}`")
+    cfg_path = Path("config/hyperparameters.yaml")
+    if cfg_path.exists():
+        st.write(f"Hyperparameter set: `{load_hyperparameters(cfg_path).id}`")
+    else:
+        st.write("Hyperparameter set: `unknown` (config/hyperparameters.yaml not found)")
 
 
 if __name__ == "__main__":

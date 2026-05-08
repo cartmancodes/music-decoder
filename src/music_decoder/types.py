@@ -76,7 +76,7 @@ class Scale:
             raise ValueError(f"Unknown tonic {tonic!r}")
         if mode not in ("major", "minor"):
             raise ValueError(f"Mode must be 'major' or 'minor', got {mode!r}")
-        return cls(tonic=tonic, mode=mode)
+        return cls(tonic=tonic, mode=cast(Literal["major", "minor"], mode))
 
 
 @dataclass(frozen=True)
