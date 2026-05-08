@@ -66,14 +66,12 @@ def main() -> None:
 @click.option("--tuning", type=click.Choice(list(_TUNINGS)), default="EADGBE")
 @click.option("--solo-guitar/--full-mix", default=False)
 @click.option("--no-separation", is_flag=True, default=False)
-@click.option("--out", type=click.Path(file_okay=False), default=None)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_analyze(
     source: str,
     tuning: str,
     solo_guitar: bool,
     no_separation: bool,
-    out: str | None,
     fmt: str,
 ) -> None:
     """Identify chord progression + guitar tab from a file or YouTube URL."""
@@ -83,7 +81,6 @@ def cli_analyze(
             declared_kind="solo_guitar" if solo_guitar else "full_mix",
             tuning=_TUNINGS[tuning],
             use_separation=not no_separation,
-            out_dir=Path(out) if out else None,
         )
     except MusicDecoderError as e:
         raise click.ClickException(str(e)) from e

@@ -32,7 +32,6 @@ def analyze(
     tuning: Tuning = STANDARD_EADGBE,
     use_separation: bool = True,
     progress: ProgressCallback | None = None,
-    out_dir: Path | None = None,
 ) -> AnalysisResult:
     """Audio file or YouTube URL → chord progression + tab + key.
 
