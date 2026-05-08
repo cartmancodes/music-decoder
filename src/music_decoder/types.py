@@ -99,6 +99,11 @@ class ChordSymbol:
         raise ValueError(f"Unknown chord quality {rest!r} in {label!r}")
 
     def to_label(self) -> str:
+        # Chord recognizers emit ("N", "") for no-chord frames per the JAMS
+        # convention in chords/labels.py — render that as "N" instead of
+        # crashing on the empty quality.
+        if self.root == "N":
+            return "N"
         return f"{self.root}{_QUALITY_TO_LABEL[self.quality]}"
 
 

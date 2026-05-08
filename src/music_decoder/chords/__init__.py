@@ -148,7 +148,7 @@ def recognize_chords(
                 start_s=0.0,
                 end_s=max(duration_s, 0.25),
                 root="N",
-                quality="no-chord",
+                quality="",
                 confidence=0.0,
             ),
         )
