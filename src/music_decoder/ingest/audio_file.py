@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io.wavfile as wavfile
 
+from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import AudioSource, LoadedAudio
 
 from .ffmpeg import decode_to_wav
@@ -81,5 +82,20 @@ def load_audio(source: AudioSource) -> LoadedAudio:
     )
 
 
-# v2 alias: prefer `load_audio_file` going forward.
-load_audio_file = load_audio
+def load_audio_file(path: Path | AudioSource) -> LoadedAudio:
+    """Load audio from a filesystem path or a pre-built :class:`AudioSource`.
+
+    The v2 public ``analyze()`` entry point passes a bare :class:`Path`; the
+    surviving lower-level call sites still build an :class:`AudioSource` to
+    pin the requested quality / tuning. This wrapper accepts either and
+    delegates to :func:`load_audio` with sensible defaults.
+    """
+    if isinstance(path, AudioSource):
+        return load_audio(path)
+    source = AudioSource(
+        path=Path(path),
+        declared_kind="solo_guitar",
+        requested_quality="standard",
+        requested_tuning=STANDARD_EADGBE,
+    )
+    return load_audio(source)

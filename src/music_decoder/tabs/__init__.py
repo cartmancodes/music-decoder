@@ -10,12 +10,12 @@ from music_decoder.types import TabbedNote, TranscribedNote
 
 
 _DEFAULT_WEIGHTS: dict[str, float] = {
-    "fret": 0.3,
-    "string": 0.1,
-    "hand_motion": 0.4,
-    "open_string_bonus": -0.2,
-    "high_fret_penalty": 0.5,
-    "string_jump": 0.3,
+    "w_move": 1.0,
+    "w_string": 0.3,
+    "w_span": 0.5,
+    "w_high": 0.4,
+    "w_open": 0.2,
+    "w_chord_intra": 0.6,
 }
 
 

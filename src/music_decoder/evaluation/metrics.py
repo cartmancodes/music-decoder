@@ -6,7 +6,7 @@ from typing import Any
 import mir_eval
 import numpy as np
 
-from music_decoder.types import ChordSegment
+from music_decoder.types import ChordSegment, KeyEstimate, TabbedNote
 
 _PITCH_CLASS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
                 "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
@@ -82,9 +82,18 @@ def pitch_class_accuracy(
     return float(matched / valid.sum())
 
 
-def key_mirex_score(predicted: tuple[str, str], truth: tuple[str, str]) -> float:
-    p_tonic, p_mode = predicted
-    t_tonic, t_mode = truth
+def _coerce_key(value: tuple[str, str] | KeyEstimate) -> tuple[str, str]:
+    if isinstance(value, KeyEstimate):
+        return value.tonic, value.mode
+    return value
+
+
+def key_mirex_score(
+    predicted: tuple[str, str] | KeyEstimate,
+    truth: tuple[str, str] | KeyEstimate,
+) -> float:
+    p_tonic, p_mode = _coerce_key(predicted)
+    t_tonic, t_mode = _coerce_key(truth)
     p, t = _PITCH_CLASS[p_tonic], _PITCH_CLASS[t_tonic]
     if (p, p_mode) == (t, t_mode):
         return 1.0
@@ -100,9 +109,22 @@ def key_mirex_score(predicted: tuple[str, str], truth: tuple[str, str]) -> float
     return 0.0
 
 
+def _coerce_tab_row(
+    row: tuple[int, int, int] | TabbedNote,
+) -> tuple[int, int, int]:
+    """Normalize a tab row to ``(pitch, string, fret)``.
+
+    Accepts either the legacy ``(pitch, string, fret)`` tuple or the public
+    :class:`TabbedNote` shape used by ``analyze()``.
+    """
+    if isinstance(row, TabbedNote):
+        return int(row.note.pitch), int(row.position.string), int(row.position.fret)
+    return row
+
+
 def tab_string_accuracy(
-    predicted: Iterable[tuple[int, int, int]],
-    truth: Iterable[tuple[int, int, int]],
+    predicted: Iterable[tuple[int, int, int] | TabbedNote],
+    truth: Iterable[tuple[int, int, int] | TabbedNote],
     *,
     pred_intervals: np.ndarray[Any, np.dtype[np.float64]] | None = None,
     gt_intervals: np.ndarray[Any, np.dtype[np.float64]] | None = None,
@@ -124,8 +146,25 @@ def tab_string_accuracy(
       denominator. The metric collapses to 0.0 when no matches exist (a clear
       signal of pipeline failure rather than a meaningless small number).
     """
-    pred_list = list(predicted)
-    truth_list = list(truth)
+    pred_raw = list(predicted)
+    truth_raw = list(truth)
+
+    # If callers passed TabbedNote instances and didn't provide explicit
+    # intervals, derive them from the note start/end so that time-aligned
+    # matching can run automatically.
+    if pred_intervals is None and pred_raw and isinstance(pred_raw[0], TabbedNote):
+        pred_intervals = np.array(
+            [(r.note.start_s, r.note.end_s) for r in pred_raw if isinstance(r, TabbedNote)],
+            dtype=float,
+        )
+    if gt_intervals is None and truth_raw and isinstance(truth_raw[0], TabbedNote):
+        gt_intervals = np.array(
+            [(r.note.start_s, r.note.end_s) for r in truth_raw if isinstance(r, TabbedNote)],
+            dtype=float,
+        )
+
+    pred_list = [_coerce_tab_row(r) for r in pred_raw]
+    truth_list = [_coerce_tab_row(r) for r in truth_raw]
     if not pred_list and not truth_list:
         return 1.0
     if not pred_list or not truth_list:
@@ -159,8 +198,8 @@ def tab_string_accuracy(
 
 
 def chord_recognition_score(
-    predicted: list[ChordSegment],
-    truth: list[tuple[float, float, str, str]],
+    predicted: Iterable[ChordSegment | tuple[float, float, str, str]],
+    truth: Iterable[ChordSegment | tuple[float, float, str, str]],
     *,
     frame_rate_hz: float = 100.0,
 ) -> float:
@@ -172,15 +211,23 @@ def chord_recognition_score(
         0.0 otherwise
 
     Returns the time-weighted mean across the union span.
+
+    Accepts either :class:`ChordSegment` instances or raw
+    ``(start_s, end_s, root, quality)`` tuples on either side.
     """
-    if not predicted and not truth:
+    predicted_list = list(predicted)
+    truth_list = list(truth)
+    if not predicted_list and not truth_list:
         return 1.0
-    if not predicted or not truth:
+    if not predicted_list or not truth_list:
         return 0.0
 
+    def _end(seg: ChordSegment | tuple[float, float, str, str]) -> float:
+        return seg.end_s if isinstance(seg, ChordSegment) else seg[1]
+
     end = max(
-        max(seg.end_s for seg in predicted),
-        max(t[1] for t in truth),
+        max(_end(seg) for seg in predicted_list),
+        max(_end(seg) for seg in truth_list),
     )
     n_frames = max(round(end * frame_rate_hz), 1)
     times = (np.arange(n_frames) + 0.5) / frame_rate_hz
@@ -199,11 +246,11 @@ def chord_recognition_score(
     score_sum = 0.0
     counted = 0
     for t in times:
-        truth_label = _label_at(truth, float(t))
+        truth_label = _label_at(truth_list, float(t))
         if truth_label is None:
             continue
         counted += 1
-        pred_label = _label_at(predicted, float(t))
+        pred_label = _label_at(predicted_list, float(t))
         if pred_label is None:
             continue
         if pred_label == truth_label:

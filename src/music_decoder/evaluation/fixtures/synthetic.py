@@ -17,6 +17,7 @@ first regression run.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ import pretty_midi
 import scipy.io.wavfile as wavfile
 
 from music_decoder.logging_setup import get_logger
+from music_decoder.types import ChordSegment, KeyEstimate, TabbedNote
 
 from .base import Fixture, GroundTruth
 
@@ -132,3 +134,88 @@ class SyntheticFixtures:
                 name=midi_path.stem, source="synthetic",
                 audio_path=wav, ground_truth=self._ground_truth(midi_path),
             )
+
+
+# ---- v2 public-API fixture shape ------------------------------------------
+#
+# The v2 regression suite (`tests/integration/test_regression.py`) consumes
+# fixtures whose ground truth is expressed in the public types that
+# ``analyze()`` returns: a :class:`KeyEstimate`, a tuple of
+# :class:`ChordSegment`, and a tuple of :class:`TabbedNote`. The v1 shape in
+# ``base.py`` is preserved for backward compatibility — the v2 shape lives
+# alongside it.
+
+
+@dataclass(frozen=True)
+class SyntheticGroundTruth:
+    key: KeyEstimate
+    chord_progression: tuple[ChordSegment, ...]
+    tab: tuple[TabbedNote, ...]
+
+
+@dataclass(frozen=True)
+class SyntheticFixture:
+    name: str
+    audio_path: Path
+    gt: SyntheticGroundTruth
+
+
+# Hand-curated ground truth for the two committed synthetic clips. Both are
+# short, deterministic MIDI files; deriving GT directly from the file would
+# work but pinning it here makes the regression behavior obvious from
+# inspection and resilient to small MIDI edits.
+_SYNTHETIC_GT: dict[str, SyntheticGroundTruth] = {
+    "c_major_scale": SyntheticGroundTruth(
+        key=KeyEstimate(
+            tonic="C", mode="major",
+            profile="krumhansl_kessler", correlation=1.0, margin=0.0,
+        ),
+        chord_progression=(
+            ChordSegment(start_s=0.0, end_s=4.0, root="C", quality="maj", confidence=1.0),
+        ),
+        tab=(),
+    ),
+    "g_major_chord": SyntheticGroundTruth(
+        key=KeyEstimate(
+            tonic="G", mode="major",
+            profile="krumhansl_kessler", correlation=1.0, margin=0.0,
+        ),
+        chord_progression=(
+            ChordSegment(start_s=0.0, end_s=2.0, root="G", quality="maj", confidence=1.0),
+        ),
+        tab=(),
+    ),
+}
+
+
+def _default_root() -> Path:
+    """Default fixture root: ``tests/fixtures/synthetic`` under the repo."""
+    return Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "synthetic"
+
+
+def iter_synthetic_fixtures(
+    root: Path | None = None,
+) -> Iterator[SyntheticFixture]:
+    """Yield v2 :class:`SyntheticFixture` records for the committed .mid clips.
+
+    Each yield corresponds to one ``.mid`` under *root* (default:
+    ``tests/fixtures/synthetic/``). The companion ``.wav`` is rendered on
+    demand via :class:`SyntheticFixtures` (cached on disk so a second run is
+    cheap). Ground truth is hand-pinned per-clip in ``_SYNTHETIC_GT``; clips
+    with no entry are skipped silently so adding a new MIDI without updating
+    the GT table does not break the regression run.
+    """
+    root = root if root is not None else _default_root()
+    if not root.exists():
+        return
+    loader = SyntheticFixtures(root=root)
+    for midi_path in sorted(root.glob("*.mid")):
+        gt = _SYNTHETIC_GT.get(midi_path.stem)
+        if gt is None:
+            _log.info(
+                "synthetic_fixture_no_ground_truth_skipping",
+                extra={"name": midi_path.stem},
+            )
+            continue
+        wav = loader._ensure_wav(midi_path)
+        yield SyntheticFixture(name=midi_path.stem, audio_path=wav, gt=gt)
