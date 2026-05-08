@@ -128,7 +128,7 @@ The CLI is grouped under `music-decoder` with four subcommands:
 
 ```text
 music-decoder analyze SOURCE [--tuning ...] [--solo-guitar | --full-mix]
-                              [--no-separation] [--out DIR]
+                              [--no-separation]
                               [--format pretty | json]
 ```
 
@@ -137,7 +137,7 @@ music-decoder analyze SOURCE [--tuning ...] [--solo-guitar | --full-mix]
   `https://www.youtube.com/watch?v=...`).
 - `--tuning` — guitar tuning preset. One of:
   - `EADGBE` (default; standard tuning).
-  - `Drop D` or `Drop-D`.
+  - `Drop D` or `Drop-D` (case-sensitive aliases for the same preset).
   - `Eb` (half-step down).
   - `D standard` (whole-step down).
   - `Drop C`.
@@ -147,11 +147,12 @@ music-decoder analyze SOURCE [--tuning ...] [--solo-guitar | --full-mix]
   even if `--no-separation` isn't set.
 - `--no-separation` — skip the Demucs guitar-isolation step on full
   mixes (useful when you trust the original mix or want to save time).
-- `--out DIR` — accepted for forward-compat; analyze does not
-  currently write artifacts to disk other than the YouTube cache.
 - `--format pretty | json` — output format. `pretty` (default) prints
   a human-readable summary. `json` dumps the full `AnalysisResult`
   dataclass tree (paths converted to strings, tuples to lists).
+
+`analyze` does not write artifacts to disk other than the YouTube cache;
+there is no `--out` flag.
 
 #### Examples
 
@@ -318,7 +319,6 @@ def analyze(
     tuning: Tuning = STANDARD_EADGBE,
     use_separation: bool = True,
     progress: ProgressCallback | None = None,
-    out_dir: Path | None = None,
 ) -> AnalysisResult: ...
 ```
 
@@ -661,10 +661,17 @@ music-decoder analyze song.mp3
 [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) records
 the canonical hyperparameter set for the current pipeline. Its `id`
 is stamped into every `AnalysisResult.metadata["hyperparameter_set"]`
-so you can correlate a result with its config. Note: not every value
-in this file is actively read by the public adapters in v2; many are
-pinned in the code. The file is best treated as a reproducibility
-record, not a live tuning knob.
+so you can correlate a result with its config.
+
+Most adapter functions read their hyperparameters from this YAML at
+call time — notably `chord_detection.backend` (used by
+`recognize_chords`) and the `basic_pitch.minimum_frequency_hz` /
+`maximum_frequency_hz` bounds (used by `transcribe`). Some sub-keys
+remain hard-coded in the adapter modules: the `tab_assignment.weights`
+block and `post_processing.median_filter_window` are not currently
+overridable from the YAML. Those defaults are intentional for v2 and
+are listed in the technical doc §4.x; we track the gap as future work
+in the v2 design spec §14.
 
 ### Eval thresholds
 
@@ -849,22 +856,23 @@ NumPy's default entropy source, so every run differs.
 
 ### Soundfonts
 
-`compose()` by default renders WAV through `pretty_midi.PrettyMIDI.synthesize`,
-a built-in sine synth. The output is recognizable but tonally bland.
-For a more realistic guitar timbre, edit
-[`synth/__init__.py`](../src/music_decoder/synth/__init__.py)
-`render_wav` (or pass `backend=SynthBackend.FLUIDSYNTH,
-soundfont_path=<path>` to the underlying
-`synthesize_midi_to_wav`) and supply a soundfont. The simplest way to
-get one:
+`compose()` auto-selects fluidsynth when both
+`config/runtime.yaml` `fluidsynth_soundfont` resolves to an existing
+`.sf2` file and the `fluidsynth` Python module is importable; otherwise
+it falls back to `pretty_midi.PrettyMIDI.synthesize` (a built-in sine
+synth) with a single warning log line. To get a richer timbre, install
+fluidsynth and supply a soundfont. The simplest way:
 
 ```bash
 python scripts/download_soundfont.py
 ```
 
 This downloads `TimGM6mb.sf2` (~6 MB, public domain) into
-`tests/fixtures/synthetic/soundfont/`. Move it wherever you like and
-point `config/runtime.yaml` `fluidsynth_soundfont` at it.
+`tests/fixtures/synthetic/soundfont/`. The `render_wav` adapter looks
+in that directory automatically; you can also move the `.sf2` wherever
+you like and point `config/runtime.yaml` `fluidsynth_soundfont` at it.
+Callers who want to force a backend can pass `backend=SynthBackend.SINE`
+or `backend=SynthBackend.FLUIDSYNTH` to `synth.render_wav` directly.
 
 ### Caching the YouTube downloads
 

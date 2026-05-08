@@ -438,7 +438,8 @@ duration ≥ 1.0 s.
 - Output: 1–3 ranked `VoicedChord` candidates.
 - Algorithm:
   - Look up canonical fingerings from `chords/voicings.py` (already exists,
-    48 chord types covered after Phase B-3).
+    96 chord types covered: 12 roots × 8 qualities after Phase B-3, plus
+    a no-chord row → 97 template states overall).
   - Re-voice for the requested tuning when not EADGBE: transpose canonical
     fingering by the open-string-pitch delta, then run the existing A*
     voicing search restricted to a single time-step to find the lowest-cost

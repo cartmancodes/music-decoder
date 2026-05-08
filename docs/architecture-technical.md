@@ -69,7 +69,7 @@ Source layout under [src/music_decoder/](../src/music_decoder/):
   - [beats.py](../src/music_decoder/dsp/beats.py) — librosa beat tracking.
   - [time_signature.py](../src/music_decoder/dsp/time_signature.py) — meter inference (kept; not wired into the public pipeline yet).
 - [key/](../src/music_decoder/key/) — Krumhansl-Kessler / Temperley key estimation.
-- [chords/](../src/music_decoder/chords/) — chord recognition (templates + 49-state Viterbi, optional madmom backend).
+- [chords/](../src/music_decoder/chords/) — chord recognition (templates + 97-state Viterbi, optional madmom backend).
 - [transcription/](../src/music_decoder/transcription/) — basic-pitch wrapper + post-processing.
 - [tabs/](../src/music_decoder/tabs/) — A* fret search + ASCII/SVG renderers.
 - [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`.
@@ -103,7 +103,6 @@ def analyze(
     tuning: Tuning = STANDARD_EADGBE,
     use_separation: bool = True,
     progress: ProgressCallback | None = None,
-    out_dir: Path | None = None,
 ) -> AnalysisResult: ...
 
 
@@ -122,9 +121,9 @@ def compose(
 
 Notes:
 
-- `analyze.out_dir` is currently accepted but unused; the function does not
-  write any artifacts to disk other than the YouTube cache that
-  [ingest/youtube.py](../src/music_decoder/ingest/youtube.py) maintains.
+- `analyze()` does not write any artifacts to disk other than the YouTube
+  cache that [ingest/youtube.py](../src/music_decoder/ingest/youtube.py)
+  maintains.
 - `compose.out_dir` is required (the implementation in
   [compose/api.py](../src/music_decoder/compose/api.py) treats it as a
   required keyword argument; the README and [Usage](usage.md) reflect this).
@@ -350,10 +349,12 @@ available to anyone using `key.api.detect_key` directly.
    `compute_chroma_with_hpss(hpss_margin=8.0)`.
 2. Builds a [`ChordDetectionParams`](../src/music_decoder/config/hyperparameters.py)
    with `qualities=QUALITIES` (8 qualities), `hmm_self_transition_prob=0.9`,
-   `no_chord_threshold=0.3`, `min_segment_duration_s=0.25`,
-   `backend="template_hmm"`. Note: this adapter pins `template_hmm` even
-   when [`config/hyperparameters.yaml`](../config/hyperparameters.yaml)
-   defaults to `madmom_deep_chroma`.
+   `no_chord_threshold=0.3`, `min_segment_duration_s=0.25`, and a
+   `backend` value read at call time from
+   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml)
+   (defaults to `madmom_deep_chroma`; the dispatcher in
+   [chords/api.py](../src/music_decoder/chords/api.py) falls back to
+   `template_hmm` when madmom is unimportable).
 3. If the supplied `BeatGrid` has fewer than 4 beats (silence, very short
    clips, sustained chords), it swaps in a synthetic uniform 4-beat grid
    spanning the audio so the recognizer can still emit at least one
@@ -375,9 +376,8 @@ available to anyone using `key.api.detect_key` directly.
 - `_QUALITY_INTERVALS`: `maj=(0,4,7)`, `min=(0,3,7)`, `7=(0,4,7,10)`,
   `maj7=(0,4,7,11)`, `min7=(0,3,7,10)`, `dim=(0,3,6)`, `sus4=(0,5,7)`,
   `aug=(0,4,8)`.
-- Total state space: **97 states** (96 chord + 1 no-chord). The design
-  doc and template-HMM backend describe this as "49 states" historically,
-  but the current code uses 97 after the Phase B-3 vocabulary expansion.
+- Total state space: **97 states** (96 chord + 1 no-chord) after the
+  Phase B-3 vocabulary expansion (4 → 8 qualities).
 - Stable `label_index(root, quality) -> int` and round-trip
   `chord_label` / `label_to_root_quality` helpers used by the recognizer
   and by the JAMS-label parser.
@@ -433,10 +433,10 @@ triples.
 - The dispatcher [chords/api.py](../src/music_decoder/chords/api.py)
   selects backends based on `params.backend`. Choosing
   `"madmom_deep_chroma"` falls back to `template_hmm` if madmom can't be
-  imported. Choosing anything else uses `template_hmm`. Note the public
-  `analyze()` adapter currently overrides this to `template_hmm`; to
-  use madmom you must call `chords.api.detect_chords` directly with
-  `backend="madmom_deep_chroma"` and an `audio_path`.
+  imported. Choosing anything else uses `template_hmm`. The public
+  `analyze()` adapter materializes a temporary WAV from its in-memory
+  samples when madmom is requested so the file-based madmom pipeline
+  has something to read.
 
 ### 4.7 Transcription
 
@@ -448,11 +448,13 @@ or ONNX variant of `ICASSP_2022_MODEL_PATH` if present (avoids TF version
 issues on macOS), and calls `basic_pitch.inference.predict` with the
 hyperparameters from [`BasicPitchParams`](../src/music_decoder/config/hyperparameters.py)
 — in v2: `onset_threshold=0.5`, `frame_threshold=0.3`,
-`minimum_note_length_ms=58`, `minimum_frequency_hz=65.0`,
-`maximum_frequency_hz=2093.0`. Note that the values in
-[`config/hyperparameters.yaml`](../config/hyperparameters.yaml) are slightly
-wider (32.7 Hz / 2000 Hz); the public adapter pins guitar-friendly bounds
-(C2/C7).
+`minimum_note_length_ms=58`. The frequency bounds
+(`minimum_frequency_hz`, `maximum_frequency_hz`) are read at call time
+from [`config/hyperparameters.yaml`](../config/hyperparameters.yaml). The
+adapter logs a one-line warning when the YAML values fall outside a
+guitar-friendly window (< 50 Hz or > 3000 Hz) but still respects them;
+when the YAML cannot be loaded it falls back to 65 Hz / 2093 Hz
+(low E2 / C7).
 
 The wrapper writes both `raw_basic_pitch.mid` and `post_basic_pitch.mid`
 to its `output_dir`. The post-MIDI is currently a copy; the post-processing
@@ -707,21 +709,17 @@ an approximate visual reference; the MIDI is the source of truth.
 
 ### 5.5 Synthesis
 
-[synth/render_wav](../src/music_decoder/synth/__init__.py) is a thin
-alias over
+[synth/render_wav](../src/music_decoder/synth/__init__.py) wraps
 [synth/fluidsynth_wrapper.py](../src/music_decoder/synth/fluidsynth_wrapper.py)
-`synthesize_midi_to_wav`. The default backend is **`SynthBackend.SINE`**
-— it uses `pretty_midi.PrettyMIDI.synthesize(fs=sr)` (a built-in sine
-synth, no external deps). To use the fluidsynth backend, callers must
-pass `backend=SynthBackend.FLUIDSYNTH` and a `soundfont_path`. The
+`synthesize_midi_to_wav` with auto-selection: it picks
+**`SynthBackend.FLUIDSYNTH`** when both
+`RuntimeConfig.fluidsynth_soundfont` resolves to an existing `.sf2` and
+the `fluidsynth` Python module is importable; otherwise it logs a
+single warning line and falls back to `SynthBackend.SINE`
+(`pretty_midi.PrettyMIDI.synthesize(fs=sr)`, no external deps). Callers
+can force a specific backend via the optional `backend` keyword. The
 output is peak-normalized to 0.9 and written as 16-bit PCM at
 `sr=22050` Hz.
-
-The public `compose()` always calls `render_wav` with defaults, so
-fluidsynth is *not* invoked in the default flow — the WAV is rendered
-through the pretty-MIDI sine synthesizer. (Fluidsynth + soundfont is
-exercised by the regression test fixtures via
-[evaluation/fixtures/synthetic.py](../src/music_decoder/evaluation/fixtures/synthetic.py).)
 
 ---
 
@@ -770,13 +768,21 @@ every `AnalysisResult.metadata["hyperparameter_set"]`. Sections:
 - `composition` — notes per bar, strong/weak chord-tone probabilities,
   Markov interval cap, strong/weak velocities.
 
-Note: not every value in `hyperparameters.yaml` is plumbed through to
-the public adapters. The dictionary is mostly used as a versioned record
-of the run. The actual numbers used by the public `analyze()` pipeline
-are pinned in the adapter modules (e.g. `dsp/__init__.py`,
-`chords/__init__.py`, `transcription/__init__.py`,
-`tabs/__init__.py`); the YAML is a documentation / regression artifact
-rather than a live config knob.
+Note: most adapter functions read their hyperparameters from this YAML
+at call time. As of the v2 reconciliation, the public adapters do
+respect:
+
+- `chord_detection.backend` — picked up by
+  [chords/\_\_init\_\_.py](../src/music_decoder/chords/__init__.py).
+- `basic_pitch.minimum_frequency_hz` /
+  `basic_pitch.maximum_frequency_hz` — picked up by
+  [transcription/\_\_init\_\_.py](../src/music_decoder/transcription/__init__.py).
+
+A few sub-keys remain hard-coded in the adapter modules — notably the
+`tab_assignment.weights` block and `post_processing.median_filter_window`,
+plus the chord-detection threshold / self-transition probabilities. Those
+defaults are intentional for v2 and are listed alongside their adapters
+in §4.x; we track the gap as future work in spec §14.
 
 ### 6.3 `config/eval_thresholds.yaml`
 
@@ -798,7 +804,6 @@ four subcommands:
   - `--tuning EADGBE | "Drop D" | "Drop-D" | Eb | "D standard" | "Drop C" | DADGAD`
   - `--solo-guitar / --full-mix` (default `--full-mix`).
   - `--no-separation` (boolean flag).
-  - `--out DIR` (currently passed to `analyze()` but unused).
   - `--format pretty | json`.
 - `compose`
   - `--scale "C:major"` (required).
@@ -1073,18 +1078,19 @@ imported by the v2 codebase.
   [tabs/__init__.py](../src/music_decoder/tabs/__init__.py).
   `config/hyperparameters.yaml` records the canonical values for
   reproducibility but the adapter pins its own copy.
-- **Switch chord backend**: pass `backend="madmom_deep_chroma"` and an
-  `audio_path` to
-  [chords/api.py](../src/music_decoder/chords/api.py) `detect_chords`
-  directly. The public `analyze()` adapter currently hard-codes
-  `template_hmm`; to enable madmom by default you'd edit
-  [chords/__init__.py](../src/music_decoder/chords/__init__.py).
-- **Use fluidsynth output**: pass
-  `backend=SynthBackend.FLUIDSYNTH, soundfont_path=<path>` to
-  [synth/fluidsynth_wrapper.py](../src/music_decoder/synth/fluidsynth_wrapper.py)
-  `synthesize_midi_to_wav`, or rewrite
+- **Switch chord backend**: edit
+  [`config/hyperparameters.yaml`](../config/hyperparameters.yaml)
+  `chord_detection.backend` (currently `madmom_deep_chroma`; the
+  alternative is `template_hmm`). The public `analyze()` adapter reads
+  this at call time.
+- **Use fluidsynth output**: ensure
+  `RuntimeConfig.fluidsynth_soundfont` resolves to an existing `.sf2`
+  file (run `scripts/download_soundfont.py` for a public-domain one)
+  and that `pip install pyfluidsynth` succeeds.
   [synth/__init__.py](../src/music_decoder/synth/__init__.py)
-  `render_wav` to read the soundfont path from the runtime config.
+  `render_wav` auto-selects fluidsynth when both conditions hold and
+  falls back to the sine synth otherwise. Callers can force a specific
+  backend via the optional `backend=` keyword.
 - **Change the synthetic regression fixtures**: drop a `.mid` under
   [tests/fixtures/synthetic/](../tests/fixtures/synthetic/) and add
   ground truth in
