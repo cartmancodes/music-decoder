@@ -176,8 +176,14 @@ _SYNTHETIC_GT: dict[str, SyntheticGroundTruth] = {
             correlation=1.0,
             margin=0.0,
         ),
+        # A monophonic C-major scale has no harmonic content -- the
+        # correct chord recognition output is a single "no-chord" segment
+        # spanning the clip. (Pinning a "C major" chord here would be
+        # wrong: there are no simultaneous voices.) The recognizer's
+        # internal no-chord label is ``("N", "")``; we match that exactly
+        # so the metric scores a clean 1.0.
         chord_progression=(
-            ChordSegment(start_s=0.0, end_s=4.0, root="C", quality="maj", confidence=1.0),
+            ChordSegment(start_s=0.0, end_s=4.0, root="N", quality="", confidence=1.0),
         ),
         tab=(),
     ),
