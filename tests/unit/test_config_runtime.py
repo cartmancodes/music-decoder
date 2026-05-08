@@ -57,3 +57,37 @@ def test_runtime_config_has_youtube_cache_dir(tmp_path, monkeypatch):
     cfg = load_runtime_config(yaml_path)
     assert str(cfg.youtube_cache_dir).endswith("yt_cache")
     assert str(cfg.composition_out_dir).endswith("compositions")
+
+
+def test_runtime_config_exposes_full_schema(tmp_path: Path):
+    cfg_path = tmp_path / "runtime.yaml"
+    cfg_path.write_text(
+        "data_dir: /tmp/md\n"
+        "log_level: INFO\n"
+        "ffmpeg_path: ffmpeg\n"
+        "fluidsynth_soundfont: GeneralUser-GS.sf2\n"
+        "sample_rate_hz: 22050\n"
+        "youtube_cache_dir: ${data_dir}/yt_cache\n"
+        "composition_out_dir: ${data_dir}/compositions\n"
+    )
+    cfg = load_runtime_config(cfg_path)
+    assert cfg.data_dir == Path("/tmp/md")
+    assert cfg.fluidsynth_soundfont == "GeneralUser-GS.sf2"
+    assert cfg.sample_rate_hz == 22050
+    # ${data_dir} interpolation resolves into nested paths.
+    assert cfg.youtube_cache_dir == Path("/tmp/md/yt_cache")
+    assert cfg.composition_out_dir == Path("/tmp/md/compositions")
+
+
+def test_runtime_config_defaults_for_optional_fields(tmp_path: Path):
+    cfg_path = tmp_path / "runtime.yaml"
+    cfg_path.write_text(
+        "youtube_cache_dir: /tmp/yt_cache\n"
+        "composition_out_dir: /tmp/compositions\n"
+        "log_level: INFO\n"
+    )
+    cfg = load_runtime_config(cfg_path)
+    # Old YAMLs without the new keys still load with defaults.
+    assert cfg.data_dir == Path("~/.music-decoder")
+    assert cfg.fluidsynth_soundfont == "GeneralUser-GS.sf2"
+    assert cfg.sample_rate_hz == 22050
