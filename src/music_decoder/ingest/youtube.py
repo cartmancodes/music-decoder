@@ -40,6 +40,9 @@ def fetch_audio(url: str, *, cache_dir: Path) -> Path:
         "quiet": True,
         "no_warnings": True,
         "format": "bestaudio/best",
+        # Ignore any &list=... playlist context (e.g. YouTube radio mixes
+        # under RD...) — we only want the single video referenced by ?v=.
+        "noplaylist": True,
         "outtmpl": str(cache_dir / f"{video_id}.%(ext)s"),
         "postprocessors": [
             {
