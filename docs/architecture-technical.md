@@ -1021,13 +1021,9 @@ Models are downloaded on first run; the CI cache keys are basic-pitch
 - Console entry point: `music-decoder = "music_decoder.cli.main:main"`.
 - Python: `>= 3.11, < 3.13`.
 - Packaging surface: `src/music_decoder/` (single namespace).
-- Docker: [Dockerfile](../Dockerfile) installs ffmpeg, libsndfile1,
-  libfluidsynth3 + build tools, then `pip install -e ".[dev]"`. The
-  default CMD is `python -m music_decoder.cli.main ui`.
-- Compose: [docker-compose.yml](../docker-compose.yml) maps
-  `8501:8501` and mounts a named volume `md-data:/data` for the
-  YouTube cache and composition output. `MUSIC_DECODER_DATA_DIR=/data`
-  is set in the environment.
+- Install: `setup.sh` (dev clones), `pipx install ./` (end users),
+  or `pip install -e ".[dev]"` in a virtualenv. There is no container
+  image; the tool runs directly on the host.
 
 There is no SQLite, no Alembic, no Postgres dependency, and no
 persistence layer. The v2 pipeline is stateless: the only on-disk

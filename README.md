@@ -22,7 +22,7 @@ source ./setup.sh   # also activates .venv in your current shell
 
 Re-running is idempotent. Flags: `--no-system`, `--no-soundfont`,
 `--recreate`, `--python <path>`. See [docs/usage.md](docs/usage.md#installation) for the manual install paths
-(brew/apt, pipx, Docker).
+(brew/apt, pipx).
 
 ## Usage
 
@@ -80,12 +80,6 @@ make typecheck    # mypy --strict
 ## Architecture
 
 See [docs/superpowers/specs/2026-05-08-refactor-design.md](docs/superpowers/specs/2026-05-08-refactor-design.md).
-
-## Docker
-
-```bash
-docker compose up
-```
 
 ## License
 

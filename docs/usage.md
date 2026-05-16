@@ -96,24 +96,6 @@ pip install -e ".[dev]"
 The `dev` extras add `pytest`, `pytest-cov`, `pytest-xdist`, `ruff`,
 `mypy`, and `types-PyYAML`.
 
-### Option 3: Docker
-
-```bash
-docker compose up
-```
-
-Brings up the Streamlit UI on `http://localhost:8501`. The container
-mounts a named volume `md-data` at `/data`; the YouTube cache and
-composition output live there so they survive container restarts. The
-`MUSIC_DECODER_DATA_DIR=/data` env var inside the container points
-the tool at that volume.
-
-To run a one-shot CLI command in the container:
-
-```bash
-docker compose run --rm music-decoder python -m music_decoder.cli.main analyze song.mp3
-```
-
 ---
 
 ## First run
