@@ -9,11 +9,13 @@ Subcommands:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -41,6 +43,31 @@ _TUNINGS = {
     "Drop C": DROP_C,
     "DADGAD": DADGAD,
 }
+
+
+@contextlib.contextmanager
+def _quiet_stdout() -> Iterator[None]:
+    """Redirect OS-level fd 1 to fd 2 for the duration of the block.
+
+    Third-party libraries in the pipeline write progress/diagnostics
+    straight to stdout — yt-dlp's ``[download] …`` bars, basic-pitch's
+    ``Predicting MIDI for …`` line, and TensorFlow C-level logs. That
+    corrupts ``--format json`` output and the documented
+    ``analyze … --format json | jq`` workflow. Redirecting at the file-
+    descriptor level (not just ``sys.stdout``) catches C-extension and
+    subprocess writes too. The result is printed afterward to the
+    restored, pristine stdout; the noise lands on stderr where it
+    belongs.
+    """
+    sys.stdout.flush()
+    saved_fd = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved_fd, 1)
+        os.close(saved_fd)
 
 
 def _serialize(obj: object) -> object:
@@ -76,12 +103,13 @@ def cli_analyze(
 ) -> None:
     """Identify chord progression + guitar tab from a file or YouTube URL."""
     try:
-        result = analyze(
-            source,
-            declared_kind="solo_guitar" if solo_guitar else "full_mix",
-            tuning=_TUNINGS[tuning],
-            use_separation=not no_separation,
-        )
+        with _quiet_stdout():
+            result = analyze(
+                source,
+                declared_kind="solo_guitar" if solo_guitar else "full_mix",
+                tuning=_TUNINGS[tuning],
+                use_separation=not no_separation,
+            )
     except MusicDecoderError as e:
         raise click.ClickException(str(e)) from e
 
@@ -128,16 +156,17 @@ def cli_compose(
     try:
         s = Scale.parse(scale)
         chords = [ChordSymbol.parse(c) for c in progression.split()]
-        result = compose(
-            scale=s,
-            progression=chords,
-            bars_per_chord=bars,
-            tempo_bpm=tempo,
-            style=cast(Literal["arpeggio", "strum", "fingerstyle"], style),
-            tuning=_TUNINGS[tuning],
-            seed=seed,
-            out_dir=Path(out),
-        )
+        with _quiet_stdout():
+            result = compose(
+                scale=s,
+                progression=chords,
+                bars_per_chord=bars,
+                tempo_bpm=tempo,
+                style=cast(Literal["arpeggio", "strum", "fingerstyle"], style),
+                tuning=_TUNINGS[tuning],
+                seed=seed,
+                out_dir=Path(out),
+            )
     except MusicDecoderError as e:
         raise click.ClickException(str(e)) from e
     except ValueError as e:
@@ -152,9 +181,30 @@ def cli_compose(
         click.echo(result.ascii_tab)
 
 
+def _suppress_streamlit_email_prompt() -> None:
+    """Pre-seed ~/.streamlit/credentials.toml so Streamlit's first-run
+    interactive 'Email:' prompt never blocks on stdin.
+
+    Streamlit shows that prompt only when the credentials file is absent
+    and the server is not headless. We keep headless=false (so the
+    browser still opens) and just write an empty email once, which
+    permanently dismisses the prompt. Never overwrites an existing file.
+    """
+    cred = Path.home() / ".streamlit" / "credentials.toml"
+    if cred.exists():
+        return
+    try:
+        cred.parent.mkdir(parents=True, exist_ok=True)
+        cred.write_text('[general]\nemail = ""\n')
+    except OSError:
+        # Non-fatal: worst case the user sees the prompt once.
+        pass
+
+
 @main.command("ui")
 def cli_ui() -> None:
     """Launch the Streamlit UI."""
+    _suppress_streamlit_email_prompt()
     entry = Path(__file__).parents[1] / "ui" / "streamlit_app.py"
     cmd = [
         sys.executable,
@@ -167,7 +217,9 @@ def cli_ui() -> None:
         "--browser.gatherUsageStats",
         "false",
     ]
-    raise SystemExit(subprocess.call(cmd, env=os.environ.copy()))
+    env = os.environ.copy()
+    env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+    raise SystemExit(subprocess.call(cmd, env=env))
 
 
 def _doctor_checks() -> int:

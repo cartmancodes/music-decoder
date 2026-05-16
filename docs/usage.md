@@ -858,6 +858,33 @@ the audio is hard for the model. Mitigations:
   (you'll see it in `result.tempo_bpm`), chord boundaries will be
   misaligned.
 
+### `tempo_bpm` is double or half what I expected
+
+This is expected behavior, not a bug. The beat tracker has an inherent
+octave ambiguity — for a 76 BPM song it may report ~152 BPM (double-time)
+or for a 140 BPM song ~70 BPM (half-time), because both are metrically
+valid interpretations of the same pulse. In end-to-end testing this
+showed up on ~2 of 3 real tracks. It does **not** affect key or chord-root
+detection (those run on a beat-synchronous chroma whose grid is internally
+consistent regardless of the octave). If you only need chords, ignore the
+absolute BPM; if you need the true tempo, halve/double it to the range
+that matches how the song feels.
+
+### What accuracy should I expect?
+
+On clean, well-mixed recordings with clear harmony, end-to-end testing
+against songs with documented progressions gave:
+
+- **Key:** correct tonic+mode on all sampled tracks (correlation
+  typically 0.75–0.90).
+- **Chord roots:** ~97–100% of detected segments fell within the song's
+  known chord set; mean per-segment confidence ~0.85.
+
+Accuracy drops on heavily distorted electric guitar, dense mixes without
+separation, ambiguous modal tonality, and very short clips. Treat the
+output as a strong first draft, not ground truth — spot-check against
+your ear.
+
 ### `No notes detected`
 
 basic-pitch returned zero notes. Causes: very quiet audio, very dense
@@ -968,7 +995,17 @@ that one file. To wipe the cache entirely, remove the directory.
 ### Working with the JSON output
 
 The CLI's `--format json` is the easiest way to script around
-analyze. A few useful one-liners with `jq`:
+analyze. Stdout carries **only** the JSON document — all pipeline
+diagnostics (yt-dlp download progress, basic-pitch's `Predicting MIDI`
+line, model logs) are redirected to stderr, so `| jq` works directly.
+When saving to a file you'll still see that progress on your terminal
+(it's on stderr); add `2>/dev/null` to silence it:
+
+```bash
+music-decoder analyze 'https://youtu.be/dQw4w9WgXcQ' --format json 2>/dev/null > out.json
+```
+
+A few useful one-liners with `jq`:
 
 ```bash
 # Just the chord labels in order

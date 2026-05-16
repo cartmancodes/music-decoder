@@ -39,19 +39,39 @@ def _ascii_tab_for(
     voicings: list[VoicedChord],
     tuning: Tuning,
 ) -> str:
-    """Build a TabbedNote stream for the melody + first beat of each voicing,
-    then hand to render_ascii_tab."""
+    """Build a TabbedNote stream for the melody + each chord voicing, then
+    hand to render_ascii_tab."""
     notes: list[TabbedNote] = []
-    # Melody: cheapest fret/string per pitch; greedy.
+    n_str = len(tuning.open_pitches)
+    # Melody: pick the most playable position — the string giving the lowest
+    # non-negative fret. (The old greedy-from-high search collapsed every
+    # melody note onto the high-e string.)
     for n in melody:
-        for s in range(len(tuning.open_pitches) - 1, -1, -1):
+        best: tuple[int, int] | None = None  # (fret, string)
+        for s in range(n_str):
             fret = n.pitch - tuning.open_pitches[s]
-            if 0 <= fret <= 22:
-                notes.append(TabbedNote(note=n, position=TabPosition(string=s, fret=fret)))
-                break
-    # Add chord voicings as block notes; just use the same time positions as the melody
-    # entry points. (A simple visual approximation; the MIDI is the source of truth.)
-    return render_ascii_tab(notes, num_strings=len(tuning.open_pitches))
+            if 0 <= fret <= 22 and (best is None or fret < best[0]):
+                best = (fret, s)
+        if best is not None:
+            notes.append(TabbedNote(note=n, position=TabPosition(string=best[1], fret=best[0])))
+    # Chord voicings: emit each non-muted string position at the chord's
+    # approximate start time, so the accompaniment shows on the lower strings.
+    # (A visual approximation spread evenly over the melody span; the MIDI is
+    # the source of truth for exact timing.)
+    if voicings and melody:
+        span_start = min(n.start_s for n in melody)
+        span_end = max(n.end_s for n in melody)
+        seg = (span_end - span_start) / len(voicings) if span_end > span_start else 0.0
+        for ci, vc in enumerate(voicings):
+            t0 = span_start + ci * seg
+            anchor = Note(
+                start_s=t0, end_s=t0 + seg, pitch=0, velocity=0, confidence=1.0
+            )
+            for pos in vc.positions:
+                if pos.fret < 0:  # muted string — not played
+                    continue
+                notes.append(TabbedNote(note=anchor, position=pos))
+    return render_ascii_tab(notes, num_strings=n_str)
 
 
 def compose(
