@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from music_decoder.logging_setup import get_logger
+from music_decoder.paths import project_root
 from music_decoder.synth.fluidsynth_wrapper import (
     SynthBackend,
     synthesize_midi_to_wav,
@@ -43,7 +44,7 @@ def _resolve_soundfont_path() -> Path | None:
         candidates = [Path(cfg.data_dir).expanduser() / sf_path]
         # Project soundfont fixture (used by `scripts/download_soundfont.py`).
         candidates.append(
-            Path(__file__).resolve().parents[3]
+            project_root()
             / "tests"
             / "fixtures"
             / "synthetic"
