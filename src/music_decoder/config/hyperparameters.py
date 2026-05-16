@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from music_decoder.paths import bundled_config
+
 
 @dataclass(frozen=True)
 class BasicPitchParams:
@@ -129,7 +131,7 @@ def _build(cls: type, raw_section: dict[str, Any], defaults: dict[str, Any]) -> 
     return cls(**{k: v for k, v in merged.items() if k in allowed})
 
 
-_PROJECT_ROOT_HP = Path(__file__).resolve().parents[3] / "config" / "hyperparameters.yaml"
+_PROJECT_ROOT_HP = bundled_config("hyperparameters.yaml")
 
 
 def load_hyperparameters(path: Path | None = None) -> HyperparameterSet:
