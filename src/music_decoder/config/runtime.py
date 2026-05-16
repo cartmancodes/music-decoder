@@ -7,9 +7,11 @@ from pathlib import Path
 
 import yaml
 
+from music_decoder.paths import bundled_config
+
 _REQUIRED = ("youtube_cache_dir", "composition_out_dir", "log_level")
 _ENV_PREFIX = "MUSIC_DECODER_"
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "runtime.yaml"
+_DEFAULT_CONFIG_PATH = bundled_config("runtime.yaml")
 _INTERP_RE = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
@@ -77,5 +79,5 @@ def load_runtime_config(path: Path | None = None) -> RuntimeConfig:
         fixture_dir=_coerce_path(raw.get("fixture_dir")),
         data_dir=Path(str(data_dir_raw)),
         fluidsynth_soundfont=str(raw.get("fluidsynth_soundfont", "GeneralUser-GS.sf2")),
-        sample_rate_hz=int(raw.get("sample_rate_hz", 22050)),  # type: ignore[arg-type]
+        sample_rate_hz=int(str(raw.get("sample_rate_hz", 22050))),
     )
