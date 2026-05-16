@@ -24,6 +24,7 @@ import click
 
 from music_decoder.api import analyze, compose
 from music_decoder.errors import MusicDecoderError
+from music_decoder.tabs.render import render_ascii_tab
 from music_decoder.tabs.tuning import (
     D_STANDARD,
     DADGAD,
@@ -125,6 +126,15 @@ def cli_analyze(
         click.echo(f"Chords ({len(result.chord_progression)}):")
         for seg in result.chord_progression:
             click.echo(f"  {seg.start_s:6.2f}-{seg.end_s:6.2f}s  {seg.chord.to_label()}")
+        # Tablature. The full song would overplot a fixed-width tab, so show
+        # a bounded excerpt (first 16s). Empty tab is a documented outcome
+        # for dense mixes — say so explicitly rather than print blank staves.
+        if result.tab:
+            window = [t for t in result.tab if t.note.start_s <= 16.0]
+            click.echo(f"Tab ({len(result.tab)} notes; first 16s):")
+            click.echo(render_ascii_tab(window or list(result.tab)[:48]))
+        else:
+            click.echo("Tab: (no notes transcribed — common on dense full mixes)")
 
 
 @main.command("compose")

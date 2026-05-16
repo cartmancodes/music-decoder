@@ -198,7 +198,21 @@ Chords (24):
    6.40 -  9.52s  C
    9.52 - 12.71s  G
    ...
+Tab (312 notes; first 16s):
+e|---15--------------------------------------------3--------------|
+B|-----------------------------------------------------------3----|
+G|---------7--5--5-5-----------------------------------------4----|
+D|---10----------7------------------------------------------------|
+A|----------------------------------------------------3-----------|
+E|-----------------------1--------------1-------------------------|
 ```
+
+The pretty output shows a **bounded tab excerpt** (first 16 s) — the
+full transcription would overplot a fixed-width staff. For the complete
+per-note tab use `--format json` and read the `tab` array. If the
+transcriber found no notes (common on dense full mixes), you'll see
+`Tab: (no notes transcribed — common on dense full mixes)` instead;
+key and chords are still reported.
 
 Analyze a local file as a solo guitar recording, skipping Demucs:
 
@@ -857,15 +871,24 @@ that matches how the song feels.
 On clean, well-mixed recordings with clear harmony, end-to-end testing
 against songs with documented progressions gave:
 
-- **Key:** correct tonic+mode on all sampled tracks (correlation
-  typically 0.75–0.90).
-- **Chord roots:** ~97–100% of detected segments fell within the song's
-  known chord set; mean per-segment confidence ~0.85.
+- **Key:** correct tonic+mode on all sampled tracks (6/6; correlation
+  typically 0.75–0.92).
+- **Chord progression:** the detected chord *sequence* (not just the
+  root set) reproduced the documented cycle on every sampled track —
+  including correct minor-quality chords (e.g. the vi in a I–vi–IV–V).
+  ~97–100% of segments within the known chord set; mean confidence ~0.85.
+- **Tablature:** the A\* fret assignment is reliable when notes exist —
+  positions stay in range and spread sensibly across all six strings.
+  Note *transcription* is the weak link: on ~2 of 6 sampled tracks the
+  separated-guitar stem yielded a very sparse tab (tens of notes for a
+  whole song) even though chords were ~100% correct. The tab is a guide,
+  not a faithful transcription, and is sparser than the chord output.
 
 Accuracy drops on heavily distorted electric guitar, dense mixes without
 separation, ambiguous modal tonality, and very short clips. Treat the
 output as a strong first draft, not ground truth — spot-check against
-your ear.
+your ear. Chord/key detection is consistently stronger than the
+note-level tab.
 
 ### `No notes detected`
 
