@@ -46,6 +46,32 @@ and Linux only.
 
 ## Installation
 
+### Option 0: `setup.sh` (recommended for development clones)
+
+The repo ships a `setup.sh` that does the whole prerequisites-and-install
+dance for you: detects your OS, installs system binaries (ffmpeg,
+fluidsynth, libsndfile, plus python@3.11 if missing), creates `.venv`,
+installs the package with dev extras (`pip install -e ".[dev]"`),
+downloads the synthesis soundfont, and runs `music-decoder doctor`.
+
+```bash
+git clone https://github.com/cartmancodes/music-decoder.git
+cd music-decoder
+source ./setup.sh
+```
+
+`setup.sh` is sourceable: `source ./setup.sh` runs the installer **and**
+activates `.venv` in your current shell. Plain `./setup.sh` works too
+but you must `source .venv/bin/activate` afterwards (a subprocess can't
+modify the parent shell's environment).
+
+Re-running is idempotent. Flags:
+
+- `--no-system` — skip the brew/apt step (use existing system binaries).
+- `--no-soundfont` — skip the ~6 MB SF2 download.
+- `--recreate` — wipe and rebuild `.venv` from scratch.
+- `--python /path/to/python3.11` — pick a specific interpreter.
+
 ### Option 1: pipx (recommended for end users)
 
 [pipx](https://pipx.pypa.io/) installs the tool into an isolated
@@ -159,7 +185,22 @@ there is no `--out` flag.
 Analyze a YouTube link:
 
 ```bash
-music-decoder analyze "https://youtu.be/dQw4w9WgXcQ"
+music-decoder analyze 'https://youtu.be/dQw4w9WgXcQ'
+```
+
+**Always quote YouTube URLs.** zsh and bash treat `&` (background) and
+`?` (glob) as special characters — an unquoted URL with `&list=...` will
+silently truncate the URL at the `&` and leave you wondering why nothing
+happened. Single quotes are safest. The `&list=RD...` "radio mix"
+playlist parameter is recognised and ignored: yt-dlp is invoked with
+`noplaylist=True`, so you get the single video referenced by `?v=`,
+even when the URL was copied from a YouTube auto-mix.
+
+```bash
+# All of these are equivalent — the playlist context is dropped:
+music-decoder analyze 'https://www.youtube.com/watch?v=ilNt2bikxDI'
+music-decoder analyze 'https://www.youtube.com/watch?v=ilNt2bikxDI&list=RDilNt2bikxDI'
+music-decoder analyze 'https://youtu.be/ilNt2bikxDI'
 ```
 
 Expected pretty output:
@@ -741,6 +782,50 @@ Common shapes: "Video unavailable", "Private video",
 - The error is wrapped as `YouTubeError` and shown as a red banner in
   the UI / a clean error in the CLI.
 
+### YouTube error mentions a video ID I didn't supply
+
+If the error is `[youtube] <other-id>: This video is not available`
+where `<other-id>` doesn't match the `?v=` in your URL, you almost
+certainly hit the playlist-context trap. The fix shipped — yt-dlp is
+invoked with `noplaylist=True` — but if you're running an older install
+without it, upgrade with `pip install -e .` or re-run `./setup.sh`.
+
+### Shell ate part of my URL / "command not found: list=…"
+
+Your YouTube URL contained `&` or `?` and wasn't quoted. The shell
+backgrounded the command at the `&` and tried to execute the rest as a
+separate statement. **Single-quote URLs**:
+
+```bash
+music-decoder analyze 'https://www.youtube.com/watch?v=ilNt2bikxDI&list=RDilNt2bikxDI'
+```
+
+### Wrong `music-decoder` on PATH (stale global install)
+
+If you previously ran `pip install` or `pipx install ./` outside a
+virtualenv, you may have a `music-decoder` binary in
+`/opt/homebrew/bin/` or `~/.local/bin/` that shadows the one in
+`.venv/bin/`. Symptom: tracebacks reference site-packages paths instead
+of your repo (`/opt/homebrew/lib/python3.11/site-packages/music_decoder/...`),
+or the doctor reports config/runtime paths that don't exist.
+
+Diagnose:
+
+```bash
+which music-decoder       # should be inside <repo>/.venv/bin
+type music-decoder
+```
+
+Fix:
+
+```bash
+# Activate the venv shipped by setup.sh — its bin/ dir takes priority on PATH
+source .venv/bin/activate
+
+# Or, if you really want to remove the stale global install:
+/opt/homebrew/opt/python@3.11/bin/python3.11 -m pip uninstall music-decoder
+```
+
 ### `CorruptAudioError` on a file you know plays
 
 ffmpeg failed to decode it cleanly. Common causes: file truncated, a
@@ -925,11 +1010,15 @@ file.
 ## Quick reference card
 
 ```bash
-# Install
-pipx install ./
+# Install (development clone)
+source ./setup.sh                # full env + activate .venv in this shell
 music-decoder doctor
 
-# Analyze a song
+# Or, end-user install
+pipx install ./
+
+# Analyze a song — ALWAYS single-quote YouTube URLs (& and ? are shell-special)
+music-decoder analyze 'https://youtu.be/dQw4w9WgXcQ'
 music-decoder analyze <FILE-OR-URL> [--solo-guitar] [--no-separation] [--tuning ...]
 music-decoder analyze song.mp3 --format json | jq '.chord_progression'
 

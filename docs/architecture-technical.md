@@ -1029,9 +1029,10 @@ Models are downloaded on first run; the CI cache keys are basic-pitch
   YouTube cache and composition output. `MUSIC_DECODER_DATA_DIR=/data`
   is set in the environment.
 
-There is no SQLite, no Alembic, no Postgres dependency. The legacy
-`migrations/` directory still exists at the repo root but is not
-imported by the v2 codebase.
+There is no SQLite, no Alembic, no Postgres dependency, and no
+persistence layer. The v2 pipeline is stateless: the only on-disk
+state is flat-file caching (YouTube WAVs under `<data_dir>/yt_cache/`
+and composition output folders).
 
 ---
 

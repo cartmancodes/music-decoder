@@ -22,10 +22,8 @@ dependencies = [
   "matplotlib>=3.8",
   "numpy>=1.26,<2.0",
   "scipy>=1.11",
-  "pydantic>=2.6",
   "pyyaml>=6.0",
   "click>=8.1",
-  "platformdirs>=4.2",
   "yt-dlp>=2024.10.7",
 ]
 

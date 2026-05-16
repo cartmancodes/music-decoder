@@ -8,20 +8,30 @@ Local audio analysis tool. Three things it does:
 
 ## Install
 
-Prerequisites: Python 3.11, `ffmpeg`, `fluidsynth` (for synthesis).
+Prerequisites: Python 3.11 or 3.12, `ffmpeg`, `fluidsynth` (for synthesis).
 
-- macOS: `brew install ffmpeg fluidsynth`
-- Ubuntu: `apt install ffmpeg libfluidsynth3`
+The fastest way is the bundled `setup.sh`. It installs system binaries
+(ffmpeg, fluidsynth, libsndfile), creates `.venv`, installs the package
+with dev extras, downloads the synthesis soundfont, and runs `doctor`:
 
 ```bash
-pipx install ./        # or: pip install -e .   (development)
+source ./setup.sh   # also activates .venv in your current shell
+# or:
+./setup.sh          # runs setup; you must `source .venv/bin/activate` after
 ```
+
+Re-running is idempotent. Flags: `--no-system`, `--no-soundfont`,
+`--recreate`, `--python <path>`. See [docs/usage.md](docs/usage.md#installation) for the manual install paths
+(brew/apt, pipx, Docker).
 
 ## Usage
 
 ```bash
-# Analyze a YouTube link
-music-decoder analyze https://youtu.be/dQw4w9WgXcQ
+# Analyze a YouTube link (always single-quote URLs — & and ? are shell-special)
+music-decoder analyze 'https://youtu.be/dQw4w9WgXcQ'
+
+# Playlist context (&list=...) is ignored automatically; just quote the URL
+music-decoder analyze 'https://www.youtube.com/watch?v=ilNt2bikxDI&list=RDilNt2bikxDI'
 
 # Analyze a local file as solo guitar (skip Demucs)
 music-decoder analyze song.mp3 --solo-guitar --no-separation
