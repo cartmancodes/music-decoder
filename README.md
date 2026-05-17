@@ -53,6 +53,8 @@ music-decoder doctor
 ## Library
 
 ```python
+from pathlib import Path
+
 from music_decoder import analyze, compose, Scale, ChordSymbol
 
 result = analyze("https://youtu.be/dQw4w9WgXcQ")
@@ -60,8 +62,8 @@ print(result.key, result.chord_progression[:4])
 
 comp = compose(
     scale=Scale("C", "major"),
-    progression=[ChordSymbol.parse(c) for c in ("Cmaj7","Am7","Dm7","G7")],
-    out_dir="./out", seed=42,
+    progression=[ChordSymbol.parse(c) for c in ("Cmaj7", "Am7", "Dm7", "G7")],
+    out_dir=Path("./out"), seed=42,
 )
 print(comp.midi_path, comp.wav_path)
 ```
@@ -69,17 +71,23 @@ print(comp.midi_path, comp.wav_path)
 ## Development
 
 ```bash
-make dev          # install with dev extras
-make test-fast    # unit tests
+make dev          # install with dev extras (pip install -e ".[dev]")
+make test-fast    # unit tests only
 make test         # unit + integration
-make regression   # accuracy regression suite
+make regression   # accuracy regression suite (pytest -m regression)
 make lint         # ruff
 make typecheck    # mypy --strict
+make run          # launch the Streamlit UI (alias for `music-decoder ui`)
 ```
 
-## Architecture
+## Documentation
 
-See [docs/superpowers/specs/2026-05-08-refactor-design.md](docs/superpowers/specs/2026-05-08-refactor-design.md).
+- [docs/usage.md](docs/usage.md) — full usage guide: install paths, CLI
+  reference, library API, JSON schema, troubleshooting, tips.
+- [docs/architecture-overview.md](docs/architecture-overview.md) —
+  high-level pipeline and module map.
+- [docs/architecture-technical.md](docs/architecture-technical.md) —
+  detailed technical reference (DSP, key/chord/tab algorithms, config).
 
 ## License
 
