@@ -32,9 +32,12 @@ def test_analyze_signature_is_frozen():
     assert p["source"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert p["declared_kind"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["declared_kind"].default == "full_mix"
-    assert p["use_separation"].default is True
-    assert p["progress"].default is None
+    assert p["tuning"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["tuning"].default == music_decoder.STANDARD_EADGBE
+    assert p["use_separation"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert p["use_separation"].default is True
+    assert p["progress"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert p["progress"].default is None
 
 
 def test_compose_signature_is_frozen():
@@ -46,13 +49,19 @@ def test_compose_signature_is_frozen():
     ]
     p = sig.parameters
     assert p["scale"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert p["progression"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert p["bars_per_chord"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["bars_per_chord"].default == 1
+    assert p["tempo_bpm"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["tempo_bpm"].default == 100.0
+    assert p["style"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["style"].default == "fingerstyle"
-    assert p["seed"].default is None
-    assert p["out_dir"].default is inspect.Parameter.empty
+    assert p["tuning"].kind is inspect.Parameter.KEYWORD_ONLY
     assert p["tuning"].default == music_decoder.STANDARD_EADGBE
+    assert p["seed"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert p["seed"].default is None
+    assert p["out_dir"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert p["out_dir"].default is inspect.Parameter.empty
 
 
 def test_error_hierarchy_is_frozen():
@@ -77,7 +86,13 @@ def test_error_hierarchy_is_frozen():
     for name, base in expected.items():
         cls = getattr(errors, name)
         assert issubclass(cls, base), f"{name} must subclass {base.__name__}"
-        assert issubclass(cls, errors.MusicDecoderError) or cls is errors.MusicDecoderError
+        # Independent root invariant: every domain error is a
+        # MusicDecoderError. (A class is a subclass of itself, so this also
+        # holds for MusicDecoderError. Catches a broken root link that the
+        # declared-base check above would miss.)
+        assert issubclass(cls, errors.MusicDecoderError), (
+            f"{name} must be a MusicDecoderError"
+        )
 
 
 def test_cli_subcommands_and_flags_are_frozen():
