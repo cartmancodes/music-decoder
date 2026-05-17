@@ -103,6 +103,15 @@ functions + frozen dataclasses.
 Explicitly NOT in Phase 0: algorithm changes, file splits, docstring
 sweep.
 
+### Reconciliation (post-code-read, 2026-05-17)
+
+Closer reading reduced 0b/0c: `ChordBackend` Protocol already exists
+(`chords/backends/base.py`); `SynthBackend` is a `StrEnum` selector and
+`tabs` exposes a single `assign_tab()` — neither is a duck-typed
+plug-point, so adding Protocols there is speculative abstraction barred
+by §7. Implemented Phase 0 = 0a (paths + runtime.py:80 mypy) + 0d
+(contract guard test) only.
+
 ## 5. Strangler Sequence (full unit suite green + commit after each module)
 
 Leaf-first so any regression bisects to one module:
