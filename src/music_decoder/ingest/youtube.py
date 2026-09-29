@@ -8,6 +8,7 @@ short-circuit the download.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import yt_dlp  # type: ignore[import-untyped]
@@ -52,6 +53,14 @@ def fetch_audio(url: str, *, cache_dir: Path) -> Path:
             }
         ],
     }
+    # YouTube now requires JavaScript challenge solving for many audio
+    # formats. yt-dlp delegates that to a local JS runtime plus its EJS
+    # challenge solver, which it fetches from GitHub on demand. Keep this
+    # conditional so local-file workflows and hosts without Node still work.
+    node = shutil.which("node")
+    if node:
+        ydl_opts["js_runtimes"] = {"node": {"path": node}}
+        ydl_opts["remote_components"] = ["ejs:github"]
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
