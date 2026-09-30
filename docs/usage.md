@@ -90,6 +90,8 @@ git clone https://github.com/cartmancodes/music-decoder.git
 cd music-decoder
 python -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip wheel setuptools hatchling "numpy<2" "cython<3"
+pip install --no-build-isolation "madmom>=0.16,<0.17"
 pip install -e ".[dev]"
 ```
 

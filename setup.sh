@@ -161,6 +161,35 @@ _setup_main() {
   log "upgrading pip / wheel / setuptools"
   python -m pip install --upgrade pip wheel setuptools
 
+  # madmom 0.16.x is an old source-only dependency that imports Cython during
+  # its build setup. Its sdist also contains stale generated C files that do
+  # not compile on Python 3.11, so we touch the Cython/Python sources to force
+  # regeneration before installing it without dependency upgrades.
+  log "installing legacy madmom build prerequisites"
+  python -m pip install --upgrade hatchling "numpy<2" "cython<3" "scipy>=0.16" "mido>=1.2.8"
+
+  local madmom_build_dir madmom_sdist madmom_src_dir madmom_install_rc
+  madmom_build_dir="$(mktemp -d)"
+  python -m pip download --no-build-isolation --no-deps --no-binary :all: --dest "$madmom_build_dir" "madmom>=0.16,<0.17"
+  madmom_sdist=("${madmom_build_dir}"/madmom-*.tar.gz)
+  madmom_src_dir="${madmom_build_dir}/src"
+  mkdir "$madmom_src_dir"
+  tar -xzf "${madmom_sdist[0]}" -C "$madmom_src_dir" --strip-components 1
+  touch \
+    "${madmom_src_dir}/madmom/audio/comb_filters.pyx" \
+    "${madmom_src_dir}/madmom/features/beats_crf.pyx" \
+    "${madmom_src_dir}/madmom/ml/hmm.pyx" \
+    "${madmom_src_dir}/madmom/ml/nn/layers.py"
+
+  log "pre-installing madmom without build isolation"
+  if python -m pip install --no-build-isolation --no-deps "$madmom_src_dir"; then
+    rm -rf "$madmom_build_dir"
+  else
+    madmom_install_rc=$?
+    rm -rf "$madmom_build_dir"
+    return "$madmom_install_rc"
+  fi
+
   # --- 5. Install the package + dev extras ---------------------------------
   log "pip install -e .[dev]  (this may take several minutes for demucs/madmom/basic-pitch)"
   python -m pip install -e ".[dev]"
