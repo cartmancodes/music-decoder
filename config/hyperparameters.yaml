@@ -1,4 +1,4 @@
-id: 2026-05-08-v2-baseline
+id: 2026-10-08-v3-guitarset-tuned
 basic_pitch:                             # coarse-to-fine sweep on GuitarSet dev (onset F 0.746 -> 0.811)
   onset_threshold: 0.6
   frame_threshold: 0.5
@@ -13,6 +13,7 @@ post_processing:
   same_pitch_merge_gap_s: 0.05
   rhythmic_snap_confidence_threshold: 0.7
 key_detection:
+  backend: fusion                        # CNN + KK profile + chord fit; GuitarSet dev 0.560 -> 0.680
   hpss_margin: 1.0
   windowed_segment_length_s: 8.0
   windowed_hop_s: 2.0
@@ -21,7 +22,7 @@ beat_tracking:
   start_bpm: 120                         # librosa fallback only
   tightness: 100                         # librosa fallback only
 chord_detection:
-  backend: madmom_deep_chroma            # falls back to template_hmm
+  backend: madmom_deep_chroma            # dev majmin 0.469; madmom_cnn 0.462 (better comp, worse solo)
   qualities: [maj, min, maj7, min7, 7, dim, sus4, aug]
   min_segment_duration_s: 0.4
 tab_assignment:

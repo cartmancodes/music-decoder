@@ -319,16 +319,23 @@ def run(
     stages: tuple[str, ...],
     limit: int | None,
     *,
+    workers: int = 1,
     evaluate: Callable[[GuitarSetTrack, tuple[str, ...]], dict[str, float]] = evaluate_track,
 ) -> dict[str, dict[str, float]]:
-    rows: dict[str, dict[str, float]] = {}
     tracks = tracks_for(split, limit)
     t0 = time.time()
-    for i, track in enumerate(tracks, 1):
-        rows[track.track_id] = evaluate(track, stages)
-        print(f"[{i}/{len(tracks)}] {track.track_id} {rows[track.track_id]}", file=sys.stderr)
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(evaluate, tracks, [stages] * len(tracks)))
+    else:
+        results = []
+        for i, track in enumerate(tracks, 1):
+            results.append(evaluate(track, stages))
+            print(f"[{i}/{len(tracks)}] {track.track_id} {results[-1]}", file=sys.stderr)
     print(f"elapsed {time.time() - t0:.0f}s", file=sys.stderr)
-    return rows
+    return {t.track_id: r for t, r in zip(tracks, results, strict=True)}
 
 
 def main() -> None:
@@ -340,13 +347,13 @@ def main() -> None:
     ap.add_argument("--by-style", action="store_true")
     ap.add_argument("--sweep-notes", action="store_true", help="tune basic-pitch decoding")
     ap.add_argument("--sweep-tabs", action="store_true", help="tune A* tab weights")
-    ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--workers", type=int, default=1, help="parallel processes")
     args = ap.parse_args()
     if args.sweep_tabs:
-        sweep_tabs(tracks_for(args.split, args.limit), args.workers)
+        sweep_tabs(tracks_for(args.split, args.limit), max(args.workers, 2))
         return
     if args.sweep_notes:
-        best = sweep_notes(tracks_for(args.split, args.limit), args.workers)
+        best = sweep_notes(tracks_for(args.split, args.limit), max(args.workers, 2))
         print(f"\nbest: {best}")
         return
     stages = tuple(s for s in args.stages.split(",") if s)
@@ -354,7 +361,7 @@ def main() -> None:
     if unknown:
         ap.error(f"unknown stages: {sorted(unknown)}")
 
-    rows = run(args.split, stages, args.limit)
+    rows = run(args.split, stages, args.limit, workers=args.workers)
     summary = {"mean": summarize(rows)}
     if args.by_style:
         summary.update(by_style(rows))
