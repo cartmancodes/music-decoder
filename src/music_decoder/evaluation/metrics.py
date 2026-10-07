@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import mir_eval
@@ -286,3 +286,69 @@ def chord_recognition_score(
     if counted == 0:
         return 1.0
     return score_sum / counted
+
+
+def segment_to_harte(seg: ChordSegment) -> str:
+    """Our ``(root, quality)`` → Harte label understood by ``mir_eval``."""
+    if seg.root == "N" or not seg.quality:
+        return "N"
+    return f"{seg.root}:{seg.quality}"
+
+
+def chord_majmin_score(
+    pred: Sequence[ChordSegment],
+    ref: Sequence[tuple[float, float, str]],
+) -> float:
+    """MIREX ``majmin`` duration-weighted chord-symbol recall (``mir_eval.chord``)."""
+    if not ref:
+        return 1.0 if not pred else 0.0
+    if not pred:
+        return 0.0
+    ref_iv = np.array([(s, e) for s, e, _ in ref], dtype=float)
+    ref_lab = [lab for _, _, lab in ref]
+    est_iv = np.array([(s.start_s, s.end_s) for s in pred], dtype=float)
+    est_lab = [segment_to_harte(s) for s in pred]
+    est_iv, est_lab = mir_eval.util.adjust_intervals(
+        est_iv,
+        est_lab,
+        ref_iv.min(),
+        ref_iv.max(),
+        mir_eval.chord.NO_CHORD,
+        mir_eval.chord.NO_CHORD,
+    )
+    iv, r_lab, e_lab = mir_eval.util.merge_labeled_intervals(ref_iv, ref_lab, est_iv, est_lab)
+    durations = mir_eval.util.intervals_to_durations(iv)
+    comparisons = mir_eval.chord.majmin(r_lab, e_lab)
+    return float(mir_eval.chord.weighted_accuracy(comparisons, durations))
+
+
+def note_onset_prf(
+    pred_intervals: NDArray,
+    pred_midi: NDArray,
+    gt_intervals: NDArray,
+    gt_midi: NDArray,
+    *,
+    onset_tolerance_s: float = 0.05,
+) -> tuple[float, float, float]:
+    """Onset-only note P/R/F (50 ms, ±50 cents) — the GuitarSet / GAPS protocol."""
+    if len(pred_intervals) == 0 or len(gt_intervals) == 0:
+        return 0.0, 0.0, 0.0
+    p, r, f, _ = mir_eval.transcription.precision_recall_f1_overlap(
+        np.asarray(gt_intervals, dtype=float),
+        _midi_to_hz(np.asarray(gt_midi, dtype=float)),
+        np.asarray(pred_intervals, dtype=float),
+        _midi_to_hz(np.asarray(pred_midi, dtype=float)),
+        onset_tolerance=onset_tolerance_s,
+        pitch_tolerance=50.0,
+        offset_ratio=None,
+    )
+    return float(p), float(r), float(f)
+
+
+def beat_f_measure(pred_beats: NDArray, ref_beats: NDArray) -> float:
+    """``mir_eval`` beat F-measure (±70 ms, first 5 s trimmed per MIREX)."""
+    ref = mir_eval.beat.trim_beats(np.sort(np.asarray(ref_beats, dtype=float)))
+    est = mir_eval.beat.trim_beats(np.sort(np.asarray(pred_beats, dtype=float)))
+    if ref.size == 0 or est.size == 0:
+        return 0.0
+    return float(mir_eval.beat.f_measure(ref, est))
