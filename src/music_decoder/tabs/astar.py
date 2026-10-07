@@ -20,8 +20,10 @@ class Group:
 
 
 def _representative(candidate: Candidate) -> TabPosition:
-    """Lowest-fret member of a chord state, or the singleton position."""
-    return min(candidate, key=lambda p: p.fret)
+    """Lowest *fretted* member of a chord state (open strings don't pin the
+    hand), the open position if all are open, or the singleton position."""
+    fretted = [p for p in candidate if p.fret > 0]
+    return min(fretted or list(candidate), key=lambda p: p.fret)
 
 
 def _state_extra_cost(candidate: Candidate, *, weights: dict[str, float]) -> float:

@@ -102,7 +102,8 @@ def notes_for(track: GuitarSetTrack, samples: np.ndarray[Any, Any]) -> tuple[Tra
 
 
 def evaluate_track(track: GuitarSetTrack, stages: tuple[str, ...]) -> dict[str, float]:
-    samples = load_audio(track)
+    needs_audio = bool(set(stages) - {"tab_gt"})
+    samples = load_audio(track) if needs_audio else np.zeros(0, np.float32)
     row: dict[str, float] = {}
     if "key" in stages:
         key = estimate_key(compute_chroma(samples, SR), samples=samples, sr=SR)

@@ -24,10 +24,12 @@ def test_transition_cost_zero_for_identical_position():
 
 
 def test_open_string_gets_bonus():
-    p = TabPosition(string=5, fret=5)
+    # Same move, with and without the open-string bonus. (The v2 version of
+    # this test compared against a free downward move, which was the bug.)
+    p = TabPosition(string=5, fret=2)
     o = TabPosition(string=5, fret=0)
-    no_bonus = transition_cost(prev=p, curr=p, weights=_W, hand_anchor=5.0)
-    with_bonus = transition_cost(prev=p, curr=o, weights=_W, hand_anchor=5.0)
+    no_bonus = transition_cost(prev=p, curr=o, weights={**_W, "w_open": 0.0}, hand_anchor=2.0)
+    with_bonus = transition_cost(prev=p, curr=o, weights=_W, hand_anchor=2.0)
     assert with_bonus < no_bonus
 
 
@@ -58,3 +60,25 @@ def test_chord_collides_detects_string_duplicates():
     chord_bad = (TabPosition(0, 3), TabPosition(0, 5))
     assert not chord_collides(chord_ok)
     assert chord_collides(chord_bad)
+
+
+def test_moving_down_the_neck_costs_like_moving_up():
+    a = TabPosition(string=3, fret=9)
+    b = TabPosition(string=3, fret=2)
+    # Isolate the hand-move term (span is deliberately one-sided: stretching
+    # up from the anchor is harder than reaching back).
+    w = {**_W, "w_span": 0.0}
+    down = transition_cost(prev=a, curr=b, weights=w, hand_anchor=9.0)
+    up = transition_cost(prev=b, curr=a, weights=w, hand_anchor=2.0)
+    assert down > 0.0
+    assert abs(down - up) < 1e-9
+
+
+def test_jumping_to_an_open_string_still_costs_hand_movement():
+    # GuitarSet players don't treat open strings as free (measured: -5 pts).
+    a = TabPosition(string=3, fret=9)
+    o = TabPosition(string=5, fret=0)
+    near = TabPosition(string=5, fret=9)
+    far_open = transition_cost(prev=a, curr=o, weights=_W, hand_anchor=9.0)
+    in_position = transition_cost(prev=a, curr=near, weights=_W, hand_anchor=9.0)
+    assert far_open > in_position
