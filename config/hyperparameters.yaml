@@ -15,20 +15,21 @@ key_detection:
   windowed_segment_length_s: 8.0
   windowed_hop_s: 2.0
 beat_tracking:
-  start_bpm: 120
-  tightness: 100
+  backend: madmom                        # RNN+DBN downbeats; falls back to librosa
+  start_bpm: 120                         # librosa fallback only
+  tightness: 100                         # librosa fallback only
 chord_detection:
   backend: madmom_deep_chroma            # falls back to template_hmm
   qualities: [maj, min, maj7, min7, 7, dim, sus4, aug]
   min_segment_duration_s: 0.4
 tab_assignment:
-  weights:
-    w_move: 1.0
-    w_string: 0.3
+  weights:                               # coordinate-descent tuned on GuitarSet dev
+    w_move: 0.5
+    w_string: 0.15
     w_span: 0.5
-    w_open: 0.2
-    w_high: 0.4
-    w_chord_intra: 0.6
+    w_open: 0.05
+    w_high: 1.6
+    w_chord_intra: 0.3
   max_fret: 22
 composition:
   notes_per_bar: 4

@@ -241,6 +241,42 @@ def sweep_notes(tracks: list[GuitarSetTrack], workers: int) -> Combo:
     return r4[0][0]
 
 
+# ---- tab weight sweep (coordinate descent on ground-truth notes) -----------
+
+
+def _tab_gt_score(track: GuitarSetTrack, weights: dict[str, float]) -> float:
+    notes = [TranscribedNote(n.start_s, n.end_s, n.pitch, 80, 1.0) for n in track.notes]
+    return score_tabs(track, assign_tabs(notes, weights=weights))
+
+
+def _mean_tab(tracks: list[GuitarSetTrack], weights: dict[str, float], pool: Any) -> float:
+    return statistics.fmean(pool.map(_tab_gt_score, tracks, [weights] * len(tracks)))
+
+
+def sweep_tabs(tracks: list[GuitarSetTrack], workers: int, passes: int = 2) -> dict[str, float]:
+    """Coordinate descent over A* weights, maximizing mean ``tab_gt``."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    from music_decoder.tabs import _yaml_tab_params
+
+    weights, _ = _yaml_tab_params()
+    factors = (0.0, 0.25, 0.5, 2.0, 4.0)
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        best = _mean_tab(tracks, weights, pool)
+        print(f"start {best:.4f} {weights}", file=sys.stderr)
+        for p in range(passes):
+            for name in sorted(weights):
+                base = weights[name] if weights[name] > 0 else 0.1
+                for factor in factors:
+                    trial = {**weights, name: round(base * factor, 4)}
+                    score = _mean_tab(tracks, trial, pool)
+                    if score > best + 1e-4:
+                        best, weights = score, trial
+                        print(f"pass {p} {name}={trial[name]} -> {best:.4f}", file=sys.stderr)
+    print(f"\n### tab weight sweep (n={len(tracks)})\n\nbest tab_gt {best:.4f}: {weights}")
+    return weights
+
+
 def summarize(rows: dict[str, dict[str, float]]) -> dict[str, float]:
     keys = sorted({k for r in rows.values() for k in r})
     return {k: statistics.fmean(r[k] for r in rows.values() if k in r) for k in keys}
@@ -299,8 +335,12 @@ def main() -> None:
     ap.add_argument("--json", type=Path, default=None)
     ap.add_argument("--by-style", action="store_true")
     ap.add_argument("--sweep-notes", action="store_true", help="tune basic-pitch decoding")
+    ap.add_argument("--sweep-tabs", action="store_true", help="tune A* tab weights")
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args()
+    if args.sweep_tabs:
+        sweep_tabs(tracks_for(args.split, args.limit), args.workers)
+        return
     if args.sweep_notes:
         best = sweep_notes(tracks_for(args.split, args.limit), args.workers)
         print(f"\nbest: {best}")

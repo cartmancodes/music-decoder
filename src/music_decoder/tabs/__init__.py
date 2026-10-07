@@ -8,13 +8,15 @@ from music_decoder.tabs.assigner import assign_tab as _assign_tab_impl
 from music_decoder.tabs.tuning import STANDARD_EADGBE, Tuning
 from music_decoder.types import TabbedNote, TranscribedNote
 
+# Fallback only (YAML ``tab_assignment.weights`` is authoritative); mirrors the
+# values tuned on GuitarSet dev by ``scripts/benchmark_guitarset.py --sweep-tabs``.
 _DEFAULT_WEIGHTS: dict[str, float] = {
-    "w_move": 1.0,
-    "w_string": 0.3,
+    "w_move": 0.5,
+    "w_string": 0.15,
     "w_span": 0.5,
-    "w_high": 0.4,
-    "w_open": 0.2,
-    "w_chord_intra": 0.6,
+    "w_high": 1.6,
+    "w_open": 0.05,
+    "w_chord_intra": 0.3,
 }
 _DEFAULT_MAX_FRET = 22
 
