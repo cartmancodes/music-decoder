@@ -51,8 +51,16 @@ def assign_tab(
             total_cost=0.0,
             notes_dropped=[],
         )
-    groups = _group_simultaneous(note_list)
     dropped: list[tuple[TranscribedNote, str]] = []
+    # Drop notes no string can play *before* grouping, so a single out-of-range
+    # artifact (e.g. a sub-bass partial) can't make its whole chord unsatisfiable.
+    playable: list[TranscribedNote] = []
+    for n in note_list:
+        if note_candidates(pitch=n.pitch, tuning=tuning, max_fret=max_fret):
+            playable.append(n)
+        else:
+            dropped.append((n, "out_of_range_for_tuning"))
+    groups = _group_simultaneous(playable)
 
     # Cap each chord group to 6 notes (highest confidence), per spec §6.1
     clamped_groups: list[list[TranscribedNote]] = []

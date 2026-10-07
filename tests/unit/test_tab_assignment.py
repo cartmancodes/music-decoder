@@ -168,3 +168,23 @@ def test_melody_crossing_12th_fret_stays_upper_position():
     frets = [t.position.fret for t in result.tabbed_notes]
     assert all(s == 5 for s in strings), f"Expected all on high E, got {strings}"
     assert frets == [15, 17, 19, 17, 15]
+
+
+def test_out_of_range_note_does_not_poison_its_chord():
+    # A sub-range artifact (MIDI 31 < low E 40) overlapping a real chord must be
+    # dropped on its own instead of making the whole chord unsatisfiable.
+    from music_decoder.tabs.assigner import assign_tab as _assign
+    from music_decoder.tabs.tuning import STANDARD_EADGBE as _STD
+
+    chord = [
+        TranscribedNote(0.0, 1.0, p, 80, 0.9) for p in (31, 43, 47, 50, 55, 59)
+    ]
+    r = _assign(
+        chord,
+        tuning=_STD,
+        weights={"w_move": 1.0, "w_string": 0.3, "w_span": 0.5, "w_high": 0.4,
+                 "w_open": 0.2, "w_chord_intra": 0.6},
+        max_fret=22,
+    )
+    assert sorted(t.note.pitch for t in r.tabbed_notes) == [43, 47, 50, 55, 59]
+    assert [(n.pitch, why) for n, why in r.notes_dropped] == [(31, "out_of_range_for_tuning")]
