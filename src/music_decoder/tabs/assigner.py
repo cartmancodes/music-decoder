@@ -13,23 +13,29 @@ from music_decoder.types import (
 from .astar import Group, astar_min_cost_path
 from .candidates import chord_combinations, note_candidates
 
+# Notes whose onsets fall within this window of a group's first onset form one
+# chord (covers strums). Chosen on GuitarSet dev: overlap-based grouping
+# 0.584 / 0.550 (tab_gt / tab_e2e) -> 50 ms onset window 0.614 / 0.587.
+_CHORD_ONSET_WINDOW_S = 0.05
+
 
 def _group_simultaneous(
     notes: list[TranscribedNote],
 ) -> list[list[TranscribedNote]]:
-    """Group notes whose intervals overlap into chord groups.
+    """Group notes struck together into chord states.
 
-    Two notes belong to the same chord state if either's start_s falls within
-    the time span of any current group member. This is conservative — slightly
-    overlapping notes (e.g. legato) get grouped even if they aren't true chords.
+    A note joins the current group when its onset is within
+    ``_CHORD_ONSET_WINDOW_S`` of the group's first onset. Notes struck while
+    an earlier note is still ringing start a new group — fusing them by
+    overlap (v2) merged re-attacks of the same pitch into one "chord" that
+    no fingering could satisfy.
     """
     if not notes:
         return []
     sorted_notes = sorted(notes, key=lambda n: (n.start_s, n.pitch))
     groups: list[list[TranscribedNote]] = [[sorted_notes[0]]]
     for n in sorted_notes[1:]:
-        current_max_end = max(m.end_s for m in groups[-1])
-        if n.start_s < current_max_end:
+        if n.start_s - groups[-1][0].start_s <= _CHORD_ONSET_WINDOW_S:
             groups[-1].append(n)
         else:
             groups.append([n])

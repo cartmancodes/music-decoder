@@ -188,3 +188,20 @@ def test_out_of_range_note_does_not_poison_its_chord():
     )
     assert sorted(t.note.pitch for t in r.tabbed_notes) == [43, 47, 50, 55, 59]
     assert [(n.pitch, why) for n, why in r.notes_dropped] == [(31, "out_of_range_for_tuning")]
+
+
+def test_reattack_under_a_ringing_note_is_a_new_group():
+    # Grouping is by onset proximity: a note struck while another still rings
+    # is a new event, not part of the earlier chord (v2 fused them by overlap).
+    from music_decoder.tabs.assigner import _group_simultaneous
+
+    ringing = TranscribedNote(0.0, 2.0, 43, 80, 0.9)
+    reattack = TranscribedNote(1.0, 1.5, 43, 80, 0.9)
+    assert [len(g) for g in _group_simultaneous([ringing, reattack])] == [1, 1]
+
+
+def test_strum_within_onset_window_is_one_chord():
+    from music_decoder.tabs.assigner import _group_simultaneous
+
+    strum = [TranscribedNote(0.02 * i, 1.0, p, 80, 0.9) for i, p in enumerate((43, 47, 50))]
+    assert [len(g) for g in _group_simultaneous(strum)] == [3]
