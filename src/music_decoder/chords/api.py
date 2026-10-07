@@ -48,11 +48,16 @@ def detect_chords(
 
     backend_name = params.backend
     backend: ChordBackend
-    if backend_name == "madmom_deep_chroma":
+    if backend_name in ("madmom_deep_chroma", "madmom_cnn"):
         try:
-            from .backends.madmom_deep_chroma import MadmomDeepChromaBackend
+            from .backends.madmom_deep_chroma import (
+                MadmomCNNBackend,
+                MadmomDeepChromaBackend,
+            )
 
-            backend = MadmomDeepChromaBackend()
+            backend = (
+                MadmomCNNBackend() if backend_name == "madmom_cnn" else MadmomDeepChromaBackend()
+            )
         except ImportError as e:
             _log.warning(
                 "madmom_unavailable_falling_back",
@@ -62,12 +67,25 @@ def detect_chords(
     else:
         backend = TemplateHmmBackend()
 
-    result: ChordRecognitionResult = backend.detect(
-        chroma=chroma,
-        sr=sr,
-        hop_length=hop_length,
-        beat_grid=beat_grid,
-        params=params,
-        audio_path=audio_path,
-    )
+    kwargs: dict[str, Any] = {
+        "chroma": chroma,
+        "sr": sr,
+        "hop_length": hop_length,
+        "beat_grid": beat_grid,
+        "params": params,
+        "audio_path": audio_path,
+    }
+    result: ChordRecognitionResult = backend.detect(**kwargs)
+    if (
+        not result.segments
+        and result.skipped_reason is not None
+        and not isinstance(backend, TemplateHmmBackend)
+    ):
+        # A madmom runtime failure (init / inference / no audio) must not turn
+        # the whole song into "N": fall back to the always-available backend.
+        _log.warning(
+            "madmom_failed_falling_back",
+            extra={"reason": result.skipped_reason},
+        )
+        result = TemplateHmmBackend().detect(**kwargs)
     return result

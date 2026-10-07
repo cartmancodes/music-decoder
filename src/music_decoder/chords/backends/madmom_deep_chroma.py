@@ -175,3 +175,29 @@ class MadmomDeepChromaBackend:
             median_confidence=float(statistics.median(confidences)),
             skipped_reason=None if final else "madmom_no_segments",
         )
+
+
+class MadmomCNNBackend(MadmomDeepChromaBackend):
+    """CNN chord features + CRF (Korzeniowski & Widmer, "A Fully Convolutional
+    Deep Auditory Model for Musical Chord Recognition", MLSP 2016).
+
+    Same major/minor output vocabulary and conversion as the deep-chroma
+    backend; only the feature extractor differs. Separate class-level caches
+    so both backends can coexist in one process.
+    """
+
+    _processor: Any = None
+    _chroma_processor: Any = None
+
+    @classmethod
+    def _ensure_processors(cls) -> None:
+        if cls._processor is not None:
+            return
+        cls._import_madmom()
+        from madmom.features.chords import (
+            CNNChordFeatureProcessor,
+            CRFChordRecognitionProcessor,
+        )
+
+        cls._chroma_processor = CNNChordFeatureProcessor()
+        cls._processor = CRFChordRecognitionProcessor()
