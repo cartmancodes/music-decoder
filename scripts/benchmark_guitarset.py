@@ -106,7 +106,7 @@ def evaluate_track(track: GuitarSetTrack, stages: tuple[str, ...]) -> dict[str, 
     samples = load_audio(track)
     row: dict[str, float] = {}
     if "key" in stages:
-        key = estimate_key(compute_chroma(samples, SR))
+        key = estimate_key(compute_chroma(samples, SR), samples=samples, sr=SR)
         row["key"] = key_mirex_score(key, track.key)  # type: ignore[arg-type]
     grid = None
     if "beats" in stages or "chords" in stages:

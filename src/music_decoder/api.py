@@ -61,7 +61,7 @@ def analyze(
     cb("chroma", 1.0)
 
     cb("key", 0.0)
-    key = estimate_key(chroma)
+    key = estimate_key(chroma, samples=samples, sr=sr)
     cb("key", 1.0)
 
     cb("chords", 0.0)
@@ -95,10 +95,7 @@ def _hp_id() -> str:
     try:
         from music_decoder.config.hyperparameters import load_hyperparameters
 
-        cfg_path = Path("config/hyperparameters.yaml")
-        if not cfg_path.exists():
-            return "unknown"
-        return load_hyperparameters(cfg_path).id
+        return load_hyperparameters().id
     except Exception:
         return "unknown"
 

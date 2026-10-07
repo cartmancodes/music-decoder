@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -148,13 +149,15 @@ _PROJECT_ROOT_HP = bundled_config("hyperparameters.yaml")
 def load_hyperparameters(path: Path | None = None) -> HyperparameterSet:
     """Load the pinned hyperparameter set.
 
-    With no argument resolves the project-root ``config/hyperparameters.yaml``
+    With no argument resolves ``$MUSIC_DECODER_HYPERPARAMETERS`` if set, else
+    the project-root ``config/hyperparameters.yaml``
     so call sites inside the public adapters can read the YAML at call time
     without juggling paths. Missing optional fields fall back to per-section
     defaults (see ``_DEFAULTS``); a missing top-level ``id`` is still an error.
     """
     if path is None:
-        path = _PROJECT_ROOT_HP
+        env = os.environ.get("MUSIC_DECODER_HYPERPARAMETERS")
+        path = Path(env) if env else _PROJECT_ROOT_HP
     raw = yaml.safe_load(path.read_text()) or {}
     if not isinstance(raw, dict) or "id" not in raw:
         raise ValueError("hyperparameters yaml must have a top-level 'id'")

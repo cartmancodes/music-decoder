@@ -38,3 +38,22 @@ def test_new_keys_are_read(tmp_path: Path) -> None:
     assert hp.beat_tracking.backend == "madmom"
     assert hp.basic_pitch.melodia_trick is False
     assert hp.post_processing.enabled is True
+
+
+def test_env_var_overrides_default_path(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    p = tmp_path / "hp.yaml"
+    p.write_text(_MIN.replace("id: t", "id: from-env"))
+    monkeypatch.setenv("MUSIC_DECODER_HYPERPARAMETERS", str(p))
+    assert load_hyperparameters().id == "from-env"
+
+
+def test_analyze_metadata_id_follows_loaded_hyperparameters(
+    tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+) -> None:
+    from music_decoder.api import _hp_id
+
+    p = tmp_path / "hp.yaml"
+    p.write_text(_MIN.replace("id: t", "id: stamped"))
+    monkeypatch.setenv("MUSIC_DECODER_HYPERPARAMETERS", str(p))
+    monkeypatch.chdir(tmp_path)  # must not depend on the working directory
+    assert _hp_id() == "stamped"
