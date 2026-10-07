@@ -16,24 +16,38 @@ _DEFAULT_WEIGHTS: dict[str, float] = {
     "w_open": 0.2,
     "w_chord_intra": 0.6,
 }
+_DEFAULT_MAX_FRET = 22
+
+
+def _yaml_tab_params() -> tuple[dict[str, float], int]:
+    """``tab_assignment`` weights / max_fret from YAML; code defaults if unreadable."""
+    try:
+        from music_decoder.config.hyperparameters import load_hyperparameters
+
+        tab = load_hyperparameters().tab_assignment
+        return {**_DEFAULT_WEIGHTS, **tab.weights}, int(tab.max_fret)
+    except Exception:  # pragma: no cover - defensive
+        return dict(_DEFAULT_WEIGHTS), _DEFAULT_MAX_FRET
 
 
 def assign_tabs(
     notes: Iterable[TranscribedNote],
     *,
     tuning: Tuning = STANDARD_EADGBE,
-    max_fret: int = 22,
+    max_fret: int | None = None,
+    weights: dict[str, float] | None = None,
 ) -> Sequence[TabbedNote]:
     """Assign tab positions for a stream of notes.
 
-    Adapter that calls :func:`assign_tab` with default weight + fret-cap
-    hyperparameters and returns just the tabbed-note sequence.
+    Weights and the fret cap come from ``config/hyperparameters.yaml``
+    (``tab_assignment``) unless passed explicitly.
     """
+    yaml_weights, yaml_max_fret = _yaml_tab_params()
     result = _assign_tab_impl(
         notes,
         tuning=tuning,
-        weights=_DEFAULT_WEIGHTS,
-        max_fret=max_fret,
+        weights=weights if weights is not None else yaml_weights,
+        max_fret=max_fret if max_fret is not None else yaml_max_fret,
     )
     return tuple(result.tabbed_notes)
 
