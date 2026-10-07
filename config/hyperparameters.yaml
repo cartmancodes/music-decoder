@@ -1,11 +1,13 @@
 id: 2026-05-08-v2-baseline
-basic_pitch:
-  onset_threshold: 0.5
-  frame_threshold: 0.3
+basic_pitch:                             # coarse-to-fine sweep on GuitarSet dev (onset F 0.746 -> 0.811)
+  onset_threshold: 0.6
+  frame_threshold: 0.5
   minimum_note_length_ms: 58
-  minimum_frequency_hz: 32.7
+  melodia_trick: false
+  minimum_frequency_hz: 60.0             # below drop-C (65.4 Hz); rejects sub-guitar artifacts
   maximum_frequency_hz: 2000
 post_processing:
+  enabled: false                         # merge_same_pitch cost ~11 pts recall on GuitarSet dev
   median_filter_window: 5
   min_note_duration_s: 0.05
   same_pitch_merge_gap_s: 0.05
