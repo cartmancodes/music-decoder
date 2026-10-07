@@ -45,5 +45,36 @@ def apply_madmom_shims() -> None:
             setattr(np, name, repl)
 
 
+class _RaggedTolerantNumpy:
+    """``numpy`` stand-in for one madmom module whose ``asarray`` accepts ragged input.
+
+    ``DBNDownBeatTrackingProcessor.process`` (madmom 0.16.1) does
+    ``np.asarray(results)[:, 1]`` on a list of ``(path_array, log_prob)``
+    tuples; NumPy >= 1.24 refuses to build that ragged array. Falling back to
+    an object array keeps madmom's own selection logic intact.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(np, name)
+
+    @staticmethod
+    def asarray(a: object, *args: object, **kwargs: object) -> object:
+        try:
+            return np.asarray(a, *args, **kwargs)  # type: ignore[call-overload]
+        except ValueError:
+            return np.array(a, dtype=object)
+
+
+def patch_downbeats_numpy() -> None:
+    """Make ``madmom.features.downbeats`` tolerate ragged ``asarray`` calls. Idempotent.
+
+    Must be called after ``apply_madmom_shims()`` (i.e. after importing this module).
+    """
+    import madmom.features.downbeats as downbeats
+
+    if not isinstance(downbeats.np, _RaggedTolerantNumpy):
+        downbeats.np = _RaggedTolerantNumpy()
+
+
 # Apply on import so callers can ``import madmom_compat`` and then ``import madmom``.
 apply_madmom_shims()

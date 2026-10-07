@@ -57,3 +57,19 @@ def test_track_beats_falls_back_to_librosa_when_madmom_raises() -> None:
     ):
         g = track_beats(_clicks(), 22050)
     assert g.ts_assumed is True
+
+
+def test_madmom_downbeat_dbn_runs_on_modern_numpy() -> None:
+    from music_decoder.dsp.beats_madmom import _load_processors
+
+    _rnn, dbn = _load_processors()
+    fps = 100
+    act = np.full((fps * 12, 2), 0.01)
+    act[::50, 0] = 0.9  # beat every 0.5 s
+    act[::200, 1] = 0.9  # downbeat every 4 beats
+    act[::200, 0] = 0.05
+    rows = dbn(act)
+    g = beat_grid_from_downbeats(rows)
+    assert g is not None
+    assert g.ts_numerator == 4
+    assert abs(g.tempo_bpm - 120.0) < 3.0

@@ -40,11 +40,14 @@ def _apply_madmom_compat() -> None:
     from music_decoder.chords import madmom_compat  # noqa: F401
 
 
-def track_beats_madmom(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> BeatGrid | None:
-    """Joint beat/downbeat tracking over 3/4 and 4/4 bar hypotheses."""
+def _load_processors() -> tuple[Any, Any]:
+    """Lazily build (and cache) the RNN activation and DBN decoding processors."""
     global _rnn, _dbn
     if _rnn is None:
         _apply_madmom_compat()
+        from music_decoder.chords.madmom_compat import patch_downbeats_numpy
+
+        patch_downbeats_numpy()
         from madmom.features.downbeats import (
             DBNDownBeatTrackingProcessor,
             RNNDownBeatProcessor,
@@ -52,6 +55,12 @@ def track_beats_madmom(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> Beat
 
         _rnn = RNNDownBeatProcessor()
         _dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
+    return _rnn, _dbn
+
+
+def track_beats_madmom(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> BeatGrid | None:
+    """Joint beat/downbeat tracking over 3/4 and 4/4 bar hypotheses."""
+    rnn, dbn = _load_processors()
     with temp_wav(samples, sr) as path:
-        rows = _dbn(_rnn(str(path)))
+        rows = dbn(rnn(str(path)))
     return beat_grid_from_downbeats(rows)
