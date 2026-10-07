@@ -9,10 +9,10 @@ import numpy as np
 
 from music_decoder.dsp.tempwav import temp_wav
 from music_decoder.logging_setup import get_logger
-from music_decoder.types import Note
+from music_decoder.types import Note, TranscribedNote
 
 if TYPE_CHECKING:
-    from music_decoder.config.hyperparameters import BasicPitchParams
+    from music_decoder.config.hyperparameters import BasicPitchParams, HyperparameterSet
 
 _log = get_logger("transcription.adapter")
 
@@ -26,41 +26,58 @@ _REASONABLE_MIN_HZ = 50.0
 _REASONABLE_MAX_HZ = 3000.0
 
 
-def _resolve_basic_pitch_bounds() -> tuple[float, float]:
-    """Return (min_hz, max_hz) from the YAML, with a guitar-default fallback.
-
-    Logs a warning when the YAML values look unreasonable for guitar
-    (e.g. < 50 Hz min or > 3000 Hz max) but still respects them.
-    """
-    try:
-        from music_decoder.config.hyperparameters import load_hyperparameters
-
-        hp = load_hyperparameters()
-    except Exception as e:  # pragma: no cover - defensive
-        _log.warning("hyperparameters_load_failed", extra={"error": str(e)})
-        return _GUITAR_DEFAULT_MIN_HZ, _GUITAR_DEFAULT_MAX_HZ
-    min_hz = float(hp.basic_pitch.minimum_frequency_hz)
-    max_hz = float(hp.basic_pitch.maximum_frequency_hz)
+def _check_bounds(min_hz: float, max_hz: float) -> None:
+    """Warn (but respect the YAML) when bounds look unreasonable for guitar."""
     if min_hz < _REASONABLE_MIN_HZ or max_hz > _REASONABLE_MAX_HZ:
         _log.warning(
             "basic_pitch_bounds_outside_guitar_range",
             extra={"min_hz": min_hz, "max_hz": max_hz},
         )
-    return min_hz, max_hz
+
+
+def _load_hp() -> HyperparameterSet | None:
+    try:
+        from music_decoder.config.hyperparameters import load_hyperparameters
+
+        return load_hyperparameters()
+    except Exception as e:  # pragma: no cover - defensive
+        _log.warning("hyperparameters_load_failed", extra={"error": str(e)})
+        return None
 
 
 def resolve_params() -> BasicPitchParams:
-    """basic-pitch decoding parameters used by the public pipeline."""
+    """basic-pitch decoding parameters from ``config/hyperparameters.yaml``.
+
+    Falls back to basic-pitch's own thresholds with guitar-range frequency
+    bounds when the YAML cannot be loaded.
+    """
     from music_decoder.config.hyperparameters import BasicPitchParams
 
-    min_hz, max_hz = _resolve_basic_pitch_bounds()
-    return BasicPitchParams(
-        onset_threshold=0.5,
-        frame_threshold=0.3,
-        minimum_note_length_ms=58,
-        minimum_frequency_hz=min_hz,
-        maximum_frequency_hz=max_hz,
-    )
+    hp = _load_hp()
+    if hp is None:
+        return BasicPitchParams(
+            onset_threshold=0.5,
+            frame_threshold=0.3,
+            minimum_note_length_ms=58,
+            minimum_frequency_hz=_GUITAR_DEFAULT_MIN_HZ,
+            maximum_frequency_hz=_GUITAR_DEFAULT_MAX_HZ,
+        )
+    params = hp.basic_pitch
+    _check_bounds(float(params.minimum_frequency_hz), float(params.maximum_frequency_hz))
+    return params
+
+
+def _post_process(notes: list[TranscribedNote]) -> list[TranscribedNote]:
+    """Merge same-pitch fragments then drop very short notes, when enabled in YAML."""
+    from music_decoder.transcription.post_processing import drop_short_notes, merge_same_pitch
+
+    hp = _load_hp()
+    if hp is None or not hp.post_processing.enabled:
+        return notes
+    pp = hp.post_processing
+    merged = merge_same_pitch(notes, gap_s=pp.same_pitch_merge_gap_s)
+    kept = drop_short_notes(merged, min_duration_s=pp.min_note_duration_s)
+    return sorted(kept, key=lambda n: (n.start_s, n.pitch))
 
 
 def decode_model_output(model_output: dict[str, Any]) -> tuple[Note, ...]:
@@ -81,8 +98,9 @@ def decode_model_output(model_output: dict[str, Any]) -> tuple[Note, ...]:
         min_note_len=min_note_len,
         min_freq=params.minimum_frequency_hz,
         max_freq=params.maximum_frequency_hz,
+        melodia_trick=params.melodia_trick,
     )
-    return tuple(notes_from_events(events))
+    return tuple(_post_process(notes_from_events(events)))
 
 
 def transcribe(

@@ -80,6 +80,7 @@ def transcribe_basic_pitch(
             minimum_note_length=params.minimum_note_length_ms,
             minimum_frequency=params.minimum_frequency_hz,
             maximum_frequency=params.maximum_frequency_hz,
+            melodia_trick=params.melodia_trick,
         )
     midi_data.write(str(raw_midi_path))
     midi_data.write(str(post_midi_path))  # placeholder until post-processing runs
