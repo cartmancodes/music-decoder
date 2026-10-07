@@ -3,6 +3,7 @@ from __future__ import annotations
 import statistics
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import scipy.io.wavfile as wavfile
@@ -15,26 +16,58 @@ from music_decoder.types import (
 )
 
 
+def _model_path() -> Path:
+    """Prefer CoreML / ONNX variants (avoid TF version-mismatch errors on macOS)."""
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+
+    model_path: Path = ICASSP_2022_MODEL_PATH
+    for suffix in (".mlpackage", ".onnx"):
+        candidate = Path(str(ICASSP_2022_MODEL_PATH) + suffix)
+        if candidate.exists():
+            return candidate
+    return model_path
+
+
+def run_model(wav_path: Path) -> dict[str, Any]:
+    """Run the basic-pitch network only; returns raw ``note``/``onset``/``contour`` maps.
+
+    Split from decoding so threshold sweeps can re-decode a cached output.
+    """
+    from basic_pitch.inference import run_inference
+
+    out: dict[str, Any] = run_inference(str(wav_path), _model_path())
+    return out
+
+
+def notes_from_events(events: Any) -> list[TranscribedNote]:
+    """basic-pitch note events → our notes, sorted by (onset, pitch)."""
+    notes = [
+        TranscribedNote(
+            start_s=float(start),
+            end_s=float(end),
+            pitch=int(pitch),
+            velocity=round(min(127, amplitude * 127)),
+            confidence=float(min(1.0, max(0.0, amplitude))),
+        )
+        for start, end, pitch, amplitude, _bend in events
+    ]
+    notes.sort(key=lambda n: (n.start_s, n.pitch))
+    return notes
+
+
 def transcribe_basic_pitch(
     audio: LoadedAudio,
     params: BasicPitchParams,
     *,
     output_dir: Path,
 ) -> TranscriptionResult:
-    from basic_pitch import ICASSP_2022_MODEL_PATH
     from basic_pitch.inference import predict
 
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_midi_path = output_dir / "raw_basic_pitch.mid"
     post_midi_path = output_dir / "post_basic_pitch.mid"  # post-processing fills it later
 
-    # Prefer CoreML on macOS (avoids TF version-mismatch errors when TF is installed)
-    model_path: Path = ICASSP_2022_MODEL_PATH
-    for suffix in (".mlpackage", ".onnx"):
-        candidate = Path(str(ICASSP_2022_MODEL_PATH) + suffix)
-        if candidate.exists():
-            model_path = candidate
-            break
+    model_path = _model_path()
 
     with tempfile.TemporaryDirectory() as tmp:
         wav_path = Path(tmp) / "input.wav"
@@ -51,17 +84,7 @@ def transcribe_basic_pitch(
     midi_data.write(str(raw_midi_path))
     midi_data.write(str(post_midi_path))  # placeholder until post-processing runs
 
-    notes: list[TranscribedNote] = []
-    for start, end, pitch, amplitude, _pitch_bend in note_events:
-        notes.append(
-            TranscribedNote(
-                start_s=float(start),
-                end_s=float(end),
-                pitch=int(pitch),
-                velocity=round(min(127, amplitude * 127)),
-                confidence=float(min(1.0, max(0.0, amplitude))),
-            )
-        )
+    notes = notes_from_events(note_events)
     median_conf = statistics.median([n.confidence for n in notes]) if notes else 0.0
 
     return TranscriptionResult(

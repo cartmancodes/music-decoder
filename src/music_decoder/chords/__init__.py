@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from music_decoder.dsp.tempwav import temp_wav
 from music_decoder.logging_setup import get_logger
 from music_decoder.types import BeatGrid, ChordSegment
 
@@ -81,8 +83,6 @@ def recognize_chords(
     """
     # Lazy imports: ``music_decoder.chords.api`` pulls in the template-HMM
     # backend on import; keep ``import music_decoder.chords`` itself cheap.
-    import tempfile
-
     from music_decoder.chords.api import detect_chords
     from music_decoder.chords.templates import QUALITIES
     from music_decoder.config.hyperparameters import ChordDetectionParams
@@ -105,24 +105,13 @@ def recognize_chords(
         duration_s = float(samples.shape[-1]) / float(sr) if samples.size else 1.0
         beat_grid = _synthetic_beat_grid(duration_s)
 
-    # The madmom backend operates on the audio file directly, not on
-    # pre-computed chroma. Materialize a temp WAV once when madmom is
-    # requested so it has something to read; template_hmm ignores audio_path.
-    audio_path: Path | None = None
-    tmp_audio: Path | None = None
-    if backend == "madmom_deep_chroma":
-        try:
-            import scipy.io.wavfile as wavfile
-
-            tmp_audio = Path(tempfile.mkstemp(suffix=".wav")[1])
-            pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-            wavfile.write(str(tmp_audio), sr, pcm)
-            audio_path = tmp_audio
-        except Exception as e:  # pragma: no cover - defensive
-            _log.warning("madmom_temp_wav_failed", extra={"error": str(e)})
-            audio_path = None
-
-    try:
+    # madmom backends operate on an audio file, not on pre-computed chroma.
+    # Materialize a temp WAV only when a madmom backend is requested;
+    # template_hmm ignores audio_path.
+    with contextlib.ExitStack() as stack:
+        audio_path: Path | None = None
+        if backend.startswith("madmom"):
+            audio_path = stack.enter_context(temp_wav(samples, sr))
         result = detect_chords(
             chroma=chroma,
             sr=sr,
@@ -131,12 +120,6 @@ def recognize_chords(
             params=params,
             audio_path=audio_path,
         )
-    finally:
-        if tmp_audio is not None and tmp_audio.exists():
-            try:
-                tmp_audio.unlink()
-            except OSError:
-                pass
 
     if result.skipped_reason is not None and not result.segments:
         # Final safety net: if the backend still bailed (e.g. chroma window
