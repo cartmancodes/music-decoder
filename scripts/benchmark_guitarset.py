@@ -88,8 +88,7 @@ def gt_note_arrays(track: GuitarSetTrack) -> tuple[np.ndarray[Any, Any], np.ndar
 
 def score_tabs(track: GuitarSetTrack, tabbed: tuple[TabbedNote, ...] | list[TabbedNote]) -> float:
     truth = [
-        (n.pitch, n.string, n.pitch - STANDARD_EADGBE.open_pitches[n.string])
-        for n in track.notes
+        (n.pitch, n.string, n.pitch - STANDARD_EADGBE.open_pitches[n.string]) for n in track.notes
     ]
     gt_iv, _ = gt_note_arrays(track)
     pred_iv = np.array([(t.note.start_s, t.note.end_s) for t in tabbed], dtype=float).reshape(-1, 2)
@@ -126,13 +125,119 @@ def evaluate_track(track: GuitarSetTrack, stages: tuple[str, ...]) -> dict[str, 
         p, r, f = note_onset_prf(pred_iv, pred_p, gt_iv, gt_p)
         row.update({"note_p": p, "note_r": r, "notes": f})
     if "tab_gt" in stages:
-        gt_notes = [
-            TranscribedNote(n.start_s, n.end_s, n.pitch, 80, 1.0) for n in track.notes
-        ]
+        gt_notes = [TranscribedNote(n.start_s, n.end_s, n.pitch, 80, 1.0) for n in track.notes]
         row["tab_gt"] = score_tabs(track, assign_tabs(gt_notes))
     if "tab_e2e" in stages and notes is not None:
         row["tab_e2e"] = score_tabs(track, assign_tabs(notes))
     return row
+
+
+# ---- decoding sweep (basic-pitch thresholds + post-processing) --------------
+
+Combo = tuple[float, float, int, bool, float, float]
+# (onset, frame, min_note_ms, melodia, merge_gap_s, min_dur_s); gap/min_dur
+# of 0 means "post-processing off".
+
+
+def _decode_scores(track: GuitarSetTrack, combos: list[Combo]) -> list[tuple[float, float, float]]:
+    from basic_pitch import note_creation
+    from basic_pitch.constants import AUDIO_SAMPLE_RATE, FFT_HOP
+
+    from music_decoder.transcription import resolve_params
+    from music_decoder.transcription.basic_pitch_wrapper import notes_from_events
+    from music_decoder.transcription.post_processing import drop_short_notes, merge_same_pitch
+
+    out = model_output(track, load_audio(track) if not _cached(track) else np.zeros(0))
+    bounds = resolve_params()
+    gt_iv, gt_p = gt_note_arrays(track)
+    scores = []
+    for onset, frame, min_ms, melodia, gap, min_dur in combos:
+        _m, events = note_creation.model_output_to_notes(
+            out,
+            onset_thresh=onset,
+            frame_thresh=frame,
+            min_note_len=round(min_ms / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)),
+            min_freq=bounds.minimum_frequency_hz,
+            max_freq=bounds.maximum_frequency_hz,
+            melodia_trick=melodia,
+        )
+        notes = notes_from_events(events)
+        if gap > 0:
+            notes = merge_same_pitch(notes, gap_s=gap)
+        if min_dur > 0:
+            notes = drop_short_notes(notes, min_duration_s=min_dur)
+        iv = np.array([(n.start_s, n.end_s) for n in notes], dtype=float).reshape(-1, 2)
+        pp = np.array([n.pitch for n in notes], dtype=float)
+        scores.append(note_onset_prf(iv, pp, gt_iv, gt_p))
+    return scores
+
+
+def _cached(track: GuitarSetTrack) -> bool:
+    return (CACHE / "bp" / f"{track.track_id}.npz").exists()
+
+
+def sweep(
+    tracks: list[GuitarSetTrack], combos: list[Combo], workers: int
+) -> list[tuple[Combo, float, float, float]]:
+    """Mean onset P/R/F per combo, best F first."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        per_track = list(pool.map(_decode_scores, tracks, [combos] * len(tracks)))
+    results = []
+    for i, combo in enumerate(combos):
+        ps, rs, fs = zip(*(t[i] for t in per_track), strict=True)
+        results.append((combo, statistics.fmean(ps), statistics.fmean(rs), statistics.fmean(fs)))
+    return sorted(results, key=lambda r: r[3], reverse=True)
+
+
+def _print_sweep(
+    title: str, results: list[tuple[Combo, float, float, float]], top: int = 8
+) -> None:
+    print(f"\n### {title}\n")
+    print("| onset | frame | min_ms | melodia | merge_gap | min_dur | P | R | F |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    for (o, fr, ms, mel, gap, md), p, r, f in results[:top]:
+        print(f"| {o} | {fr} | {ms} | {mel} | {gap} | {md} | {p:.3f} | {r:.3f} | {f:.3f} |")
+
+
+def sweep_notes(tracks: list[GuitarSetTrack], workers: int) -> Combo:
+    """Coarse-to-fine search (threshold grid → length/melodia → refine → post-processing)."""
+    import itertools as it
+
+    # Make sure every network output is cached before fanning out.
+    for t in tracks:
+        if not _cached(t):
+            model_output(t, load_audio(t))
+
+    stage1 = [
+        (o, f, 58, True, 0.0, 0.0)
+        for o, f in it.product((0.3, 0.4, 0.5, 0.6, 0.7, 0.8), (0.2, 0.3, 0.4, 0.5, 0.6))
+    ]
+    r1 = sweep(tracks, stage1, workers)
+    _print_sweep("stage 1: onset x frame", r1)
+    o, f = r1[0][0][0], r1[0][0][1]
+
+    stage2 = [(o, f, ms, mel, 0.0, 0.0) for ms, mel in it.product((35, 58, 90, 128), (True, False))]
+    r2 = sweep(tracks, stage2, workers)
+    _print_sweep("stage 2: min note length x melodia", r2)
+    ms, mel = r2[0][0][2], r2[0][0][3]
+
+    stage3 = [
+        (round(o + do, 3), round(f + df, 3), ms, mel, 0.0, 0.0)
+        for do, df in it.product((-0.05, 0.0, 0.05), (-0.05, 0.0, 0.05))
+        if 0 < f + df < 1 and 0 < o + do < 1
+    ]
+    r3 = sweep(tracks, stage3, workers)
+    _print_sweep("stage 3: refine thresholds", r3)
+    o, f = r3[0][0][0], r3[0][0][1]
+
+    stage4 = [(o, f, ms, mel, 0.0, 0.0)] + [
+        (o, f, ms, mel, gap, md) for gap, md in it.product((0.02, 0.05), (0.0, 0.03, 0.05, 0.08))
+    ]
+    r4 = sweep(tracks, stage4, workers)
+    _print_sweep("stage 4: post-processing", r4)
+    return r4[0][0]
 
 
 def summarize(rows: dict[str, dict[str, float]]) -> dict[str, float]:
@@ -192,7 +297,13 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--json", type=Path, default=None)
     ap.add_argument("--by-style", action="store_true")
+    ap.add_argument("--sweep-notes", action="store_true", help="tune basic-pitch decoding")
+    ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args()
+    if args.sweep_notes:
+        best = sweep_notes(tracks_for(args.split, args.limit), args.workers)
+        print(f"\nbest: {best}")
+        return
     stages = tuple(s for s in args.stages.split(",") if s)
     unknown = set(stages) - set(ALL_STAGES)
     if unknown:
