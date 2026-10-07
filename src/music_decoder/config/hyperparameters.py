@@ -16,6 +16,9 @@ class BasicPitchParams:
     minimum_note_length_ms: int
     minimum_frequency_hz: float
     maximum_frequency_hz: float
+    # basic-pitch's "melodia trick": extend notes along high-energy frames
+    # that had no onset. True reproduces basic-pitch's own default.
+    melodia_trick: bool = True
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,8 @@ class PostProcessingParams:
     min_note_duration_s: float
     same_pitch_merge_gap_s: float
     rhythmic_snap_confidence_threshold: float
+    # Apply merge_same_pitch + drop_short_notes to transcribed notes.
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,6 +44,9 @@ class KeyDetectionParams:
     windowed_segment_length_s: float
     windowed_hop_s: float
     modulation_penalty: float
+    # "profile" — Krumhansl-Kessler / Temperley consensus on mean chroma.
+    # "cnn" — madmom CNNKeyRecognitionProcessor (falls back to "profile").
+    backend: str = "profile"
 
 
 @dataclass(frozen=True)
@@ -46,6 +54,9 @@ class BeatTrackingParams:
     start_bpm: float
     tightness: float
     ts_min_confidence: float
+    # "librosa" — onset-envelope dynamic programming; downbeats = beats[::4].
+    # "madmom" — RNN + DBN joint beat/downbeat tracker (falls back to librosa).
+    backend: str = "librosa"
 
 
 @dataclass(frozen=True)
