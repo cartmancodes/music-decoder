@@ -85,7 +85,11 @@ def _estimate_fused(
     sources = []
     pc = chroma.mean(axis=1) if chroma.ndim == 2 else np.asarray(chroma)
     if pc.shape[-1] == 12 and float(np.sum(pc)) > 0:
-        sources.append(fusion.profile_scores(pc))
+        # Two profile families: together they outvote a single confidently
+        # wrong cue (e.g. the CNN on synthetic audio) and score slightly
+        # higher on GuitarSet dev (0.685 vs 0.680 with Krumhansl-Kessler only).
+        sources.append(fusion.profile_scores(pc, "krumhansl_kessler"))
+        sources.append(fusion.profile_scores(pc, "temperley"))
     if samples is not None and sr is not None:
         try:
             sources.append(fusion.cnn_scores(cnn.cnn_probabilities(samples, sr)))

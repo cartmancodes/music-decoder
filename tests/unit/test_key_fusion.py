@@ -85,3 +85,22 @@ def test_estimate_key_fusion_survives_cnn_failure() -> None:
     ):
         k = estimate_key(chroma, samples=np.zeros(22050, np.float32), sr=22050)
     assert (k.tonic, k.mode) == ("C", "major")
+
+
+def test_fusion_two_profiles_outvote_a_lone_wrong_cnn() -> None:
+    # Clean C-major material, no chord cue, CNN mildly but wrongly favouring
+    # D minor (what madmom does on the sine-rendered regression fixture).
+    chroma = np.zeros((12, 8))
+    chroma[[0, 2, 4, 5, 7, 9, 11], :] = 1.0
+    chroma[[0, 4, 7], :] = 2.0
+    # Top three as madmom outputs them for the sine-rendered fixture.
+    probs = np.full(24, 0.025)
+    probs[17] = 0.26  # madmom index 17 = "D minor"
+    probs[8] = 0.13  # "F major"
+    probs[3] = 0.073  # "C major"
+    with (
+        mock.patch("music_decoder.key._resolve_backend", return_value="fusion"),
+        mock.patch("music_decoder.key.cnn.cnn_probabilities", return_value=probs),
+    ):
+        k = estimate_key(chroma, samples=np.zeros(22050, np.float32), sr=22050)
+    assert (k.tonic, k.mode) == ("C", "major")

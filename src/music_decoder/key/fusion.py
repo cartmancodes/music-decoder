@@ -4,12 +4,13 @@ Each source yields 24 scores (index ``pitch_class * 2 + mode``, mode 0 =
 major, 1 = minor). Scores are z-normalized per source and summed:
 
 - **cnn** — log-probabilities from madmom's CNN key classifier;
-- **profile** — Krumhansl-Kessler correlation with the mean chroma;
+- **profiles** — Krumhansl-Kessler and Temperley correlations with the
+  mean chroma (two cues);
 - **chords** — duration-weighted diatonic fit of the recognized chord
   progression (tonic/subdominant/dominant weighted highest).
 
-On GuitarSet dev (300 tracks) the fused estimate scores 0.68 MIREX-weighted
-vs 0.56-0.64 for any single cue, because the cues make different mistakes
+On GuitarSet dev (300 tracks) the fused estimate scores 0.685 MIREX-weighted
+vs 0.56-0.66 for any single cue, because the cues make different mistakes
 (profiles confuse relative keys, the CNN fifths, chord fits modes).
 """
 
