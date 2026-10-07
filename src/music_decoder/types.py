@@ -182,7 +182,7 @@ Note = TranscribedNote
 class KeyEstimate:
     tonic: str
     mode: Literal["major", "minor"]
-    profile: Literal["krumhansl_kessler", "temperley", "cnn"]
+    profile: Literal["krumhansl_kessler", "temperley", "cnn", "fusion"]
     correlation: float
     margin: float
 

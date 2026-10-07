@@ -60,13 +60,14 @@ def analyze(
     chroma = compute_chroma(samples, sr)
     cb("chroma", 1.0)
 
-    cb("key", 0.0)
-    key = estimate_key(chroma, samples=samples, sr=sr)
-    cb("key", 1.0)
-
     cb("chords", 0.0)
     chord_segments = recognize_chords(samples, sr, beat_grid=beat_grid)
     cb("chords", 1.0)
+
+    # Key runs after chords: the fusion backend uses the progression as a cue.
+    cb("key", 0.0)
+    key = estimate_key(chroma, samples=samples, sr=sr, chords=chord_segments)
+    cb("key", 1.0)
 
     cb("transcription", 0.0)
     notes = transcribe(samples, sr)

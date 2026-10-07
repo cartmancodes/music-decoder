@@ -158,3 +158,33 @@ def test_analyze_skips_separation_for_solo_guitar(tmp_path: Path) -> None:
         analyze(str(audio), declared_kind="solo_guitar")
 
     sep.assert_not_called()
+
+
+def test_analyze_passes_chords_and_audio_to_key_estimation(tmp_path: Path) -> None:
+    """Key fusion needs the recognized chords, so chords run before key."""
+    audio = tmp_path / "x.wav"
+    audio.write_bytes(b"WAV")
+    segs = (ChordSegment(start_s=0.0, end_s=1.0, root="G", quality="maj", confidence=0.8),)
+    key_est = KeyEstimate(tonic="G", mode="major", profile="fusion", correlation=1.0, margin=0.5)
+    grid = BeatGrid(
+        tempo_bpm=120.0,
+        beat_times_s=np.array([0.0, 0.5]),
+        downbeat_times_s=np.array([0.0]),
+        ts_numerator=4,
+        ts_denominator=4,
+        ts_confidence=0.5,
+        ts_assumed=True,
+    )
+    with (
+        mock.patch("music_decoder.api.ingest_load", return_value=_mock_loaded_audio(tmp_path)),
+        mock.patch("music_decoder.api.track_beats", return_value=grid),
+        mock.patch("music_decoder.api.compute_chroma", return_value=np.zeros((12, 10))),
+        mock.patch("music_decoder.api.estimate_key", return_value=key_est) as key,
+        mock.patch("music_decoder.api.recognize_chords", return_value=segs),
+        mock.patch("music_decoder.api.transcribe", return_value=()),
+        mock.patch("music_decoder.api.assign_tabs", return_value=()),
+    ):
+        result = analyze(str(audio), declared_kind="solo_guitar")
+    assert key.call_args.kwargs["chords"] == segs
+    assert key.call_args.kwargs["sr"] == 22050
+    assert result.key.profile == "fusion"

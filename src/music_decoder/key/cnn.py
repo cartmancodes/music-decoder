@@ -39,8 +39,10 @@ def _apply_madmom_compat() -> None:
     from music_decoder.chords import madmom_compat  # noqa: F401
 
 
-def estimate_key_cnn(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> KeyEstimate:
-    """Run the madmom CNN key ensemble on *samples*."""
+def cnn_probabilities(
+    samples: np.ndarray[Any, np.dtype[Any]], sr: int
+) -> np.ndarray[Any, np.dtype[Any]]:
+    """madmom CNN key ensemble → 24 probabilities in madmom's label order."""
     global _processor
     if _processor is None:
         _apply_madmom_compat()
@@ -48,5 +50,10 @@ def estimate_key_cnn(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> KeyEst
 
         _processor = CNNKeyRecognitionProcessor()
     with temp_wav(samples, sr) as path:
-        probs = _processor(str(path))
-    return probs_to_key_estimate(probs)
+        probs: np.ndarray[Any, np.dtype[Any]] = np.asarray(_processor(str(path)))
+    return probs
+
+
+def estimate_key_cnn(samples: np.ndarray[Any, np.dtype[Any]], sr: int) -> KeyEstimate:
+    """Run the madmom CNN key ensemble on *samples*."""
+    return probs_to_key_estimate(cnn_probabilities(samples, sr))

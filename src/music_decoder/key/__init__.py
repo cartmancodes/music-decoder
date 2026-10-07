@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -9,7 +10,7 @@ import numpy as np
 from music_decoder.errors import KeyDetectionError
 from music_decoder.key.global_estimator import estimate_global_key
 from music_decoder.logging_setup import get_logger
-from music_decoder.types import KeyEstimate
+from music_decoder.types import ChordSegment, KeyEstimate
 
 _log = get_logger("key.adapter")
 
@@ -30,16 +31,25 @@ def estimate_key(
     *,
     samples: np.ndarray[Any, np.dtype[Any]] | None = None,
     sr: int | None = None,
+    chords: Sequence[ChordSegment] | None = None,
 ) -> KeyEstimate:
     """Estimate the global key.
 
-    With ``key_detection.backend: cnn`` and raw *samples*, uses madmom's CNN
-    key classifier. Otherwise (or if madmom fails) reduces (12, T) chroma to a
-    12-dim pitch-class distribution, runs the Krumhansl-Kessler / Temperley
+    With ``key_detection.backend: fusion`` combines the Krumhansl-Kessler
+    profile score with madmom's CNN (when *samples* are given) and the
+    diatonic fit of *chords* (when given) — see :mod:`music_decoder.key.fusion`.
+    With ``cnn`` and raw *samples*, uses madmom's CNN key classifier alone.
+    Otherwise (or if madmom fails) reduces (12, T) chroma to a 12-dim
+    pitch-class distribution, runs the Krumhansl-Kessler / Temperley
     consensus, and falls back to the Krumhansl-Kessler top pick if the two
     profiles disagree.
     """
-    if samples is not None and sr is not None and _resolve_backend() == "cnn":
+    backend = _resolve_backend()
+    if backend == "fusion":
+        fused = _estimate_fused(chroma, samples=samples, sr=sr, chords=chords)
+        if fused is not None:
+            return fused
+    if samples is not None and sr is not None and backend == "cnn":
         from music_decoder.key import cnn
 
         try:
@@ -60,6 +70,35 @@ def estimate_key(
     if not kk_top:
         raise KeyDetectionError("no key estimate could be produced")
     return kk_top[0]
+
+
+def _estimate_fused(
+    chroma: np.ndarray[Any, np.dtype[Any]],
+    *,
+    samples: np.ndarray[Any, np.dtype[Any]] | None,
+    sr: int | None,
+    chords: Sequence[ChordSegment] | None,
+) -> KeyEstimate | None:
+    """Fused estimate from whichever cues are available; ``None`` if none are."""
+    from music_decoder.key import cnn, fusion
+
+    sources = []
+    pc = chroma.mean(axis=1) if chroma.ndim == 2 else np.asarray(chroma)
+    if pc.shape[-1] == 12 and float(np.sum(pc)) > 0:
+        sources.append(fusion.profile_scores(pc))
+    if samples is not None and sr is not None:
+        try:
+            sources.append(fusion.cnn_scores(cnn.cnn_probabilities(samples, sr)))
+        except Exception as e:  # optional model must never break analyze()
+            _log.warning("key_cnn_failed_fusing_without_it", extra={"error": str(e)})
+    if chords:
+        chord_fit = fusion.chord_scores(chords)
+        if chord_fit is not None:
+            sources.append(chord_fit)
+    try:
+        return fusion.fuse(sources)
+    except ValueError:
+        return None
 
 
 __all__ = ["estimate_key"]

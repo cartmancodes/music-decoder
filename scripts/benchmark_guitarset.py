@@ -105,17 +105,21 @@ def evaluate_track(track: GuitarSetTrack, stages: tuple[str, ...]) -> dict[str, 
     needs_audio = bool(set(stages) - {"tab_gt"})
     samples = load_audio(track) if needs_audio else np.zeros(0, np.float32)
     row: dict[str, float] = {}
-    if "key" in stages:
-        key = estimate_key(compute_chroma(samples, SR), samples=samples, sr=SR)
-        row["key"] = key_mirex_score(key, track.key)  # type: ignore[arg-type]
+    # Mirror analyze(): beats -> chords -> key (key fusion uses the chords).
     grid = None
-    if "beats" in stages or "chords" in stages:
+    segs = None
+    if {"beats", "chords", "key"} & set(stages):
         grid = track_beats(samples, SR)
     if "beats" in stages and grid is not None:
         row["beats"] = beat_f_measure(grid.beat_times_s, track.beats)
-    if "chords" in stages and grid is not None:
+    if ({"chords", "key"} & set(stages)) and grid is not None:
         segs = list(recognize_chords(samples, SR, beat_grid=grid))
+    if "chords" in stages and segs is not None:
         row["chords"] = chord_majmin_score(segs, list(track.chords))
+    if "key" in stages:
+        chroma = compute_chroma(samples, SR)
+        key = estimate_key(chroma, samples=samples, sr=SR, chords=segs)
+        row["key"] = key_mirex_score(key, track.key)  # type: ignore[arg-type]
     notes: tuple[TranscribedNote, ...] | None = None
     if "notes" in stages or "tab_e2e" in stages:
         notes = notes_for(track, samples)
