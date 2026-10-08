@@ -35,9 +35,10 @@ def estimate_key(
 ) -> KeyEstimate:
     """Estimate the global key.
 
-    With ``key_detection.backend: fusion`` combines the Krumhansl-Kessler
-    profile score with madmom's CNN (when *samples* are given) and the
-    diatonic fit of *chords* (when given) — see :mod:`music_decoder.key.fusion`.
+    With ``key_detection.backend: fusion`` combines the Krumhansl-Kessler and
+    Temperley profile scores with madmom's CNN (when *samples* are given) and
+    the diatonic fit of *chords* (when given) — see
+    :mod:`music_decoder.key.fusion`.
     With ``cnn`` and raw *samples*, uses madmom's CNN key classifier alone.
     Otherwise (or if madmom fails) reduces (12, T) chroma to a 12-dim
     pitch-class distribution, runs the Krumhansl-Kessler / Temperley

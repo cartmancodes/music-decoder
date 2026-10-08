@@ -16,8 +16,9 @@ if TYPE_CHECKING:
 
 _log = get_logger("transcription.adapter")
 
-# 65 Hz ~= low E2; 2093 Hz ~= C7. The YAML's 32.7 Hz / 2000 Hz are
-# general-purpose; tune via YAML if you want piano-style range.
+# Fallback bounds when the YAML can't be loaded: 65 Hz ~= C2 (lowest note in
+# drop-C; standard-tuning low E2 is 82 Hz) to 2093 Hz ~= C7. The YAML
+# (`basic_pitch.minimum_frequency_hz` / `maximum_frequency_hz`) is authoritative.
 _GUITAR_DEFAULT_MIN_HZ = 65.0
 _GUITAR_DEFAULT_MAX_HZ = 2093.0
 # Heuristic guitar-friendly bounds; values outside this range get a warning
