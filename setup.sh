@@ -3,14 +3,16 @@
 #
 # Installs system binaries (ffmpeg, fluidsynth, libsndfile), creates a
 # Python 3.11 virtual environment at ./.venv, installs the package with
-# dev extras, downloads the synthetic-fixture soundfont, and runs the
+# dev extras, pre-downloads models with `music-decoder fetch-models`
+# (Demucs weights ~52 MB + GeneralUser GS soundfont ~30 MB), and runs the
 # `music-decoder doctor` health check.
 #
 # Usage:
 #     source ./setup.sh         # run setup AND activate the venv in your shell
 #     ./setup.sh                # run setup; prints activate command at the end
 #     ./setup.sh --no-system    # skip system-package install (need sudo / brew)
-#     ./setup.sh --no-soundfont # skip the ~6MB SF2 download
+#     ./setup.sh --no-models    # skip all model pre-downloads
+#     ./setup.sh --no-soundfont # skip only the soundfont (a bundled one is used)
 #     ./setup.sh --recreate     # delete and recreate the .venv
 #
 # Re-running is safe: each step is idempotent.
@@ -37,6 +39,7 @@ _setup_main() {
   PYTHON_BIN="${PYTHON_BIN:-}"
   SKIP_SYSTEM=0
   SKIP_SOUNDFONT=0
+  SKIP_MODELS=0
   RECREATE_VENV=0
 
   log()  { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }
@@ -47,10 +50,11 @@ _setup_main() {
     case "$1" in
       --no-system)    SKIP_SYSTEM=1 ;;
       --no-soundfont) SKIP_SOUNDFONT=1 ;;
+      --no-models)    SKIP_MODELS=1 ;;
       --recreate)     RECREATE_VENV=1 ;;
       --python)       shift; PYTHON_BIN="$1" ;;
       -h|--help)
-        sed -n '2,15p' "$PROJECT_ROOT/setup.sh" | sed 's/^# \{0,1\}//'
+        sed -n '2,17p' "$PROJECT_ROOT/setup.sh" | sed 's/^# \{0,1\}//'
         return 0
         ;;
       *)
@@ -194,20 +198,22 @@ _setup_main() {
   log "pip install -e .[dev]  (this may take several minutes for demucs/madmom/basic-pitch)"
   python -m pip install -e ".[dev]"
 
-  # --- 6. Download soundfont (optional) ------------------------------------
-  local soundfont_path="$PROJECT_ROOT/tests/fixtures/synthetic/soundfont/TimGM6mb.sf2"
-  if [[ $SKIP_SOUNDFONT -eq 0 ]]; then
-    if [[ -f "$soundfont_path" ]]; then
-      log "soundfont already present: $soundfont_path"
-    else
-      log "downloading soundfont → $soundfont_path"
-      if ! python "$PROJECT_ROOT/scripts/download_soundfont.py"; then
-        warn "soundfont download failed — fluidsynth synthesis will fall back to sine waves."
-        warn "Re-run later with: python scripts/download_soundfont.py"
-      fi
-    fi
+  # --- 6. Pre-download models (Demucs weights + soundfont) ----------------
+  # Idempotent; failures only warn — the app still works (bundled soundfont,
+  # Demucs downloads lazily on the first full-mix analysis).
+  if [[ $SKIP_MODELS -eq 1 ]]; then
+    log "skipping model pre-download (--no-models)"
   else
-    log "skipping soundfont download (--no-soundfont)"
+    log "pre-downloading models: music-decoder fetch-models"
+    fetch_ok=1
+    if [[ $SKIP_SOUNDFONT -eq 1 ]]; then
+      music-decoder fetch-models --no-soundfont || fetch_ok=0
+    else
+      music-decoder fetch-models || fetch_ok=0
+    fi
+    if [[ $fetch_ok -eq 0 ]]; then
+      warn "some model downloads failed — retry later with: music-decoder fetch-models"
+    fi
   fi
 
   # --- 7. Health check -----------------------------------------------------

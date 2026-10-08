@@ -18,3 +18,25 @@ def test_setup_regenerates_madmom_c_extensions_under_project_constraints():
     assert "touch" in makefile
     assert "madmom/ml/nn/layers.py" in makefile
     assert "pip install --no-build-isolation --no-deps" in makefile
+
+
+def test_setup_prefetches_models_by_default_with_opt_outs():
+    setup_script = (ROOT / "setup.sh").read_text()
+    assert "music-decoder fetch-models" in setup_script
+    assert "--no-models)" in setup_script
+    assert "--no-soundfont)" in setup_script
+    # the old fixture-dir download (dead mirrors) is gone
+    assert "tests/fixtures/synthetic/soundfont/TimGM6mb.sf2" not in setup_script
+
+
+def test_setup_help_documents_model_flags():
+    import subprocess
+
+    out = subprocess.run(
+        ["bash", str(ROOT / "setup.sh"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "--no-models" in out
+    assert "fetch-models" in out
