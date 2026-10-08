@@ -13,7 +13,7 @@ post_processing:
   same_pitch_merge_gap_s: 0.05
   rhythmic_snap_confidence_threshold: 0.7
 key_detection:
-  backend: fusion                        # CNN + KK profile + chord fit; GuitarSet dev 0.560 -> 0.680
+  backend: fusion                        # CNN + KK + Temperley + chord fit; GuitarSet dev 0.560 -> 0.685
   hpss_margin: 1.0
   windowed_segment_length_s: 8.0
   windowed_hop_s: 2.0

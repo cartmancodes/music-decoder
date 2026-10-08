@@ -199,15 +199,17 @@ separation.run_separation      [separation/demucs.py]
   ▼
 samples, sr (possibly Demucs-isolated)
   │
-  ├─► dsp.track_beats          [dsp/beats.py]   →  BeatGrid (tempo + beats)
+  ├─► dsp.track_beats          [dsp/__init__.py] → BeatGrid (madmom RNN+DBN; librosa fallback)
   │
   ├─► dsp.compute_chroma       [dsp/chroma.py]  →  (12, T) chroma matrix
-  │       │
-  │       └─► key.estimate_key [key/__init__.py] →  KeyEstimate
   │
   ├─► chords.recognize_chords  [chords/__init__.py]
-  │       beat-syncs chroma, runs template_hmm or madmom backend
+  │       madmom deep-chroma (default) or template_hmm backend
   │       → tuple[ChordSegment, ...]
+  │
+  ├─► key.estimate_key         [key/__init__.py]
+  │       fusion of KK + Temperley profiles (chroma), madmom CNN (audio)
+  │       and the chord progression → KeyEstimate
   │
   └─► transcription.transcribe [transcription/__init__.py]
           basic-pitch CoreML/ONNX/TF model on the same samples
@@ -274,11 +276,26 @@ Separation is skipped entirely when `declared_kind="solo_guitar"` or
 
 ### 4.3 Beat tracking
 
-[dsp/beats.py](../src/music_decoder/dsp/beats.py) wraps
-`librosa.beat.beat_track` with `start_bpm=120, tightness=100`. If the input
-is essentially silent (`RMS < 1e-5`) it returns an empty BeatGrid rather
-than letting librosa raise. Downbeats are a crude `beats[::4]`. The
-returned `BeatGrid.ts_*` fields default to 4/4 with `ts_assumed=True`.
+The adapter [dsp/track_beats()](../src/music_decoder/dsp/__init__.py)
+picks a backend from `beat_tracking.backend` in
+[`config/hyperparameters.yaml`](../config/hyperparameters.yaml):
+
+- **`madmom`** — [dsp/beats_madmom.py](../src/music_decoder/dsp/beats_madmom.py)
+  runs madmom's `RNNDownBeatProcessor` + `DBNDownBeatTrackingProcessor`
+  (Böck, Krebs & Widmer, ISMIR 2016) with `beats_per_bar=[3, 4]`, so it
+  returns real downbeats and a 3/4-vs-4/4 decision (`ts_assumed=False`).
+  Tempo is `60 / median(inter-beat interval)`. madmom 0.16.1's DBN calls
+  `np.asarray` on ragged data, which NumPy ≥ 1.24 rejects;
+  [chords/madmom_compat.py](../src/music_decoder/chords/madmom_compat.py)
+  `patch_downbeats_numpy()` scopes a ragged-tolerant `asarray` to that one
+  madmom module. If madmom raises or finds fewer than 4 beats the adapter
+  falls back to librosa.
+- **`librosa`** — [dsp/beats.py](../src/music_decoder/dsp/beats.py) wraps
+  `librosa.beat.beat_track` with `start_bpm=120, tightness=100`. Downbeats
+  are a crude `beats[::4]`, 4/4 with `ts_assumed=True`.
+
+If the input is essentially silent (`RMS < 1e-5`) the librosa path returns
+an empty BeatGrid rather than letting librosa raise.
 
 The richer time-signature inference in
 [dsp/time_signature.py](../src/music_decoder/dsp/time_signature.py) (a
@@ -325,8 +342,30 @@ runs `top_k=3` for both profiles and produces a consensus:
 - Otherwise consensus is `None` and confidence is half that.
 
 The public adapter [key/estimate_key()](../src/music_decoder/key/__init__.py)
-returns the consensus when present; otherwise it falls back to the
-`krumhansl_kessler` top-1 estimate. If no estimates were produced at all
+`estimate_key(chroma, *, samples=None, sr=None, chords=None)` first checks
+`key_detection.backend` (v3 default: `fusion`).
+
+With **`fusion`** ([key/fusion.py](../src/music_decoder/key/fusion.py)) it
+scores all 24 keys with up to four independent cues, z-normalizes each and
+sums them: Krumhansl-Kessler and Temperley correlations with the mean
+chroma, madmom's CNN key probabilities (when audio is given), and a
+duration-weighted diatonic fit of the recognized chord progression (when
+chords are given — which is why `analyze()` now runs chord recognition
+before key detection). The cues fail differently (profiles confuse relative
+keys, the CNN fifths, chord fits modes), so the sum beats every single cue:
+GuitarSet dev 0.685 MIREX-weighted vs 0.560 for v2's profile consensus.
+Unavailable or flat cues are skipped; if none is usable the profile path
+below runs. The result has `profile="fusion"`, `correlation` = the
+winner's mean z-score, `margin` = its lead over the runner-up per cue.
+
+With `cnn` (and raw samples supplied, as
+`analyze()` does) it runs madmom's `CNNKeyRecognitionProcessor`
+(Korzeniowski & Widmer, ISMIR 2018) via
+[key/cnn.py](../src/music_decoder/key/cnn.py) and returns a
+`KeyEstimate(profile="cnn", correlation=top probability,
+margin=top1 − top2)`; any madmom failure falls back to the profile path.
+With `profile` it returns the consensus when present; otherwise it falls
+back to the `krumhansl_kessler` top-1 estimate. If no estimates were produced at all
 (empty chroma), it raises `KeyDetectionError`.
 
 The windowed estimator [key/windowed.py](../src/music_decoder/key/windowed.py)
@@ -430,71 +469,83 @@ triples.
   downgrades (`min9 → min7`, `13 → 7`, `dim7 → dim`, `+ → aug`,
   `sus2 → sus4`). Unsupported qualities (e.g. `5`, `alt`) return `None`
   and are silently dropped.
+- `MadmomCNNBackend` (same file) swaps the feature extractor for madmom's
+  fully-convolutional `CNNChordFeatureProcessor` + `CRFChordRecognitionProcessor`
+  (Korzeniowski & Widmer, MLSP 2016); selected with `"madmom_cnn"`.
 - The dispatcher [chords/api.py](../src/music_decoder/chords/api.py)
   selects backends based on `params.backend`. Choosing
-  `"madmom_deep_chroma"` falls back to `template_hmm` if madmom can't be
-  imported. Choosing anything else uses `template_hmm`. The public
+  `"madmom_deep_chroma"` or `"madmom_cnn"` falls back to `template_hmm` if
+  madmom can't be imported **or** if the madmom backend returns no segments
+  at runtime (init/inference failure) — previously such a failure turned
+  the whole song into a single `N`. Choosing anything else uses
+  `template_hmm`. The public
   `analyze()` adapter materializes a temporary WAV from its in-memory
-  samples when madmom is requested so the file-based madmom pipeline
-  has something to read.
+  samples (via [dsp/tempwav.py](../src/music_decoder/dsp/tempwav.py)
+  `temp_wav`, shared with the key and beat madmom paths) when a madmom
+  backend is requested so the file-based madmom pipeline has something to
+  read.
 
 ### 4.7 Transcription
 
 [transcription/transcribe()](../src/music_decoder/transcription/__init__.py)
-wraps Spotify's basic-pitch model. The wrapper in
-[basic_pitch_wrapper.py](../src/music_decoder/transcription/basic_pitch_wrapper.py)
-writes the (mono float32) samples to a temp 16-bit WAV, prefers a CoreML
-or ONNX variant of `ICASSP_2022_MODEL_PATH` if present (avoids TF version
-issues on macOS), and calls `basic_pitch.inference.predict` with the
-hyperparameters from [`BasicPitchParams`](../src/music_decoder/config/hyperparameters.py)
-— in v2: `onset_threshold=0.5`, `frame_threshold=0.3`,
-`minimum_note_length_ms=58`. The frequency bounds
-(`minimum_frequency_hz`, `maximum_frequency_hz`) are read at call time
-from [`config/hyperparameters.yaml`](../config/hyperparameters.yaml). The
-adapter logs a one-line warning when the YAML values fall outside a
-guitar-friendly window (< 50 Hz or > 3000 Hz) but still respects them;
-when the YAML cannot be loaded it falls back to 65 Hz / 2093 Hz
-(low E2 / C7).
+wraps Spotify's basic-pitch model in two steps:
 
-The wrapper writes both `raw_basic_pitch.mid` and `post_basic_pitch.mid`
-to its `output_dir`. The post-MIDI is currently a copy; the post-processing
-in [transcription/post_processing.py](../src/music_decoder/transcription/post_processing.py)
-is exposed as a separate function (`apply_post_processing`) and is not
-wired into the public `analyze()` flow — its operations are:
+1. **Inference** —
+   [basic_pitch_wrapper.run_model()](../src/music_decoder/transcription/basic_pitch_wrapper.py)
+   writes the samples to a temp WAV and runs the network once, preferring
+   a CoreML or ONNX variant of `ICASSP_2022_MODEL_PATH` (avoids TF version
+   issues on macOS). It returns basic-pitch's raw `note` / `onset` /
+   `contour` posteriorgrams.
+2. **Decoding** — `decode_model_output()` turns the posteriorgrams into
+   notes with `basic_pitch.note_creation.model_output_to_notes`, using
+   every parameter from the `basic_pitch` section of
+   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml):
+   `onset_threshold`, `frame_threshold`, `minimum_note_length_ms`,
+   `minimum_frequency_hz`, `maximum_frequency_hz`, `melodia_trick`
+   (`resolve_params()`; warns when the bounds look non-guitar but still
+   respects them; falls back to basic-pitch's defaults with 65–2093 Hz
+   bounds if the YAML can't be loaded). Notes come back sorted by
+   `(onset, pitch)`.
 
-- `drop_short_notes(min_duration_s=0.05)`.
-- `merge_same_pitch(gap_s=0.05)` — coalesce same-pitch notes within the
-  gap, taking max velocity and weighted-mean confidence.
-- `median_filter_pitch_contour(window=5)` over a numerical pitch contour
-  (helper, not currently called from the pipeline).
-- `snap_to_beats(beats, confidence_threshold=0.7, max_snap_s=0.05)` —
-  shifts high-confidence note onsets to the nearest beat if within
-  `max_snap_s`.
-
-The transcription layer returns `tuple[Note, ...]` to the orchestrator.
+Splitting the two lets the benchmark cache network outputs and re-decode
+them during threshold sweeps (§11.5). When `post_processing.enabled` is
+true, decoding then applies
+[post_processing.py](../src/music_decoder/transcription/post_processing.py)
+`merge_same_pitch(gap_s=same_pitch_merge_gap_s)` and
+`drop_short_notes(min_duration_s=min_note_duration_s)`. The legacy
+`transcribe_basic_pitch()` (writes raw MIDI to an output directory) is kept
+for callers that want MIDI files.
 
 ### 4.8 Tab assignment
 
 [tabs/assign_tabs()](../src/music_decoder/tabs/__init__.py) is the public
 adapter. It calls
 [tabs/assigner.py](../src/music_decoder/tabs/assigner.py) `assign_tab`
-with default weights:
+with the weights and `max_fret` from `tab_assignment` in
+[`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (explicit
+`weights=` / `max_fret=` arguments override them). The code fallback, used
+only when the YAML can't be loaded, is:
 
 ```python
-{"w_move": 1.0, "w_string": 0.3, "w_span": 0.5,
- "w_high": 0.4, "w_open": 0.2, "w_chord_intra": 0.6}
+{"w_move": 0.5, "w_string": 0.15, "w_span": 0.5,
+ "w_high": 1.6, "w_open": 0.05, "w_chord_intra": 0.3}
 ```
 
 and `max_fret=22`.
 
 #### 4.8.1 Grouping into chord states
 
-`_group_simultaneous` packs notes whose intervals overlap into chord
-groups. Two notes belong to the same group if any subsequent note's
-`start_s` falls inside the current group's max `end_s`. This is
-intentionally conservative — slightly overlapping legato notes get
-grouped, which is acceptable because the per-note transition cost is
-zero inside a group.
+Notes no string can play in the current tuning are dropped first, one by
+one, with reason `out_of_range_for_tuning` — so a single sub-range artifact
+can't make an otherwise playable chord unsatisfiable.
+
+`_group_simultaneous` then groups notes **by onset proximity**: a note
+joins the current group when its onset is within 50 ms
+(`_CHORD_ONSET_WINDOW_S`) of the group's first onset, which covers strums.
+A note struck while an earlier one is still ringing starts a new group. (v2
+grouped by interval overlap, which fused re-attacks of the same pitch into
+one unsatisfiable "chord"; GuitarSet dev string accuracy 0.584 → 0.614 on
+ground-truth notes, 0.550 → 0.587 end-to-end.)
 
 Chords with > 6 notes are clamped to the 6 highest-confidence notes; the
 overflow is dropped with reason `chord_too_dense_capped_to_6`.
@@ -529,7 +580,7 @@ The cost between successive states (in
 `transition_cost(prev, curr, weights, hand_anchor)`):
 
 ```text
-move        = w_move   * max(0, curr.fret - prev.fret)
+move        = w_move   * |curr.fret - prev.fret|
 string_jump = w_string * |curr.string - prev.string|
 span        = w_span   * max(0, curr.fret - hand_anchor) ** 1.5
 high_fret   = w_high   * max(0, curr.fret - 12) ** 1.2
@@ -537,8 +588,12 @@ open_bonus  = w_open   * (-1.0 if curr.fret == 0 else 0.0)
 total       = move + string_jump + span + high_fret + open_bonus
 ```
 
-The "representative" fret of a chord state is the lowest non-negative
-fret among its members. Per-state extras:
+Hand movement is symmetric (v2 charged only upward moves, so sliding down
+the neck was free). The "representative" fret of a chord state is the
+lowest *fretted* (non-zero) fret among its members — open strings don't
+pin the fretting hand — or 0 if every member is open. Both changes were
+chosen by measurement on GuitarSet (§11.5); a variant that made open
+strings movement-free was measured and rejected. Per-state extras:
 
 - `chord_collides`: two notes on the same string → cost `inf` (filtered).
 - `chord_span_penalty`: `(span - 4) ** 1.5` once the fretted span exceeds
@@ -768,21 +823,24 @@ every `AnalysisResult.metadata["hyperparameter_set"]`. Sections:
 - `composition` — notes per bar, strong/weak chord-tone probabilities,
   Markov interval cap, strong/weak velocities.
 
-Note: most adapter functions read their hyperparameters from this YAML
-at call time. As of the v2 reconciliation, the public adapters do
-respect:
+The adapters read this YAML at call time, so editing it changes the next
+`analyze()` without a code change. Set `MUSIC_DECODER_HYPERPARAMETERS` to
+point at a different file (the benchmark uses this to compare
+configurations). Keys the public pipeline honours:
 
-- `chord_detection.backend` — picked up by
-  [chords/\_\_init\_\_.py](../src/music_decoder/chords/__init__.py).
-- `basic_pitch.minimum_frequency_hz` /
-  `basic_pitch.maximum_frequency_hz` — picked up by
-  [transcription/\_\_init\_\_.py](../src/music_decoder/transcription/__init__.py).
+- `key_detection.backend` — `cnn` | `profile` ([key/\_\_init\_\_.py](../src/music_decoder/key/__init__.py)).
+- `beat_tracking.backend` — `madmom` | `librosa` ([dsp/\_\_init\_\_.py](../src/music_decoder/dsp/__init__.py)).
+- `chord_detection.backend` — `madmom_cnn` | `madmom_deep_chroma` | `template_hmm`
+  ([chords/\_\_init\_\_.py](../src/music_decoder/chords/__init__.py)).
+- every `basic_pitch` key, including `melodia_trick`, and
+  `post_processing.enabled` ([transcription/\_\_init\_\_.py](../src/music_decoder/transcription/__init__.py)).
+- `tab_assignment.weights` / `max_fret` ([tabs/\_\_init\_\_.py](../src/music_decoder/tabs/__init__.py)).
 
-A few sub-keys remain hard-coded in the adapter modules — notably the
-`tab_assignment.weights` block and `post_processing.median_filter_window`,
-plus the chord-detection threshold / self-transition probabilities. Those
-defaults are intentional for v2 and are listed alongside their adapters
-in §4.x; we track the gap as future work in spec §14.
+The v3 values were chosen on the GuitarSet dev split (§11.5) and each
+carries a comment with the measurement behind it. Still hard-coded: the
+chord-detection threshold / self-transition probability for `template_hmm`
+and the 50 ms chord onset window in
+[tabs/assigner.py](../src/music_decoder/tabs/assigner.py).
 
 ### 6.3 `config/eval_thresholds.yaml`
 
@@ -1014,6 +1072,35 @@ Models are downloaded on first run; the CI cache keys are basic-pitch
 
 ---
 
+### 11.5 GuitarSet accuracy benchmark
+
+[scripts/benchmark_guitarset.py](../scripts/benchmark_guitarset.py) scores
+the real pipeline stages on GuitarSet (360 annotated solo-guitar
+recordings; expected at `tests/fixtures/guitarset/`, git-ignored; loader in
+[evaluation/guitarset.py](../src/music_decoder/evaluation/guitarset.py)).
+Dev split = players 00–04 (300 tracks, used for every tuning decision);
+test split = player 05 (60 tracks, reported only). Audio = `audio_mono-mic`.
+
+| stage | metric |
+|---|---|
+| `key` | MIREX weighted key score |
+| `beats` | `mir_eval` beat F-measure (±70 ms, first 5 s trimmed) |
+| `chords` | MIREX `majmin` duration-weighted recall vs lead-sheet chords |
+| `notes` | onset-only note P / R / F (50 ms, ±50 cents) |
+| `tab_gt` | string accuracy of `assign_tabs` on ground-truth notes |
+| `tab_e2e` | string accuracy of `assign_tabs` on transcribed notes |
+
+```bash
+python scripts/benchmark_guitarset.py --split dev --stages key,chords --by-style
+python scripts/benchmark_guitarset.py --split test --json out/bench/test.json
+python scripts/benchmark_guitarset.py --split dev --sweep-notes   # basic-pitch decoding
+python scripts/benchmark_guitarset.py --split dev --sweep-tabs    # A* weights
+```
+
+basic-pitch's raw network output is cached in `out/bench-cache/bp/`, so
+decoding sweeps don't re-run the network. Results and decisions:
+[docs/reports/2026-10-08-guitarset-benchmark.md](reports/2026-10-08-guitarset-benchmark.md).
+
 ## 12. Distribution
 
 - Build backend: `hatchling >= 1.21` (declared in
@@ -1071,10 +1158,14 @@ and composition output folders).
   the `_CHORD_PCS` tables in
   [compose/voicings.py](../src/music_decoder/compose/voicings.py) and
   [compose/melody.py](../src/music_decoder/compose/melody.py).
-- **Tweak A* weights**: edit `_DEFAULT_WEIGHTS` in
-  [tabs/__init__.py](../src/music_decoder/tabs/__init__.py).
-  `config/hyperparameters.yaml` records the canonical values for
-  reproducibility but the adapter pins its own copy.
+- **Tweak A* weights**: edit `tab_assignment.weights` in
+  [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
+  with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in
+  [tabs/__init__.py](../src/music_decoder/tabs/__init__.py) is only the
+  fallback when the YAML can't be loaded; keep it in sync.
+- **Check an accuracy change**: run the dev split of
+  `scripts/benchmark_guitarset.py` before and after (§11.5); report the
+  test split only once the decision is made.
 - **Switch chord backend**: edit
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml)
   `chord_detection.backend` (currently `madmom_deep_chroma`; the

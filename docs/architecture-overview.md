@@ -137,8 +137,9 @@ English. The whole thing usually takes under a minute on a laptop.
    bass, vocals, and everything else. If you told the tool "this is
    already just a guitar", it skips this step.
 
-3. **Find the beat**. The tool figures out the tempo (in beats per
-   minute) and where each beat lands, like a tapping foot.
+3. **Find the beat**. A pre-trained neural beat tracker (madmom)
+   figures out the tempo (in beats per minute), where each beat lands
+   — like a tapping foot — and which beats start a bar (3/4 or 4/4).
 
 4. **Build a pitch profile**. It produces a moving picture of which
    musical notes are sounding loudest at each moment — a "chroma"
@@ -146,20 +147,19 @@ English. The whole thing usually takes under a minute on a laptop.
    one number per pitch class, that ignores which octave a note is
    in.)
 
-5. **Identify the key**. It compares the average pitch profile of the
-   whole song against textbook fingerprints for all 24 major and minor
-   keys, and picks the closest match. Two different fingerprints are
-   tried (Krumhansl-Kessler and Temperley); if they agree, the result
-   is high-confidence.
+5. **Identify each chord**. A pre-trained chord-recognition model
+   (madmom's deep-chroma network) labels the major and minor chords
+   over time; if it isn't available, a simpler template matcher with a
+   *Viterbi pass* (a standard smoother, so a four-beat chord isn't
+   reported as four one-beat chords) takes over.
 
-6. **Identify each chord**. For each beat in the song, the tool looks
-   at the pitch profile during that beat and asks "which chord does
-   this look most like?" — comparing against templates for major,
-   minor, dominant 7th, major 7th, minor 7th, diminished, suspended,
-   and augmented chords across all 12 keys. Then it smooths the
-   sequence so a chord that lasts four beats doesn't get reported as
-   four separate one-beat chords (this is called a *Viterbi pass* — a
-   standard dynamic-programming smoother).
+6. **Identify the key**. Four independent clues each vote for all 24
+   major and minor keys: two textbook pitch fingerprints
+   (Krumhansl-Kessler and Temperley) compared against the song's average
+   pitch profile, a neural key classifier, and how well the chords from
+   step 5 fit each key (I, IV and V chords count most). The votes are put
+   on a common scale and added up. The clues make different kinds of
+   mistakes, so together they are right more often than any one alone.
 
 7. **Transcribe the notes**. basic-pitch listens to the guitar
    recording and writes down a list of every individual note:
@@ -167,7 +167,8 @@ English. The whole thing usually takes under a minute on a laptop.
 
 8. **Lay them out on the guitar neck**. For each note, the tool finds
    every possible (string, fret) pair that produces that pitch in the
-   chosen tuning. It then runs an A* search — the same algorithm GPS
+   chosen tuning. Notes struck together (within 50 ms) are treated as
+   one chord shape. It then runs an A* search — the same algorithm GPS
    apps use to find the shortest route — over the sequence of notes,
    choosing fingerings that minimize hand movement, finger stretch,
    and high-fret jumps. (*A\** — a method for finding the cheapest

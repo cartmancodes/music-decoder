@@ -78,6 +78,9 @@ make regression   # accuracy regression suite (pytest -m regression)
 make lint         # ruff
 make typecheck    # mypy --strict
 make run          # launch the Streamlit UI (alias for `music-decoder ui`)
+
+# accuracy benchmark on GuitarSet (data in tests/fixtures/guitarset/, git-ignored)
+python scripts/benchmark_guitarset.py --split dev --by-style
 ```
 
 ## Documentation
@@ -88,6 +91,8 @@ make run          # launch the Streamlit UI (alias for `music-decoder ui`)
   high-level pipeline and module map.
 - [docs/architecture-technical.md](docs/architecture-technical.md) —
   detailed technical reference (DSP, key/chord/tab algorithms, config).
+- [docs/reports/2026-10-08-guitarset-benchmark.md](docs/reports/2026-10-08-guitarset-benchmark.md) —
+  measured accuracy on GuitarSet and the decisions behind the v3 defaults.
 
 ## License
 

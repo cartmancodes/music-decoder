@@ -510,7 +510,7 @@ download buttons for both the MIDI and WAV files.
 ### About tab
 
 Shows the package version and the loaded hyperparameter-set ID
-(currently `2026-05-08-v2-baseline`).
+(currently `2026-10-08-v3-guitarset-tuned`).
 
 ---
 
@@ -558,7 +558,7 @@ as JSON:
   "key": {
     "tonic": "A",
     "mode": "minor",
-    "profile": "krumhansl_kessler",
+    "profile": "fusion",
     "correlation": 0.86,
     "margin": 0.04
   },
@@ -589,7 +589,7 @@ as JSON:
   "tempo_bpm": 113.0,
   "beat_times_s": [0.0, 0.53, 1.06, ...],
   "metadata": {
-    "hyperparameter_set": "2026-05-08-v2-baseline"
+    "hyperparameter_set": "2026-10-08-v3-guitarset-tuned"
   }
 }
 ```
@@ -604,11 +604,14 @@ Field reference:
 - `key.tonic` — one of `C, C#, D, D#, E, F, F#, G, G#, A, A#, B`
   (sharps only).
 - `key.mode` — `major` or `minor`.
-- `key.profile` — `krumhansl_kessler` or `temperley` — which textbook
-  profile the consensus picked.
-- `key.correlation` — Pearson correlation between the audio's
-  pitch-class profile and the matched key profile, in `[-1, 1]`.
-  Higher is better.
+- `key.profile` — which estimator produced the key: `fusion` (v3
+  default: profiles + neural classifier + chord fit), `cnn`, or
+  `krumhansl_kessler` / `temperley` when the profile-only backend is
+  configured.
+- `key.correlation` — for `fusion`, the winning key's average
+  standardized score across the cues (higher is more confident; typically
+  1–3); for the profile backends, the Pearson correlation in `[-1, 1]`;
+  for `cnn`, the classifier's probability.
 - `key.margin` — `correlation - second_best_correlation`. A high
   margin means the second-best key was much worse, which is a strong
   signal.
