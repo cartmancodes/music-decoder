@@ -11,6 +11,7 @@ numpy shims are applied before any madmom module is loaded.
 from __future__ import annotations
 
 import statistics
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,8 @@ from music_decoder.types import (
 from ..labels import parse_jams_chord_label
 
 _log = get_logger("chord_detection.madmom")
+# Shared by both backends; model construction is rare, so one lock is enough.
+_load_lock = threading.Lock()
 
 
 class MadmomDeepChromaBackend:
@@ -85,14 +88,15 @@ class MadmomDeepChromaBackend:
 
     @classmethod
     def _ensure_processors(cls) -> None:
-        if cls._processor is not None:
-            return
-        cls._import_madmom()
-        from madmom.audio.chroma import DeepChromaProcessor
-        from madmom.features.chords import DeepChromaChordRecognitionProcessor
+        with _load_lock:  # build the models once, even under concurrent first use
+            if cls._processor is not None:
+                return
+            cls._import_madmom()
+            from madmom.audio.chroma import DeepChromaProcessor
+            from madmom.features.chords import DeepChromaChordRecognitionProcessor
 
-        cls._chroma_processor = DeepChromaProcessor()
-        cls._processor = DeepChromaChordRecognitionProcessor()
+            cls._chroma_processor = DeepChromaProcessor()
+            cls._processor = DeepChromaChordRecognitionProcessor()
 
     @staticmethod
     def _import_madmom() -> None:
@@ -191,13 +195,14 @@ class MadmomCNNBackend(MadmomDeepChromaBackend):
 
     @classmethod
     def _ensure_processors(cls) -> None:
-        if cls._processor is not None:
-            return
-        cls._import_madmom()
-        from madmom.features.chords import (
-            CNNChordFeatureProcessor,
-            CRFChordRecognitionProcessor,
-        )
+        with _load_lock:  # build the models once, even under concurrent first use
+            if cls._processor is not None:
+                return
+            cls._import_madmom()
+            from madmom.features.chords import (
+                CNNChordFeatureProcessor,
+                CRFChordRecognitionProcessor,
+            )
 
-        cls._chroma_processor = CNNChordFeatureProcessor()
-        cls._processor = CRFChordRecognitionProcessor()
+            cls._chroma_processor = CNNChordFeatureProcessor()
+            cls._processor = CRFChordRecognitionProcessor()

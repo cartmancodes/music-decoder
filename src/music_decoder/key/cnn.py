@@ -3,6 +3,7 @@ Classification with Convolutional Neural Networks", ISMIR 2018)."""
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -17,6 +18,7 @@ _LABELS: tuple[tuple[str, str], ...] = tuple((t, "major") for t in _TONICS) + tu
 )
 
 _processor: Any = None
+_processor_lock = threading.Lock()
 
 
 def probs_to_key_estimate(probs: np.ndarray[Any, np.dtype[Any]]) -> KeyEstimate:
@@ -44,11 +46,12 @@ def cnn_probabilities(
 ) -> np.ndarray[Any, np.dtype[Any]]:
     """madmom CNN key ensemble → 24 probabilities in madmom's label order."""
     global _processor
-    if _processor is None:
-        _apply_madmom_compat()
-        from madmom.features.key import CNNKeyRecognitionProcessor
+    with _processor_lock:  # build the model once, even under concurrent first use
+        if _processor is None:
+            _apply_madmom_compat()
+            from madmom.features.key import CNNKeyRecognitionProcessor
 
-        _processor = CNNKeyRecognitionProcessor()
+            _processor = CNNKeyRecognitionProcessor()
     with temp_wav(samples, sr) as path:
         probs: np.ndarray[Any, np.dtype[Any]] = np.asarray(_processor(str(path)))
     return probs

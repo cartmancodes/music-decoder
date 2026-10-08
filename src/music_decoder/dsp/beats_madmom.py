@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import numpy as np
@@ -13,6 +14,7 @@ _MIN_BEATS = 4
 
 _rnn: Any = None
 _dbn: Any = None
+_load_lock = threading.Lock()
 
 
 def beat_grid_from_downbeats(rows: np.ndarray[Any, np.dtype[Any]]) -> BeatGrid | None:
@@ -43,18 +45,19 @@ def _apply_madmom_compat() -> None:
 def _load_processors() -> tuple[Any, Any]:
     """Lazily build (and cache) the RNN activation and DBN decoding processors."""
     global _rnn, _dbn
-    if _rnn is None:
-        _apply_madmom_compat()
-        from music_decoder.chords.madmom_compat import patch_downbeats_numpy
+    with _load_lock:  # build the models once, even under concurrent first use
+        if _rnn is None:
+            _apply_madmom_compat()
+            from music_decoder.chords.madmom_compat import patch_downbeats_numpy
 
-        patch_downbeats_numpy()
-        from madmom.features.downbeats import (
-            DBNDownBeatTrackingProcessor,
-            RNNDownBeatProcessor,
-        )
+            patch_downbeats_numpy()
+            from madmom.features.downbeats import (
+                DBNDownBeatTrackingProcessor,
+                RNNDownBeatProcessor,
+            )
 
-        _rnn = RNNDownBeatProcessor()
-        _dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
+            _dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
+            _rnn = RNNDownBeatProcessor()
     return _rnn, _dbn
 
 
