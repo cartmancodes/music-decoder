@@ -9,6 +9,11 @@ These are display-only -- the runtime tab assigner is unrelated.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from music_decoder.types import ChordSymbol, VoicedChord
+
 # Open-position naturals + standard barre voicings for the rest.
 VOICINGS: dict[str, tuple[int, int, int, int, int, int]] = {
     # ---- Major chords
@@ -129,7 +134,7 @@ def voicing_for(root: str, quality: str) -> tuple[int, int, int, int, int, int]:
     return VOICINGS[label]
 
 
-def canonical_voicings_for(chord) -> list:
+def canonical_voicings_for(chord: ChordSymbol) -> list[VoicedChord]:
     """Return the canonical EADGBE voicings for the given chord symbol.
 
     Adapter that wraps the module-level ``VOICINGS`` dict (label -> 6-tuple
