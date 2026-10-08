@@ -20,13 +20,11 @@ from music_decoder.synth.fluidsynth_wrapper import (
 _log = get_logger("synth.adapter")
 
 
-def _resolve_soundfont_path() -> Path | None:
-    """Return an absolute path to the configured soundfont, or None.
+def _configured_soundfont_path() -> Path | None:
+    """The soundfont named in the runtime config, if it exists on disk.
 
-    Resolves ``RuntimeConfig.fluidsynth_soundfont`` against the runtime
-    config; treats relative paths as relative to the runtime ``data_dir``.
-    Returns None when the field is missing, the file doesn't exist, or the
-    runtime config can't be loaded.
+    Relative paths resolve against the runtime ``data_dir`` first, then the
+    project's synthetic-fixture soundfont dir.
     """
     try:
         from music_decoder.config.runtime import load_runtime_config
@@ -38,24 +36,25 @@ def _resolve_soundfont_path() -> Path | None:
     if not sf_field:
         return None
     sf_path = Path(str(sf_field)).expanduser()
-    if not sf_path.is_absolute():
-        # Treat relative paths as data_dir-relative; fall back to project
-        # tests/fixtures soundfont dir if that miss too.
-        candidates = [Path(cfg.data_dir).expanduser() / sf_path]
-        # Project soundfont fixture (used by `scripts/download_soundfont.py`).
-        candidates.append(
-            project_root()
-            / "tests"
-            / "fixtures"
-            / "synthetic"
-            / "soundfont"
-            / sf_path
-        )
-        for c in candidates:
-            if c.exists():
-                return c
-        return None
-    return sf_path if sf_path.exists() else None
+    if sf_path.is_absolute():
+        return sf_path if sf_path.exists() else None
+    candidates = [
+        Path(cfg.data_dir).expanduser() / sf_path,
+        project_root() / "tests" / "fixtures" / "synthetic" / "soundfont" / sf_path,
+    ]
+    return next((c for c in candidates if c.exists()), None)
+
+
+def _resolve_soundfont_path() -> Path | None:
+    """Absolute path of the soundfont to synthesize with, or None.
+
+    Prefers the configured soundfont (e.g. GeneralUser GS installed by
+    ``music-decoder fetch-models``); otherwise falls back to pretty_midi's
+    bundled ``TimGM6mb.sf2`` so synthesis works with no download.
+    """
+    from music_decoder.assets import bundled_soundfont
+
+    return _configured_soundfont_path() or bundled_soundfont()
 
 
 def _fluidsynth_importable() -> bool:
