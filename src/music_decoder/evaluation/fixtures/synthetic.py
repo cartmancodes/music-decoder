@@ -57,13 +57,18 @@ def _find_soundfont(root: Path) -> Path | None:
 class SyntheticFixtures:
     """Renders committed .mid files to .wav.
 
-    Prefers fluidsynth + soundfont when a .sf2 is available under
-    ``<root>/soundfont/``; falls back to sine-wave synthesis otherwise.
+    Prefers fluidsynth with a .sf2 under ``<root>/soundfont/``, then
+    pretty_midi's bundled TimGM6mb.sf2; falls back to sine-wave synthesis only
+    when no soundfont is available at all.
     """
 
     def __init__(self, root: Path) -> None:
+        from music_decoder import assets
+
         self.root = root
-        self._sf2_path = _find_soundfont(root)
+        # A fixture-dir SF2 wins; otherwise pretty_midi's bundled TimGM6mb
+        # (no download needed); sine only if neither exists.
+        self._sf2_path = _find_soundfont(root) or assets.bundled_soundfont()
         if self._sf2_path is not None:
             _log.info(
                 "synthetic_fixtures_using_fluidsynth",

@@ -1,8 +1,8 @@
 """Tests for the Phase B-5 fluidsynth path in the synthetic-fixture loader.
 
-The fluidsynth path is opt-in: it activates when a .sf2 file is present
-under ``<root>/soundfont/``. Without an SF2 the loader falls back to the
-deterministic sine synthesis.
+The loader uses a .sf2 under ``<root>/soundfont/`` when present, otherwise
+pretty_midi's bundled TimGM6mb.sf2; only with no soundfont at all does it fall
+back to the deterministic sine synthesis.
 
 These tests don't require an actual SF2 — they verify the detection logic,
 the cache-marker round-trip, and the fallback behavior when fluidsynth
@@ -45,22 +45,38 @@ def test_find_soundfont_picks_alphabetically_first(tmp_path: Path):
     assert _find_soundfont(tmp_path) == sf_dir / "A.sf2"
 
 
-def test_synthetic_loader_uses_sine_when_no_sf2(tmp_path: Path):
-    """Without an SF2 the loader should fall back to sine (current behavior)."""
-    # Build a one-note MIDI fixture
+def _one_note_midi(tmp_path: Path) -> Path:
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=24)
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=60, start=0.0, end=0.5))
     pm.instruments.append(inst)
     midi_path = tmp_path / "test.mid"
     pm.write(str(midi_path))
+    return midi_path
 
+
+def test_synthetic_loader_uses_bundled_soundfont_when_no_sf2(tmp_path: Path):
+    """No SF2 under <root>/soundfont → pretty_midi's bundled TimGM6mb (no download)."""
+    from music_decoder.assets import bundled_soundfont
+
+    _one_note_midi(tmp_path)
     loader = SyntheticFixtures(root=tmp_path)
-    assert loader._sf2_path is None  # detected nothing
-
+    assert loader._sf2_path == bundled_soundfont()
     fixtures = list(loader.load())
     assert len(fixtures) == 1
     assert fixtures[0].audio_path.exists()
+
+
+def test_synthetic_loader_uses_sine_when_no_soundfont_at_all(tmp_path: Path, monkeypatch):
+    """Without any soundfont (not even the bundled one) the loader falls back to sine."""
+    import music_decoder.assets as assets
+
+    monkeypatch.setattr(assets, "bundled_soundfont", lambda: None)
+    _one_note_midi(tmp_path)
+    loader = SyntheticFixtures(root=tmp_path)
+    assert loader._sf2_path is None
+    fixtures = list(loader.load())
+    assert len(fixtures) == 1
     assert fixtures[0].audio_path.suffix == ".wav"
 
 
@@ -89,7 +105,7 @@ def test_synthesize_falls_back_when_fluidsynth_raises(tmp_path: Path, monkeypatc
 
 
 def test_cache_marker_invalidates_on_sf2_change(tmp_path: Path):
-    """Re-render after switching from sine to SF2 (or vice versa)."""
+    """Re-render after switching soundfonts (bundled default -> fixture-dir SF2)."""
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=24)
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=60, start=0.0, end=0.3))
@@ -97,11 +113,13 @@ def test_cache_marker_invalidates_on_sf2_change(tmp_path: Path):
     midi_path = tmp_path / "test.mid"
     pm.write(str(midi_path))
 
-    # First pass: no SF2 -> sine
+    # First pass: no fixture-dir SF2 -> pretty_midi's bundled soundfont
+    from music_decoder.assets import bundled_soundfont
+
     list(SyntheticFixtures(root=tmp_path).load())
     marker = tmp_path / ".test.synth_marker"
     assert marker.exists()
-    assert marker.read_text() == "sine"
+    assert marker.read_text() == f"sf2={bundled_soundfont()}"
 
     # Second pass: drop in an SF2 -> marker should change to sf2= path
     sf_dir = tmp_path / "soundfont"
@@ -111,4 +129,4 @@ def test_cache_marker_invalidates_on_sf2_change(tmp_path: Path):
     # The fluidsynth render fails on corrupt data and falls back to sine,
     # but the cache marker reflects the configured SF2 path so a future
     # pass with a working SF2 would not be skipped.
-    assert marker.read_text().startswith("sf2=")
+    assert marker.read_text() == f"sf2={sf_dir / 'Test.sf2'}"
