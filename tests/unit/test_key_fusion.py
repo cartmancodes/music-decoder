@@ -104,3 +104,11 @@ def test_fusion_two_profiles_outvote_a_lone_wrong_cnn() -> None:
     ):
         k = estimate_key(chroma, samples=np.zeros(22050, np.float32), sr=22050)
     assert (k.tonic, k.mode) == ("C", "major")
+
+
+def test_chord_scores_accept_flat_spelled_roots() -> None:
+    flats = [_seg(0, 2, "Bb", "maj"), _seg(2, 4, "Eb", "maj"), _seg(4, 6, "F", "7")]
+    sharps = [_seg(0, 2, "A#", "maj"), _seg(2, 4, "D#", "maj"), _seg(4, 6, "F", "7")]
+    flat_scores = chord_scores(flats)
+    assert flat_scores is not None
+    np.testing.assert_allclose(flat_scores, chord_scores(sharps))

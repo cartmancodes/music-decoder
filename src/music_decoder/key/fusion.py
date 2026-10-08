@@ -27,6 +27,8 @@ from music_decoder.types import ChordSegment, KeyEstimate
 
 _Arr = np.ndarray[Any, np.dtype[np.float64]]
 _PC = {k: i for i, k in enumerate(KEYS)}
+# Accept flat spellings too (all current chord backends emit sharps).
+_PC.update({"Db": 1, "Eb": 3, "Gb": 6, "Ab": 8, "Bb": 10})
 _MODES: tuple[Literal["major", "minor"], Literal["major", "minor"]] = ("major", "minor")
 # madmom.features.key.KEY_LABELS tonic order (A .. G#), sharp spelling.
 _MADMOM_TONICS = ("A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#")
