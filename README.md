@@ -12,7 +12,9 @@ Prerequisites: Python 3.11 or 3.12, `ffmpeg`, `fluidsynth` (for synthesis).
 
 The fastest way is the bundled `setup.sh`. It installs system binaries
 (ffmpeg, fluidsynth, libsndfile), creates `.venv`, installs the package
-with dev extras, downloads the synthesis soundfont, and runs `doctor`:
+with dev extras, pre-downloads the models (`music-decoder fetch-models`:
+Demucs weights + GeneralUser GS soundfont), and runs `doctor` — so nothing
+downloads on first use:
 
 ```bash
 source ./setup.sh   # also activates .venv in your current shell
@@ -20,7 +22,7 @@ source ./setup.sh   # also activates .venv in your current shell
 ./setup.sh          # runs setup; you must `source .venv/bin/activate` after
 ```
 
-Re-running is idempotent. Flags: `--no-system`, `--no-soundfont`,
+Re-running is idempotent. Flags: `--no-system`, `--no-models`, `--no-soundfont`,
 `--recreate`, `--python <path>`. See [docs/usage.md](docs/usage.md#installation) for the manual install paths
 (brew/apt, pipx).
 
@@ -46,8 +48,11 @@ music-decoder compose \
 # Launch the Streamlit UI
 music-decoder ui
 
-# Verify dependencies
+# Verify dependencies (also shows soundfont + Demucs cache status)
 music-decoder doctor
+
+# Pre-download models (done by setup.sh; run once after a pip/pipx install)
+music-decoder fetch-models
 ```
 
 ## Library

@@ -74,6 +74,7 @@ Source layout under [src/music_decoder/](../src/music_decoder/):
 - [tabs/](../src/music_decoder/tabs/) — A* fret search + ASCII/SVG renderers.
 - [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`.
 - [synth/](../src/music_decoder/synth/) — MIDI to WAV via fluidsynth or sine fallback.
+- [assets.py](../src/music_decoder/assets.py) — model/asset provisioning: bundled soundfont, soundfont download + validation, Demucs weight cache check/fetch (used by `fetch-models`, `doctor`, `setup.sh`).
 - [config/](../src/music_decoder/config/) — runtime + hyperparameter loaders.
 - [evaluation/](../src/music_decoder/evaluation/) — mir_eval wrappers + synthetic fixture loader.
 - [cli/](../src/music_decoder/cli/) — Click entry point.
@@ -767,10 +768,13 @@ an approximate visual reference; the MIDI is the source of truth.
 [synth/render_wav](../src/music_decoder/synth/__init__.py) wraps
 [synth/fluidsynth_wrapper.py](../src/music_decoder/synth/fluidsynth_wrapper.py)
 `synthesize_midi_to_wav` with auto-selection: it picks
-**`SynthBackend.FLUIDSYNTH`** when both
-`RuntimeConfig.fluidsynth_soundfont` resolves to an existing `.sf2` and
-the `fluidsynth` Python module is importable; otherwise it logs a
-single warning line and falls back to `SynthBackend.SINE`
+**`SynthBackend.FLUIDSYNTH`** when the `fluidsynth` Python module is
+importable and a soundfont resolves — first
+`RuntimeConfig.fluidsynth_soundfont` (relative paths against `data_dir`,
+then `tests/fixtures/synthetic/soundfont/`), else pretty_midi's bundled
+`TimGM6mb.sf2` ([assets.bundled_soundfont](../src/music_decoder/assets.py)),
+so a fresh install needs no soundfont download. Otherwise it logs a single
+warning line and falls back to `SynthBackend.SINE`
 (`pretty_midi.PrettyMIDI.synthesize(fs=sr)`, no external deps). Callers
 can force a specific backend via the optional `backend` keyword. The
 output is peak-normalized to 0.9 and written as 16-bit PCM at
@@ -856,7 +860,7 @@ Three numbers consumed only by
 ## 7. CLI
 
 [cli/main.py](../src/music_decoder/cli/main.py) — Click group `main` with
-four subcommands:
+five subcommands:
 
 - `analyze <source>`
   - `--tuning EADGBE | "Drop D" | "Drop-D" | Eb | "D standard" | "Drop C" | DADGAD`
@@ -876,10 +880,17 @@ four subcommands:
 - `ui` — launches Streamlit via `subprocess` on
   `ui/streamlit_app.py` with `--server.headless false
   --browser.gatherUsageStats false`.
-- `doctor` — runs three checks: `ffmpeg` on `PATH`, importable
-  `fluidsynth` Python module, soundfont file exists at
-  `RuntimeConfig.fluidsynth_soundfont` (only checked if absolute). Exits
-  non-zero on any fail.
+- `doctor` — checks `ffmpeg` on `PATH`, importable `fluidsynth` Python
+  module, and that a soundfont resolves (prints whether it is the
+  installed or the bundled one); reports whether the Demucs weights are
+  cached (informational — not a failure). Exits non-zero on any fail.
+- `fetch-models [--no-demucs] [--no-soundfont]` — idempotently
+  pre-downloads the Demucs `htdemucs_6s` weights (~52 MB, torch hub cache)
+  and the GeneralUser GS soundfont (~30 MB, to the configured
+  `fluidsynth_soundfont` path) via [assets.py](../src/music_decoder/assets.py).
+  Downloads go to a `.part` file and are validated (SF2 `RIFF…sfbk`
+  header) before being moved into place. `setup.sh` runs it by default
+  (`--no-models` / `--no-soundfont` opt out).
 
 The CLI converts `MusicDecoderError` into `click.ClickException` so the
 process exits with a clean non-zero status and a one-line message.
@@ -956,7 +967,10 @@ modules. Summary:
   the chord symbol has been mutated past the parser).
 - **ffmpeg / fluidsynth / soundfont missing** → caught by
   `music-decoder doctor` (exit non-zero) and surfaced lazily by the
-  underlying call site otherwise.
+  underlying call site otherwise. A missing configured soundfont is not
+  an error: synthesis uses pretty_midi's bundled one.
+- **Demucs weights not cached** → downloaded on the first full-mix
+  analysis (or ahead of time by `music-decoder fetch-models`).
 
 The Streamlit UI catches any `MusicDecoderError` at the tab boundary
 and renders it as `st.error(...)`; the underlying stack trace appears
@@ -1028,9 +1042,10 @@ Under [tests/](../tests/):
     `tab_string_accuracy` against `config/eval_thresholds.yaml`.
 - `regression/` — placeholder for future committed-result snapshots.
 - `fixtures/synthetic/` — committed `.mid` fixtures (`c_major_scale.mid`,
-  `g_major_chord.mid`). The first run renders them to `.wav` via
-  `pretty_midi.fluidsynth` if `tests/fixtures/synthetic/soundfont/*.sf2`
-  exists, else via the sine synth. Render output is cached on disk
+  `g_major_chord.mid`). The first run renders them to `.wav` with
+  fluidsynth using `tests/fixtures/synthetic/soundfont/*.sf2` if present,
+  else pretty_midi's bundled `TimGM6mb.sf2`; sine synthesis only if no
+  soundfont exists at all. Render output is cached on disk
   alongside the MIDI with a `.synth_marker` invalidation key.
 
 ### 11.2 Markers
@@ -1067,8 +1082,8 @@ A single GitHub Actions job (per the design doc):
 4. `make lint typecheck test`.
 5. `make regression`.
 
-Models are downloaded on first run; the CI cache keys are basic-pitch
-+ Demucs + madmom versions.
+basic-pitch and madmom ship their weights in their wheels; only Demucs
+downloads (on first full-mix run, or via `music-decoder fetch-models`).
 
 ---
 
@@ -1110,7 +1125,8 @@ decoding sweeps don't re-run the network. Results and decisions:
 - Packaging surface: `src/music_decoder/` (single namespace).
 - Install: `setup.sh` (dev clones), `pipx install ./` (end users),
   or `pip install -e ".[dev]"` in a virtualenv. There is no container
-  image; the tool runs directly on the host.
+  image; the tool runs directly on the host. `setup.sh` pre-downloads the
+  models; with pip/pipx, run `music-decoder fetch-models` once.
 
 There is no SQLite, no Alembic, no Postgres dependency, and no
 persistence layer. The v2 pipeline is stateless: the only on-disk
@@ -1171,13 +1187,12 @@ and composition output folders).
   `chord_detection.backend` (currently `madmom_deep_chroma`; the
   alternative is `template_hmm`). The public `analyze()` adapter reads
   this at call time.
-- **Use fluidsynth output**: ensure
-  `RuntimeConfig.fluidsynth_soundfont` resolves to an existing `.sf2`
-  file (run `scripts/download_soundfont.py` for a public-domain one)
-  and that `pip install pyfluidsynth` succeeds.
+- **Use a different soundfont**: point `RuntimeConfig.fluidsynth_soundfont`
+  at any `.sf2` (or `python scripts/download_soundfont.py --url … --dest …`).
   [synth/__init__.py](../src/music_decoder/synth/__init__.py)
-  `render_wav` auto-selects fluidsynth when both conditions hold and
-  falls back to the sine synth otherwise. Callers can force a specific
+  `render_wav` uses fluidsynth whenever `pyfluidsynth` imports (falling
+  back to the bundled TimGM6mb when no configured soundfont exists) and
+  the sine synth otherwise. Callers can force a specific
   backend via the optional `backend=` keyword.
 - **Change the synthetic regression fixtures**: drop a `.mid` under
   [tests/fixtures/synthetic/](../tests/fixtures/synthetic/) and add

@@ -12,14 +12,13 @@ output layout, troubleshooting, and tips for getting good results.
 
 - **Python 3.11** (3.12 also supported; 3.13 is not).
 - **ffmpeg** — for decoding any audio file you load.
-- **fluidsynth** — only required if you want non-sine MIDI playback for
-  composition output, or for rendering the synthetic regression
-  fixtures via a soundfont. The default `compose()` flow renders WAV
-  through pretty-MIDI's built-in sine synthesizer and works without
-  fluidsynth.
-- **A GeneralMIDI soundfont** (a `.sf2` file) — only required if you
-  want fluidsynth-rendered output. See [Tips: Soundfonts](#soundfonts)
-  below.
+- **fluidsynth** — renders composition output (and the synthetic
+  regression fixtures) with real instrument sounds. Without it,
+  `compose()` falls back to pretty-MIDI's built-in sine synthesizer.
+- A General MIDI soundfont is **not** a prerequisite: pretty-MIDI ships
+  one (`TimGM6mb.sf2`), and `setup.sh` / `music-decoder fetch-models`
+  install the higher-quality GeneralUser GS. See
+  [Tips: Soundfonts](#soundfonts).
 
 ### macOS
 
@@ -52,7 +51,9 @@ The repo ships a `setup.sh` that does the whole prerequisites-and-install
 dance for you: detects your OS, installs system binaries (ffmpeg,
 fluidsynth, libsndfile, plus python@3.11 if missing), creates `.venv`,
 installs the package with dev extras (`pip install -e ".[dev]"`),
-downloads the synthesis soundfont, and runs `music-decoder doctor`.
+pre-downloads the models with `music-decoder fetch-models` (Demucs
+weights ~52 MB + GeneralUser GS soundfont ~30 MB), and runs
+`music-decoder doctor`. Nothing else downloads later.
 
 ```bash
 git clone https://github.com/cartmancodes/music-decoder.git
@@ -68,7 +69,9 @@ modify the parent shell's environment).
 Re-running is idempotent. Flags:
 
 - `--no-system` — skip the brew/apt step (use existing system binaries).
-- `--no-soundfont` — skip the ~6 MB SF2 download.
+- `--no-models` — skip the model pre-downloads (Demucs then downloads on
+  the first full-mix analysis; composition uses the bundled soundfont).
+- `--no-soundfont` — skip only the GeneralUser GS soundfont.
 - `--recreate` — wipe and rebuild `.venv` from scratch.
 - `--python /path/to/python3.11` — pick a specific interpreter.
 
@@ -81,6 +84,7 @@ environment and exposes the `music-decoder` command on your `PATH`.
 git clone https://github.com/cartmancodes/music-decoder.git
 cd music-decoder
 pipx install ./
+music-decoder fetch-models   # optional: pre-download Demucs + soundfont
 ```
 
 ### Option 2: pip in a virtualenv (development)
@@ -93,6 +97,7 @@ source .venv/bin/activate
 pip install --upgrade pip wheel setuptools hatchling "numpy<2" "cython<3"
 pip install --no-build-isolation "madmom>=0.16,<0.17"
 pip install -e ".[dev]"
+music-decoder fetch-models   # optional: pre-download Demucs + soundfont
 ```
 
 The `dev` extras add `pytest`, `pytest-cov`, `pytest-xdist`, `ruff`,
@@ -112,27 +117,31 @@ music-decoder doctor
 Expected output (formatting may vary slightly):
 
 ```text
-ffmpeg on PATH................. OK
-fluidsynth..................... OK
-soundfont present.............. OK
+ffmpeg on PATH.................. OK
+fluidsynth...................... OK
+soundfont....................... OK
+  using installed: ~/.music-decoder/GeneralUser-GS.sf2
+demucs weights.................. OK
 ```
 
 Each "FAIL" line includes a hint with the recommended remediation.
 `doctor` exits with a non-zero status if anything fails, which makes
-it easy to wire into shell scripts.
+it easy to wire into shell scripts. `demucs weights ... NOT CACHED` is
+informational, not a failure.
 
-The first time you actually call `analyze()`, the underlying ML models
-download to your local cache (typically under
-`~/.cache/torch/hub` for Demucs, `~/.cache/basic-pitch` for basic-pitch,
-and `~/.madmom/` for madmom). Combined size is roughly 400 MB. The
-download happens once.
+Models: basic-pitch and madmom ship their weights inside their pip
+packages, so they never download. The only download is Demucs
+(`htdemucs_6s`, ~52 MB, into `~/.cache/torch/hub`), needed only for
+full-mix (non-solo) analysis. `setup.sh` fetches it up front; otherwise
+run `music-decoder fetch-models` once, or it downloads automatically on
+the first full-mix `analyze()`.
 
 ---
 
 ## CLI reference
 
-The CLI is grouped under `music-decoder` with four subcommands:
-`analyze`, `compose`, `ui`, and `doctor`.
+The CLI is grouped under `music-decoder` with five subcommands:
+`analyze`, `compose`, `ui`, `doctor`, and `fetch-models`.
 
 ### `analyze` — chord progression + tab
 
@@ -325,8 +334,24 @@ default browser opens at `http://localhost:8501`.
 music-decoder doctor
 ```
 
-Checks ffmpeg, the `fluidsynth` Python module, and the soundfont
-configured in `config/runtime.yaml`. Returns non-zero on any failure.
+Checks ffmpeg and the `fluidsynth` Python module, shows which soundfont
+synthesis will use (the configured one, else the bundled TimGM6mb), and
+whether the Demucs weights are cached. Returns non-zero on any failure
+(an uncached Demucs model is reported but not a failure).
+
+### `fetch-models` — pre-download models
+
+```bash
+music-decoder fetch-models                 # Demucs weights + GeneralUser GS soundfont
+music-decoder fetch-models --no-soundfont  # Demucs only
+music-decoder fetch-models --no-demucs     # soundfont only
+```
+
+Idempotent: anything already present is kept. Downloads the Demucs
+`htdemucs_6s` weights (~52 MB) into the torch hub cache and GeneralUser
+GS (~30 MB) to the `fluidsynth_soundfont` path in `config/runtime.yaml`
+(`~/.music-decoder/GeneralUser-GS.sf2`). Exits non-zero if a download
+fails; the app keeps working either way.
 
 ---
 
@@ -747,28 +772,19 @@ system library and the Python binding:
 - macOS: `brew install fluidsynth && pip install pyfluidsynth`.
 - Ubuntu: `sudo apt install libfluidsynth3 && pip install pyfluidsynth`.
 
-If you don't plan to use fluidsynth-rendered output (the default
-`compose()` flow uses pretty-MIDI's sine synth), this is a soft
-warning; analyze and compose will still work.
+Without fluidsynth, `compose()` falls back to pretty-MIDI's sine synth;
+analyze and compose still work.
 
-### `soundfont present: FAIL`
+### `soundfont: FAIL`
 
-The path in `config/runtime.yaml` points at a `.sf2` file that
-doesn't exist. Either:
+No soundfont was found at all — neither the one configured in
+`config/runtime.yaml` nor pretty-MIDI's bundled `TimGM6mb.sf2` (which
+means the `pretty_midi` install is broken). Fix with either:
 
-- Run the bundled downloader:
-  ```bash
-  python scripts/download_soundfont.py
-  ```
-  This drops a public-domain `TimGM6mb.sf2` (~6 MB) into
-  `tests/fixtures/synthetic/soundfont/`.
-- Or supply your own:
-  ```bash
-  python scripts/download_soundfont.py \
-    --output ~/.music-decoder/GeneralUser-GS.sf2
-  ```
-- Or edit `config/runtime.yaml` to point `fluidsynth_soundfont` at
-  whatever `.sf2` you have.
+- `music-decoder fetch-models --no-demucs` (installs GeneralUser GS at the
+  configured path), or
+- edit `config/runtime.yaml` to point `fluidsynth_soundfont` at any
+  `.sf2` you have.
 
 ### YouTube errors
 
@@ -903,9 +919,10 @@ The result still has a key + chord progression; only `tab` is empty.
 
 ### `analyze()` is slow on the first run
 
-First-call model downloads (Demucs, basic-pitch, madmom) total ~400 MB.
-The CLI shows download progress on stderr. Subsequent runs are fast
-(typically 10-30 s on CPU for a 3-minute song).
+If Demucs wasn't pre-fetched, the first full-mix analysis downloads its
+weights (~52 MB; progress on stderr). Run `music-decoder fetch-models`
+once to avoid that. Each process also loads the models on first use, so
+the first analysis in a session is a few seconds slower than later ones.
 
 ### Streamlit UI hangs after clicking Analyze
 
@@ -978,21 +995,18 @@ NumPy's default entropy source, so every run differs.
 
 ### Soundfonts
 
-`compose()` auto-selects fluidsynth when both
-`config/runtime.yaml` `fluidsynth_soundfont` resolves to an existing
-`.sf2` file and the `fluidsynth` Python module is importable; otherwise
-it falls back to `pretty_midi.PrettyMIDI.synthesize` (a built-in sine
-synth) with a single warning log line. To get a richer timbre, install
-fluidsynth and supply a soundfont. The simplest way:
+`compose()` renders with fluidsynth whenever the `fluidsynth` Python
+module is importable, using the first soundfont it finds:
 
-```bash
-python scripts/download_soundfont.py
-```
+1. `config/runtime.yaml` `fluidsynth_soundfont` (default
+   `GeneralUser-GS.sf2`, relative to `data_dir` = `~/.music-decoder`) —
+   installed by `setup.sh` / `music-decoder fetch-models`;
+2. pretty-MIDI's bundled `TimGM6mb.sf2` (6 MB, always available).
 
-This downloads `TimGM6mb.sf2` (~6 MB, public domain) into
-`tests/fixtures/synthetic/soundfont/`. The `render_wav` adapter looks
-in that directory automatically; you can also move the `.sf2` wherever
-you like and point `config/runtime.yaml` `fluidsynth_soundfont` at it.
+Only if fluidsynth itself is missing does it fall back to
+`pretty_midi.PrettyMIDI.synthesize` (a sine synth), with one warning log
+line. To use another soundfont, point `fluidsynth_soundfont` at it or run
+`python scripts/download_soundfont.py --url <url> --dest <path>`.
 Callers who want to force a backend can pass `backend=SynthBackend.SINE`
 or `backend=SynthBackend.FLUIDSYNTH` to `synth.render_wav` directly.
 
@@ -1047,8 +1061,10 @@ make run          # alias for `music-decoder ui`
 ```
 
 The regression suite expects the synthetic fixtures under
-`tests/fixtures/synthetic/`. The first run renders them to WAV (via
-fluidsynth + soundfont if available, else sine fallback); the
+`tests/fixtures/synthetic/`. The first run renders them to WAV with
+fluidsynth (a `.sf2` under `tests/fixtures/synthetic/soundfont/` if
+present, else pretty-MIDI's bundled TimGM6mb; sine only without any
+soundfont); the
 rendered WAVs are cached on disk via a `.synth_marker` invalidation
 file.
 
