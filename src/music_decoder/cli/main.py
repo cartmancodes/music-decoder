@@ -5,6 +5,7 @@ Subcommands:
 - compose: generate an arrangement from a scale + progression
 - ui: launch the Streamlit UI
 - doctor: verify ffmpeg, fluidsynth, models
+- fetch-models: pre-download Demucs weights and the GeneralUser GS soundfont
 """
 
 from __future__ import annotations
@@ -256,14 +257,30 @@ def _doctor_checks() -> int:
     except Exception:
         check("fluidsynth", False, "pip install pyfluidsynth + brew install fluidsynth")
 
-    try:
-        from music_decoder.config.runtime import load_runtime_config
+    from music_decoder import assets
+    from music_decoder.synth import _resolve_soundfont_path
 
-        cfg = load_runtime_config()
-        sf = Path(cfg.fluidsynth_soundfont).expanduser()
-        check("soundfont present", sf.exists() if sf.is_absolute() else True, f"expected at {sf}")
-    except Exception as e:
-        check("soundfont present", False, str(e))
+    sf = _resolve_soundfont_path()
+    check(
+        "soundfont",
+        sf is not None,
+        "no soundfont found; run: music-decoder fetch-models",
+    )
+    if sf is not None:
+        source = "bundled TimGM6mb" if sf == assets.bundled_soundfont() else "installed"
+        click.echo(f"  using {source}: {sf}")
+
+    # Optional: only full-mix analysis needs Demucs, and it downloads lazily,
+    # so a cold cache is reported but doesn't fail the health check.
+    try:
+        cached = assets.demucs_weights_cached()
+    except Exception:
+        cached = False
+    click.echo(f"{'demucs weights':.<32} {'OK' if cached else 'NOT CACHED'}")
+    if not cached:
+        click.echo(
+            "  hint: run `music-decoder fetch-models` to avoid a ~52 MB download on first use"
+        )
 
     return rc
 
@@ -272,6 +289,38 @@ def _doctor_checks() -> int:
 def cli_doctor() -> None:
     """Verify external dependencies and model availability."""
     rc = _doctor_checks()
+    sys.exit(rc)
+
+
+@main.command("fetch-models")
+@click.option("--no-demucs", is_flag=True, help="Skip the Demucs separation weights (~52 MB).")
+@click.option("--no-soundfont", is_flag=True, help="Skip the GeneralUser GS soundfont (~30 MB).")
+def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
+    """Pre-download models so first runs don't stall (idempotent).
+
+    Fetches the Demucs htdemucs_6s weights into the torch cache and the
+    GeneralUser GS soundfont to the path in config/runtime.yaml. Composition
+    works without the soundfont (pretty_midi's bundled one is used).
+    """
+    from music_decoder import assets
+
+    rc = 0
+    if not no_demucs:
+        click.echo("Demucs htdemucs_6s weights ...")
+        try:
+            assets.fetch_demucs()
+            click.echo("  OK (cached)")
+        except Exception as e:
+            click.echo(f"  FAILED: {e}")
+            rc = 1
+    if not no_soundfont:
+        click.echo("GeneralUser GS soundfont ...")
+        try:
+            path = assets.fetch_soundfont()
+            click.echo(f"  OK: {path}")
+        except Exception as e:
+            click.echo(f"  FAILED: {e} (the bundled TimGM6mb soundfont will be used)")
+            rc = 1
     sys.exit(rc)
 
 
