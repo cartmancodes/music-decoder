@@ -20,3 +20,5 @@ tests/fixtures/synthetic/*.wav
 .idea/
 .vscode/
 .superpowers/
+tests/fixtures/synthetic/.*.synth_marker
+out/
