@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import statistics
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -35,7 +37,10 @@ def run_model(wav_path: Path) -> dict[str, Any]:
     """
     from basic_pitch.inference import run_inference
 
-    out: dict[str, Any] = run_inference(str(wav_path), _model_path())
+    # basic-pitch's CoreML path print()s per inference window; keep library
+    # callers' stdout clean (the CLI additionally guards at the fd level).
+    with contextlib.redirect_stdout(sys.stderr):
+        out: dict[str, Any] = run_inference(str(wav_path), _model_path())
     return out
 
 
@@ -72,16 +77,17 @@ def transcribe_basic_pitch(
     with tempfile.TemporaryDirectory() as tmp:
         wav_path = Path(tmp) / "input.wav"
         wavfile.write(str(wav_path), audio.sr, (audio.samples * 32767).astype(np.int16))
-        _, midi_data, note_events = predict(
-            str(wav_path),
-            model_or_model_path=model_path,
-            onset_threshold=params.onset_threshold,
-            frame_threshold=params.frame_threshold,
-            minimum_note_length=params.minimum_note_length_ms,
-            minimum_frequency=params.minimum_frequency_hz,
-            maximum_frequency=params.maximum_frequency_hz,
-            melodia_trick=params.melodia_trick,
-        )
+        with contextlib.redirect_stdout(sys.stderr):
+            _, midi_data, note_events = predict(
+                str(wav_path),
+                model_or_model_path=model_path,
+                onset_threshold=params.onset_threshold,
+                frame_threshold=params.frame_threshold,
+                minimum_note_length=params.minimum_note_length_ms,
+                minimum_frequency=params.minimum_frequency_hz,
+                maximum_frequency=params.maximum_frequency_hz,
+                melodia_trick=params.melodia_trick,
+            )
     midi_data.write(str(raw_midi_path))
     midi_data.write(str(post_midi_path))  # placeholder until post-processing runs
 

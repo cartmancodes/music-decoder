@@ -99,3 +99,20 @@ def test_post_processing_skipped_when_disabled(tmp_path: Any, monkeypatch: Any) 
     with mock.patch("basic_pitch.note_creation.model_output_to_notes", _events):
         notes = transcription.decode_model_output({})
     assert len(notes) == 3
+
+
+def test_run_model_keeps_basic_pitch_chatter_off_stdout(capsys: Any, tmp_path: Any) -> None:
+    # basic-pitch's CoreML path print()s per inference window; library
+    # callers (benchmark output, Streamlit) must get a clean stdout.
+    from music_decoder.transcription import basic_pitch_wrapper
+
+    def chatty(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        print("isfinite: True")
+        return {"note": np.zeros((1, 88))}
+
+    with mock.patch("basic_pitch.inference.run_inference", chatty):
+        out = basic_pitch_wrapper.run_model(tmp_path / "x.wav")
+    captured = capsys.readouterr()
+    assert "note" in out
+    assert captured.out == ""
+    assert "isfinite: True" in captured.err
