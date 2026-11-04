@@ -11,7 +11,7 @@ into `rapsuite/libs/rapcore/pitch` unchanged once that repo exists.
 
 | Part | File | Notes |
 |---|---|---|
-| Pitch detection | `include/tune/detector.hpp` | cycfi/q bitstream autocorrelation (MIT) + voicing gate + per-period NCCF tracker |
+| Pitch detection | `include/tune/detector.hpp` | cycfi/q bitstream autocorrelation (MIT) + voicing gate + per-period NCCF tracker + fast voicing end and decimated YIN onset acquisition |
 | Note decision | `include/tune/scale.hpp` | 8 scale types, key parsing, hysteresis quantizer |
 | Retune curve | `include/tune/correction.hpp` | Critically damped 2nd-order smoother; `retune_ms` = time to ~90% |
 | Shifter | `include/tune/splice_shifter.hpp` | Period-synchronous resampling with correlation-refined ±1-period splices and 1.33 ms crossfades; 2.0 ms reported latency |
@@ -19,7 +19,7 @@ into `rapsuite/libs/rapcore/pitch` unchanged once that repo exists.
 | Evaluation | `src/synth.cpp`, `src/yin_offline.cpp`, `src/metrics.cpp` | Synthetic voices with known pitch; an independent offline YIN as judge; pitch-error and HF-artifact metrics |
 | Tools | `tools/tune_eval.cpp`, `tools/tune_render.cpp` | Benchmark table (accuracy, onset settle, HF energy, CPU); `--clips` for real WAV folders; render real WAV files |
 | Test audio | `data/README.md` | Local vs Corpus tiers; no audio is ever committed |
-| Tests | `tests/` | doctest (from cycfi/infra); 19 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
+| Tests | `tests/` | doctest (from cycfi/infra); 23 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
 
 Not yet built (see the task plan): LPC formant preservation, humanize /
 flex / vibrato controls, HQ (PSOLA) mode, stereo-linked processing, SIMD /

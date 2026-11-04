@@ -16,7 +16,7 @@ syllables**:
 - no added high-frequency splice energy;
 - about **0.6–1.5% of one core** on this test machine.
 
-**Verdict: provisional GO for the ≤ 3 ms Track-mode design.** It isn't
+**Verdict: provisional GO for the ≤ 3 ms Track-mode design.** (v0.1 adds the onset fix below: notes now settle in 0–12 ms median.) It isn't
 final until it passes on real rap vocals and in a listening session (plan
 tasks T1.6–T1.8). Synthetic signals can't tell us how splices sound on
 breathy, noisy, fast real voices.
@@ -81,6 +81,60 @@ Settling is dominated by detection lag at onsets. The higher register
 (22 ms) misses the "≤ 2 periods + 5 ms" target (≈ 13 ms at 250 Hz).
 q's `predict_frequency()` at onsets is the next step. Fast-flow syllables
 settle in ≈ 10 ms, which matters most for rap.
+
+### Onset fix (v0.1, later on 2026-11-04)
+
+**Diagnosis.** Instrumenting the detector at every onset showed the
+problem wasn't slow acquisition. **Voicing carried over the 25–60 ms
+consonant gaps**, so most notes started already "voiced" with the
+previous note's period, or garbage (e.g. 427 Hz for a 258 Hz note). The
+note then settled only once q re-anchored. Using q's `predict_frequency()`
+(the idea in the plan) **doesn't help**: it reached ±30 c in 15–21 ms
+on average, slower than q's regular estimate (7–12 ms).
+
+**Changes** (`include/tune/detector.hpp`):
+1. **Fast voicing end:** if the tracker's best correlation stays below 0.5
+   for 2 updates (≈ 2.7 ms), voicing ends and q is reset. A successful
+   track also keeps the hold alive.
+2. **Fast acquisition:** while unvoiced but above the gate, a YIN search
+   (4 ms window, all lags) runs every update **on a 4× decimated copy**
+   (≈ 16× cheaper). Candidates are refined at full rate, and two agreeing
+   candidates start voicing.
+3. **Confirmed q proposals:** from unvoiced, q's estimate must show NCCF ≥
+   0.8 at its period (stops voicing on consonant noise).
+4. **Guarded re-anchor:** while voiced, q may move the tracker only if its
+   period explains the signal at least as well as the current one. This
+   removed bad re-anchors right after a reset, which had made the
+   fast-flow tail worse.
+5. Tracker window cap as a duration (5.33 ms), not 256 samples, which
+   fixed a low-voice regression at 96 kHz.
+
+**Result (hard-tune, 48 kHz; median / p90 settle):**
+
+| Scenario | v0 | v0.1 | Accuracy v0.1 (median / p95 c) |
+|---|---|---|---|
+| steady_detuned | 17 / 24 ms | **3 / 10 ms** | 0.0 / 0.1 |
+| steady_high | 22 / 33 ms | **0 / 7 ms** | 0.0 / 0.3 (was 0.9 / 7.0) |
+| vibrato | 20 / 24 ms | **0 / 8 ms** | 0.7 / 3.1 |
+| fast_flow | 9.7 / 18 ms | **1.2 / 6.1 ms** | 0.3 / 0.9 |
+| low_voice | 18 / 24 ms | **12 / 14 ms** | 0.1 / 0.5 |
+
+- "0 ms" means settled within the judge's own half-window (≈ 9 ms), so it
+  is at or below what the metric can resolve.
+- 44.1 and 96 kHz match within ±1 ms and ±0.1 c.
+- CPU is unchanged at 150–290 ns/sample. Without decimation it was up to
+  905 ns, because acquisition runs on every consonant and breath.
+- Tests: 23 cases pass with Clang 18 and GCC 13, and under ASan + UBSan.
+  New detector tests check:
+  - every note's first voiced pitch is fresh (within 50 c of the true f0)
+    and none is still voiced at its onset;
+  - voicing drops inside consonant gaps;
+  - no allocation, including during acquisition.
+- **Plan target "≤ 2 periods + 5 ms" is now met in every scenario except
+  low_voice.** There it's 12 ms against ≈ 10 ms at 100 Hz, because the
+  acquisition needs window + one period of the new note. A 2.5 ms
+  acquisition window is the next thing to try if real vocals show it
+  matters.
 
 ### Real-clip mode
 

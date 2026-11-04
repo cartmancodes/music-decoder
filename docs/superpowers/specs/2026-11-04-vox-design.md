@@ -164,6 +164,20 @@ Rules:
   median.
 - **Voicing hold** ≥ max(12 ms, 3.5 periods), so voicing doesn't flicker
   in q's update gaps (spike finding 2).
+- **Onset handling (spike v0.1):**
+  - **Voicing end:** voicing ends when the tracker's correlation is < 0.5
+    for 2 updates (≈ 2.7 ms), and q is reset, so consonant gaps break
+    voicing.
+  - **Acquisition:** a decimated (≈ 12 kHz) YIN search runs over all lags
+    while unvoiced and above the gate, refined at full rate; two agreeing
+    candidates start voicing.
+  - **Checks on q:** its proposals from unvoiced need NCCF ≥ 0.8. While
+    voiced, it re-anchors only if its period explains the signal at least
+    as well as the current track.
+  - `predict_frequency()` was measured and is **not** used: it's slower
+    than q's regular estimate on our signals.
+  - Result: hard-tune settle median 0–12 ms, p90 6–14 ms across scenarios
+    (spike report).
 - **Range:** set by **Voice** (`tune.voice`): Bass 55–600 Hz, Low 70–800
   Hz, Mid 90–1000 Hz, High 120–1400 Hz. Default Low **[tune]**.
 - **Voicing gate:** voiced when confidence ≥ `θc` (0.8 **[tune]**) and

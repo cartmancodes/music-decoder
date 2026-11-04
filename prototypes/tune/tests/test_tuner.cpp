@@ -135,13 +135,14 @@ TEST_CASE("slow retune keeps vibrato (natural mode behaviour)") {
 }
 
 TEST_CASE("onset settle time, hard-tune (T1.2 regression guard)") {
-    // Pinned from spike measurements (2026-11-04) with ~40% margin. Target
-    // from the plan (<= 2 periods + 5 ms) is not met yet in the higher
-    // register; see the spike report.
+    // Pinned from spike v0.1 measurements (onset fix: fast voicing end, YIN
+    // acquisition, guarded re-anchor) with margin. v0 values in comments.
     struct Case { const char* name; double max_median_ms, max_p90_ms; };
-    for (const Case c : {Case{"steady_detuned", 25.0, 35.0}, Case{"steady_high", 30.0, 45.0},
-                         Case{"vibrato", 30.0, 35.0}, Case{"fast_flow", 15.0, 26.0},
-                         Case{"low_voice", 25.0, 35.0}}) {
+    for (const Case c : {Case{"steady_detuned", 8.0, 15.0},   // v0.1: 3 / 10   (v0: 17 / 24)
+                         Case{"steady_high", 5.0, 12.0},      // v0.1: 0 / 7    (v0: 22 / 33)
+                         Case{"vibrato", 5.0, 13.0},          // v0.1: 0 / 8.4  (v0: 20 / 24)
+                         Case{"fast_flow", 5.0, 10.0},        // v0.1: 1.2 / 6.1 (v0: 9.7 / 18)
+                         Case{"low_voice", 17.0, 20.0}}) {    // v0.1: 12 / 14  (v0: 18 / 24)
         Scenario sc;
         const SynthSignal sig = scenario_signal(c.name, &sc);
         Tuner t;
@@ -177,4 +178,30 @@ TEST_CASE("scale-distance metric: tuned output sits on the scale") {
     INFO("in " << format_stats(in) << " out " << format_stats(out));
     CHECK(in.median_abs_cents > 15.0);
     CHECK(out.median_abs_cents < 3.0);
+}
+
+TEST_CASE("accuracy and settle hold at 44.1 and 96 kHz (window caps are durations)") {
+    for (double fs : {44100.0, 96000.0}) {
+        for (const char* name : {"low_voice", "fast_flow"}) {
+            Scenario sc;
+            for (const auto& s : builtin_scenarios())
+                if (s.name == name) sc = s;
+            const SynthSignal sig = synth_voice(sc.segments, fs, 1);
+            Tuner t;
+            t.prepare(fs);
+            TunerParams p;
+            p.tonic = sc.tonic;
+            p.scale = static_cast<ScaleType>(sc.scale);
+            t.set_params(p);
+            auto y = run(t, sig.audio, 256);
+            const PitchStats st = score_pitch(y, sig, t.latency_samples());
+            const SettleStats se = score_settle(y, sig, t.latency_samples());
+            INFO(name << " @ " << fs << ": " << format_stats(st) << " settle " << se.median_ms << "/"
+                      << se.p90_ms);
+            CHECK(st.median_abs_cents <= 1.0);
+            CHECK(st.p95_abs_cents <= 2.0);
+            CHECK(se.unsettled == 0);
+            CHECK(se.p90_ms <= 20.0);
+        }
+    }
 }
