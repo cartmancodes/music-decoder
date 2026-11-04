@@ -3,6 +3,14 @@
 Date: 2026-11-04 · Status: research / proposal ·
 Follows [2026-11-04-rapper-production-tool.md](2026-11-04-rapper-production-tool.md)
 
+> **Superseded by the
+> [master plan](../superpowers/plans/2026-11-04-rapper-suite-master-plan.md).**
+> Corrections from later research: target JUCE 9 (not 8); tuner latency
+> target ≤ 3 ms (not 5); BS.1770-5 (not -4); ACE-Step 1.5 is MIT;
+> PC-NSF-HiFiGAN and madmom model weights are non-commercial
+> (CC BY-NC-SA); `compose/` has no drum rules to port; the ML sidecar is a
+> C++ ONNX Runtime / whisper.cpp helper, not shipped Python.
+
 The first plan picked tools for a quick offline prototype (PSOLA auto-tune,
 browser recording, a soundfont for drums, Matchering). Those work for a demo
 but **would not pass with an engineer or a signed artist**. This note sets a
