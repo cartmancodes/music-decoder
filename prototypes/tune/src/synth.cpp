@@ -11,7 +11,8 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-// Vowel /a/-like envelope: three Gaussian formant bumps on a -6 dB/oct tilt.
+// Vowel /a/-like envelope: three Gaussian formant bumps (the 1/k harmonic
+// tilt is applied separately in synth_voice).
 double formant_gain(double f) {
     struct F { double fc, bw, amp; };
     static constexpr F fs[3] = {{730.0, 110.0, 1.0}, {1090.0, 130.0, 0.6}, {2440.0, 200.0, 0.35}};
@@ -41,9 +42,27 @@ struct Bandpass {
     }
 };
 
+// Cascade of analog two-pole resonators, unity gain at DC (/a/: F1-F5).
+double resonator_gain(double f) {
+    struct R { double fc, bw; };
+    static constexpr R rs[5] = {{730, 90}, {1090, 110}, {2440, 170}, {3300, 250}, {3750, 300}};
+    double g = 1.0;
+    for (const auto& r : rs) {
+        const double q = r.fc / r.bw;
+        const double x = f / r.fc;
+        g *= 1.0 / std::sqrt((1.0 - x * x) * (1.0 - x * x) + (x / q) * (x / q));
+    }
+    return g * 0.05;  // keep the overall level similar to the Gaussian model
+}
+
 }  // namespace
 
-SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32_t seed) {
+double vowel_envelope(double f, VoiceModel model) {
+    return model == VoiceModel::Resonator ? resonator_gain(f) : formant_gain(f);
+}
+
+SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32_t seed,
+                        VoiceModel model) {
     SynthSignal s;
     s.sample_rate = fs;
     std::mt19937 rng(seed);
@@ -71,7 +90,7 @@ SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32
                 if (phase > 2 * kPi * 1e6) phase = std::fmod(phase, 2 * kPi);
                 const int harmonics = static_cast<int>(max_harm_hz / f0);
                 for (int k = 1; k <= harmonics; ++k)
-                    y += formant_gain(k * f0) / k * std::sin(k * phase);
+                    y += vowel_envelope(k * f0, model) / k * std::sin(k * phase);
                 y = 0.25 * env * y + 0.002 * noise(rng);  // breath
             } else {
                 y = 0.08 * env * sib.process(noise(rng));

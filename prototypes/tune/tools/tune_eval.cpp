@@ -15,6 +15,7 @@
 //   file,key,scale[,low_hz,high_hz]
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -41,6 +42,8 @@ struct ClipSettings {
     double low_hz = 70.0, high_hz = 800.0;
 };
 
+FormantMode g_formant_mode = FormantMode::Auto;
+
 std::vector<float> run_tuner(const std::vector<float>& x, double rate, const ClipSettings& cs,
                              double retune, Tuner& tuner, double& ns_per_sample) {
     DetectorConfig det;
@@ -51,6 +54,7 @@ std::vector<float> run_tuner(const std::vector<float>& x, double rate, const Cli
     p.tonic = cs.tonic;
     p.scale = cs.scale;
     p.retune_ms = retune;
+    p.formant_mode = g_formant_mode;
     tuner.set_params(p);
     std::vector<float> y(x.size());
     const auto t0 = std::chrono::steady_clock::now();
@@ -61,8 +65,63 @@ std::vector<float> run_tuner(const std::vector<float>& x, double rate, const Cli
     return y;
 }
 
+// Formant test (FR-TUNE-6): steady_detuned notes transposed by +/-3 and
+// +/-5 semitones, Preserve vs Follow. Reports the envelope error against the
+// original vowel envelope and against the envelope shifted with the pitch,
+// and where F1/F2 land.
+void formant_report(double rate) {
+    Scenario sc;
+    for (const auto& s : builtin_scenarios())
+        if (s.name == "steady_detuned") sc = s;
+    const SynthSignal sig = synth_voice(sc.segments, rate, 1);
+    const auto in_env = [](double f) { return vowel_envelope(f); };
+    std::printf("\n| transpose st | mode | LSD vs original env dB | LSD vs pitch-shifted env dB | F1 Hz (orig 730) | F2 Hz (orig 1090) | ns/sample |\n");
+    std::printf("|---|---|---|---|---|---|---|\n");
+    for (double st : {-5.0, -3.0, 0.0, 3.0, 5.0}) {
+        for (bool preserve : {true, false}) {
+            Tuner tuner;
+            tuner.prepare(rate);
+            TunerParams p;
+            p.tonic = sc.tonic;
+            p.scale = static_cast<ScaleType>(sc.scale);
+            p.retune_ms = 0.0;
+            p.transpose_semitones = st;
+            p.formant_mode = preserve ? FormantMode::Preserve : FormantMode::Follow;
+            tuner.set_params(p);
+            std::vector<float> y(sig.audio.size());
+            const auto t0 = std::chrono::steady_clock::now();
+            tuner.process(sig.audio.data(), y.data(), y.size());
+            const auto t1 = std::chrono::steady_clock::now();
+            const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count() / y.size();
+            const double ratio = std::exp2(st / 12.0);
+            const auto shifted_env = [ratio](double f) { return vowel_envelope(f / ratio); };
+            double lsd_o = 0, lsd_s = 0, f1 = 0, f2 = 0;
+            int n = 0;
+            std::size_t i = 0;
+            while (i < sig.target.size()) {
+                if (sig.target[i] < 0 || !sig.onset[i]) { ++i; continue; }
+                std::size_t j = i + 1;
+                while (j < sig.target.size() && sig.target[j] == sig.target[i] && !sig.onset[j]) ++j;
+                const std::size_t start = i + static_cast<std::size_t>(0.15 * rate) + tuner.latency_samples();
+                const std::size_t len = static_cast<std::size_t>(0.2 * rate);
+                if (start + len < j + tuner.latency_samples()) {
+                    const double f_out = midi_to_hz(sig.target[i] + st);
+                    const EnvelopeFit a = fit_envelope(y, rate, start, len, f_out, in_env);
+                    const EnvelopeFit b = fit_envelope(y, rate, start, len, f_out, shifted_env);
+                    lsd_o += a.lsd_db; lsd_s += b.lsd_db; f1 += a.f1_hz; f2 += a.f2_hz; ++n;
+                }
+                i = j;
+            }
+            if (n == 0) continue;
+            std::printf("| %+.0f | %s | %.2f | %.2f | %.0f | %.0f | %.0f |\n", st,
+                        preserve ? "preserve" : "follow", lsd_o / n, lsd_s / n, f1 / n, f2 / n, ns);
+        }
+    }
+}
+
 int synthetic(const std::string& out_dir, const std::vector<double>& retunes, double rate) {
-    std::printf("fs = %.0f Hz\n\n", rate);
+    std::printf("fs = %.0f Hz, formant mode %s\n\n", rate,
+                g_formant_mode == FormantMode::Auto ? "auto" : g_formant_mode == FormantMode::Preserve ? "preserve" : "follow");
     std::printf("| scenario | signal | retune ms | frames | median c | p95 c | within 10c | >50c | octave | settle med ms | settle p90 ms | unsettled | HF dB | jumps/s | ns/sample |\n");
     std::printf("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for (const auto& sc : builtin_scenarios()) {
@@ -96,6 +155,7 @@ int synthetic(const std::string& out_dir, const std::vector<double>& retunes, do
             }
         }
     }
+    formant_report(rate);
     return 0;
 }
 
@@ -200,6 +260,13 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--retune") && has) retunes.push_back(std::atof(argv[++i]));
         else if (!std::strcmp(argv[i], "--fs") && has) rate = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--clips") && has) clip_dir = argv[++i];
+        else if (!std::strcmp(argv[i], "--formant") && has) {
+            const std::string m = argv[++i];
+            if (m == "auto") g_formant_mode = FormantMode::Auto;
+            else if (m == "preserve") g_formant_mode = FormantMode::Preserve;
+            else if (m == "follow") g_formant_mode = FormantMode::Follow;
+            else { std::fprintf(stderr, "bad --formant (auto|preserve|follow)\n"); return 2; }
+        }
         else if (!std::strcmp(argv[i], "--key") && has) {
             const auto t = parse_tonic(argv[++i]);
             if (!t) { std::fprintf(stderr, "bad key\n"); return 2; }
@@ -210,7 +277,7 @@ int main(int argc, char** argv) {
             def.scale = *s;
         } else {
             std::fprintf(stderr,
-                         "usage: %s [--out DIR] [--retune MS]... [--fs HZ]\n"
+                         "usage: %s [--out DIR] [--retune MS]... [--fs HZ] [--formant auto|preserve|follow]\n"
                          "       %s --clips DIR [--out DIR] [--retune MS]... [--key A] [--scale minor]\n",
                          argv[0], argv[0]);
             return 2;

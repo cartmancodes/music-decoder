@@ -9,6 +9,13 @@
 
 namespace tune {
 
+// Formant envelope model of the synthetic voice.
+//  Gaussian:  three Gaussian bumps over a -30 dB floor (deep valleys; hard
+//             for all-pole / LPC models - a stress test).
+//  Resonator: cascade of five second-order formant resonators, the classic
+//             vowel-synthesizer model (close to real vowels).
+enum class VoiceModel { Gaussian, Resonator };
+
 struct Segment {
     double dur_s = 0.2;
     double midi_start = 57.0;  // pitch at segment start (fractional MIDI)
@@ -27,7 +34,12 @@ struct SynthSignal {
     std::vector<std::uint8_t> onset;  // 1 at the first sample of each voiced segment
 };
 
-SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32_t seed = 1);
+SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32_t seed = 1,
+                        VoiceModel model = VoiceModel::Gaussian);
+
+// The synthetic voice's formant envelope (linear amplitude, before the 1/k
+// harmonic tilt). Ground truth for formant-preservation metrics.
+double vowel_envelope(double f, VoiceModel model = VoiceModel::Gaussian);
 
 struct Scenario {
     std::string name;

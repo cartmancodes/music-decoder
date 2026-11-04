@@ -1,7 +1,7 @@
 // Track-mode tuner: detector -> note decider -> retune smoother -> splice
-// shifter (spec §6.1-6.4). Mono, per-sample processing; block size has no
-// effect on the output (NFR-6). Formant preservation (§6.5), humanize, flex
-// and vibrato (§6.3) are later spike steps.
+// shifter, with LPC formant preservation around the shifter (spec §6.1-6.5).
+// Mono, per-sample processing; block size has no effect on the output
+// (NFR-6). Humanize, flex and vibrato (§6.3) are later spike steps.
 #pragma once
 
 #include <algorithm>
@@ -11,10 +11,17 @@
 
 #include "tune/correction.hpp"
 #include "tune/detector.hpp"
+#include "tune/formant.hpp"
 #include "tune/scale.hpp"
 #include "tune/splice_shifter.hpp"
 
 namespace tune {
+
+// Formant handling (spec §6.5). Auto preserves formants only when the user
+// transposes (|transpose| >= 0.5 st): plain hard-tune corrections are small
+// (<= ~50 c, <= 3% formant shift) and the formant chain costs a little pitch
+// tightness on vibrato and onsets (spike v0.2), so Auto skips it there.
+enum class FormantMode { Auto, Preserve, Follow };
 
 struct TunerParams {
     int tonic = 0;                        // pitch class, C = 0
@@ -24,6 +31,7 @@ struct TunerParams {
     double hysteresis_cents = 15.0;
     double transpose_semitones = 0.0;
     double max_correction_cents = 600.0;  // clamp (+/- half an octave)
+    FormantMode formant_mode = FormantMode::Auto;
 };
 
 // One analysis frame for traces / UI (spec §11.3).
@@ -38,7 +46,8 @@ struct TuneFrame {
 class Tuner {
 public:
     // Allocates. Call before processing and whenever the sample rate changes.
-    void prepare(double sample_rate, const DetectorConfig& det = {}) {
+    void prepare(double sample_rate, const DetectorConfig& det = {},
+                 const FormantConfig& formant = {}) {
         fs_ = sample_rate;
         det_cfg_ = det;
         detector_.prepare(fs_, det);
@@ -51,6 +60,7 @@ public:
         sc.rest_after = static_cast<int>(std::lround(0.020 * fs_));
         shifter_.prepare(sc);
 
+        formant_.prepare(fs_, formant);
         smoother_.prepare(fs_);
         release_.prepare(fs_, 5.0);
         set_params(params_);
@@ -63,6 +73,7 @@ public:
         smoother_.reset(0.0);
         release_.reset(0.0);
         shifter_.reset();
+        formant_.reset();
         was_voiced_ = false;
         n_ = 0;
         last_ = {};
@@ -77,6 +88,10 @@ public:
     }
 
     const TunerParams& params() const { return params_; }
+    bool preserving() const {
+        return params_.formant_mode == FormantMode::Preserve ||
+               (params_.formant_mode == FormantMode::Auto && std::abs(params_.transpose_semitones) >= 0.5);
+    }
     int latency_samples() const { return shifter_.latency(); }
     std::int64_t jump_count() const { return shifter_.jump_count(); }
     const TuneFrame& last_frame() const { return last_; }
@@ -103,7 +118,17 @@ public:
         const double cents = correction + params_.transpose_semitones * 100.0;
         // Unvoiced: ratio exactly 1 so the shifter can return to rest delay.
         const double ratio = period > 0.0 ? std::exp2(cents / 1200.0) : 1.0;
-        const float y = shifter_.process(x, ratio, period);
+        // The analysis always runs (so toggling Preserve has history); the
+        // whitened signal is only used when preserving formants.
+        const float e = formant_.whiten(x);
+        float y;
+        if (preserving()) {
+            const float ey = shifter_.process(e, x, ratio, period);
+            // Re-apply the envelope of the input moment being read.
+            y = formant_.recolour(ey, static_cast<double>(n_) - shifter_.current_delay());
+        } else {
+            y = shifter_.process(x, ratio, period);
+        }
 
         last_.t = static_cast<double>(n_) / fs_;
         last_.f0_in = f0;
@@ -127,6 +152,7 @@ private:
     RetuneSmoother smoother_;
     OnePole release_;
     SpliceShifter shifter_;
+    FormantChain formant_;
     bool was_voiced_ = false;
     std::int64_t n_ = 0;
     TuneFrame last_{};

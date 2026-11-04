@@ -244,17 +244,36 @@ Rules:
   is allowed, with lower quality accepted.
 
 ### 6.5 Formant handling (Track and HQ)
-- **Analysis:** LPC order 16 at 44.1 / 48 kHz (scaled by `fs/48k`, max 32)
-  on the **pre-shift** input; 20 ms Hann window, 5 ms hop, computed from
-  past samples only (no added latency). Coefficients are interpolated
-  through **line spectral frequencies** to stay stable.
-- **Chain:** whiten (inverse filter A(z)) → shift → re-colour (1/A(z)).
-  `tune.formant_follow` = Preserve (default) / Follow pitch.
-- **Throat** (`tune.throat`, −100…+100 → ±3 st of envelope warp): warped
-  LPC (all-pass frequency warping) applied at re-colour.
-- **FR-TUNE-6:** with Preserve on and a +3 st correction, the spectral
-  envelope (first three formant peaks) moves by < 5% compared with the
-  input **[tune]**.
+Updated by tuner spike v0.2; measurements in the spike report.
+- **Method:** frequency-warped LPC.
+  - all-pass warping λ = Bark-like for the sample rate (0.756 at 48 kHz),
+    order 20;
+  - analysis on the **pre-shift** input: 20 ms Hann window, **10 ms hop**,
+    past samples only (no added latency);
+  - noise floor 3e-2 and lag window 100 Hz, so harmonics of high voices
+    aren't modelled as formants;
+  - reflection coefficients interpolated between frames (stable), converted
+    to direct form every 16 samples.
+- **Chain:** whiten (warped FIR A(D(z))) → shift → re-colour (warped
+  all-pole 1/A(D(z)), delay-free loop solved in closed form) using the
+  coefficients of the input moment being read. The pair is an exact inverse
+  even with time-varying coefficients, so latency and the ratio-1 null test
+  are unaffected.
+- **Splice points** are chosen on the original waveform, not the whitened
+  residual.
+- **Mode** (`tune.formant_mode`):
+  - **Auto (default):** preserve when |transpose| ≥ 0.5 st, otherwise
+    don't. Hard-tune corrections move formants ≤ 3%, and Preserve costs
+    ≈ 1.6 c extra vibrato residual and ≈ 8 ms onset settle on vibrato
+    notes;
+  - **Preserve;**
+  - **Follow pitch.**
+- **Throat** (`tune.throat`, −100…+100 → ±3 st of envelope warp): planned
+  as a different warping factor or envelope warp at re-colour (not yet
+  built).
+- **FR-TUNE-6:** with Preserve active and a ±3 st (and +5 st) shift, F1
+  moves < 5% compared with the unshifted output. Spike: ≤ ≈ 4% at 44.1 /
+  48 / 96 kHz on both synthetic voice models; Follow moves it 16–25%.
 
 ### 6.6 Shifter, HQ mode
 - **TD-PSOLA:** pitch marks from detector periods refined by peak picking;

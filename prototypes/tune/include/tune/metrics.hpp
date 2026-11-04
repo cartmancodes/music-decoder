@@ -52,4 +52,21 @@ PitchStats score_against_scale(const std::vector<float>& audio, double fs,
                                unsigned scale_mask, double min_hz = 60.0,
                                double max_hz = 1000.0, double max_aperiodicity = 0.2);
 
+// Formant envelope of a steady harmonic segment (spec FR-TUNE-6).
+// Harmonic amplitudes are measured by Hann-windowed projection at k * f0
+// over [start, start + len); multiplying by k removes the synthetic voice's
+// 1/k tilt, giving envelope samples at k * f0 for 150 Hz..max_hz.
+struct EnvelopeFit {
+    double lsd_db = 0;     // RMS dB difference vs the reference envelope (both mean-normalised)
+    double f1_hz = 0;      // envelope peak in 450-950 Hz (parabolic, log domain)
+    double f2_hz = 0;      // envelope peak in 950-1600 Hz
+    int harmonics = 0;
+};
+// `reference(f)` is the expected envelope (linear amplitude) at frequency f.
+template <class F>
+EnvelopeFit fit_envelope(const std::vector<float>& audio, double fs, std::size_t start,
+                         std::size_t len, double f0, F reference, double max_hz = 3500.0);
+
 }  // namespace tune
+
+#include "tune/metrics_envelope.inl"

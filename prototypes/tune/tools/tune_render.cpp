@@ -18,7 +18,8 @@ int main(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: %s IN.wav OUT.wav [--key A] [--scale minor] [--retune MS] "
-                     "[--amount 0..1] [--low HZ] [--high HZ] [--trace FILE.csv]\n",
+                     "[--amount 0..1] [--low HZ] [--high HZ] [--transpose ST]\n"
+                     "       [--formant auto|preserve|follow] [--trace FILE.csv]\n",
                      argv[0]);
         return 2;
     }
@@ -43,6 +44,13 @@ int main(int argc, char** argv) {
         else if (k == "--low") det.min_hz = std::stod(v);
         else if (k == "--high") det.max_hz = std::stod(v);
         else if (k == "--trace") trace_path = v;
+        else if (k == "--transpose") p.transpose_semitones = std::stod(v);
+        else if (k == "--formant") {
+            if (v == "auto") p.formant_mode = FormantMode::Auto;
+            else if (v == "preserve") p.formant_mode = FormantMode::Preserve;
+            else if (v == "follow") p.formant_mode = FormantMode::Follow;
+            else { std::fprintf(stderr, "bad --formant %s\n", v.c_str()); return 2; }
+        }
         else { std::fprintf(stderr, "unknown option %s\n", k.c_str()); return 2; }
     }
     try {

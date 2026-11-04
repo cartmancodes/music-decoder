@@ -50,12 +50,14 @@ public:
             cfg_.min_delay + 2 * cfg_.max_period + 2 * cfg_.crossfade + cfg_.match_window + 16);
         while (size < want) size <<= 1;
         buf_.assign(size, 0.0f);
+        match_.assign(size, 0.0f);
         mask_ = size - 1;
         reset();
     }
 
     void reset() {
         std::fill(buf_.begin(), buf_.end(), 0.0f);
+        std::fill(match_.begin(), match_.end(), 0.0f);
         w_ = 0;
         r_ = -static_cast<double>(cfg_.min_delay);
         fading_ = false;
@@ -73,8 +75,15 @@ public:
 
     // ratio: pitch factor for this sample. period: input pitch period in
     // samples, or 0 if unvoiced.
-    float process(float x, double ratio, double period) {
+    float process(float x, double ratio, double period) { return process(x, x, ratio, period); }
+
+    // As above, but splice points are chosen on `match` (e.g. the original
+    // waveform) while `x` (e.g. the formant-whitened residual) is what gets
+    // shifted. A flat, noise-like residual makes poor splice decisions
+    // (spike v0.2 finding), the waveform does not.
+    float process(float x, float match, double ratio, double period) {
         buf_[static_cast<std::size_t>(w_) & mask_] = x;
+        match_[static_cast<std::size_t>(w_) & mask_] = match;
         const std::int64_t newest = w_;
         ++w_;
 
@@ -128,8 +137,8 @@ private:
             const std::int64_t other = base + dir * lag;
             double xy = 0.0, xx = 0.0, yy = 0.0;
             for (int k = 1; k <= win; ++k) {
-                const double a = at(base - k);
-                const double b = at(other - k);
+                const double a = match_at(base - k);
+                const double b = match_at(other - k);
                 xy += a * b;
                 xx += a * a;
                 yy += b * b;
@@ -152,6 +161,7 @@ private:
     }
 
     float at(std::int64_t i) const { return buf_[static_cast<std::size_t>(i) & mask_]; }
+    float match_at(std::int64_t i) const { return match_[static_cast<std::size_t>(i) & mask_]; }
 
     // Cubic Hermite (Catmull-Rom) interpolation; exact at integer positions.
     float read(double pos) const {
@@ -167,7 +177,7 @@ private:
     }
 
     ShifterConfig cfg_{};
-    std::vector<float> buf_;
+    std::vector<float> buf_, match_;
     std::size_t mask_ = 0;
     std::int64_t w_ = 0;
     double r_ = 0.0, r_old_ = 0.0;

@@ -54,7 +54,7 @@ breathy, noisy, fast real voices.
   machine. The budget is the whole VOX chain ≤ 3% on an M1, so the tuner
   should get to ≤ 1% after the optimisation task (T1.9).
 
-All unit tests pass (17 at v0; 19 with the settle and scale-distance tests) with Clang 18 and GCC 13, and under GCC
+All unit tests pass (17 at v0; 30 after v0.2) with Clang 18 and GCC 13, and under GCC
 AddressSanitizer + UndefinedBehaviorSanitizer. They include:
 - exact delay at ratio 1;
 - frequency accuracy and click-free output at constant ratios;
@@ -136,6 +136,70 @@ on average, slower than q's regular estimate (7–12 ms).
   acquisition window is the next thing to try if real vocals show it
   matters.
 
+### Formant preservation (v0.2, plan T1.3)
+
+**What it is:** whiten the input with an LPC envelope filter, shift the
+flat residual, then re-apply the envelope of the input moment being read
+(spec §6.5). It adds no latency, because analysis is causal. Whitening and
+re-colouring stay exact inverses while the coefficients change, so with
+correction off the tuner is still an exact delay (tested, error < 1e-4).
+
+**What it took** (each step measured; harness in `tune_eval`'s formant
+table and `tests/test_formant.cpp`):
+1. **Plain LPC failed.** At order 16 and 48 kHz, F1 under +3 st moved to
+   842–852 Hz, almost as far as no preservation at all (880–898 Hz).
+   Even with ideal fixed coefficients, LPC under-modelled F1/F2 by
+   ≈ 8–9 dB: its poles spread evenly up to 24 kHz. Pre-emphasis didn't
+   help, and order 48 helped but was too expensive.
+2. **Frequency-warped LPC fixed it.** All-pass warping with λ = 0.756
+   (Bark-like at 48 kHz) at order 20 puts resolution where formants are:
+   - the whitening filter is a warped FIR;
+   - the warped all-pole re-colour filter's delay-free loop is solved in
+     closed form per sample;
+   - reflection coefficients are interpolated and converted to direct form
+     every 16 samples;
+   - the hop went from 5 to 10 ms to halve the analysis cost.
+3. **Splices are chosen on the original waveform, not the residual.** The
+   flat, noise-like residual made poor splice decisions. That doubled
+   fast-flow onset settle; with the fix it matches the no-chain value.
+4. **Noise floor 3e-2 and lag window 100 Hz** stop high voices' harmonics
+   being modelled as formants, which had delayed a 300 Hz onset to 36 ms.
+   This costs some envelope detail (sweep below).
+5. **Auto formant mode (default):** preserve only when |transpose| ≥ 0.5 st.
+   Hard-tune corrections (≤ ~50 c) move formants ≤ 3%, so the chain's
+   small pitch cost isn't worth paying there. Preserve and Follow remain
+   selectable.
+
+**Results (steady notes, F1 at the 0 st baseline ≈ 735–755 Hz):**
+
+| Transpose | Follow (no chain) F1 | Preserve F1, Gaussian voice @ 48 / 44.1 / 96 kHz | Preserve F1, resonator voice @ 48 kHz |
+|---|---|---|---|
+| −5 st | 554 Hz (−25%) | 751 / 749 / 734 | 757 |
+| −3 st | 622 Hz (−16%) | 749 / 725 / 713 | 756 |
+| +3 st | 880 Hz (+19%) | 750 / 751 / 769 | 770 |
+| +5 st | 918 Hz (+24%) | 761 / 757 / 771 | 779 |
+
+- **F1 stays within ≈ 4% everywhere** (FR-TUNE-6 requires < 5%), against
+  16–25% without the chain. The tests check < 5% on both voice models at
+  −3, +3 and +5 st.
+- **Envelope error (LSD) vs the original vowel:** Preserve 5.6–7.0 dB
+  against Follow 10–14 dB (Gaussian voice). With no noise floor or lag
+  window it was 2.3–4.3 dB, but 300 Hz onsets then took up to 36 ms.
+  Shifting *down* is inherently harder: new harmonics sample the envelope
+  between the old ones, where sharp resonances can't be observed.
+- **Pitch cost of Preserve mode** (Auto avoids it at transpose 0):
+  - vibrato hard-tune: 2.3 / 5.3 c (median / p95), against 0.7 / 3.1 c
+    without the chain;
+  - vibrato onset settle: 8 / 13 ms, against 0 / 8 ms.
+
+  Likely cause: the whitening filter's phase response near formants turns
+  vibrato's frequency sweep into a small residual phase modulation (≈ 2–3
+  c), below pitch JND. Other scenarios are unchanged. Pinned in tests.
+- **CPU:** + ≈ 110 ns/sample (+20%) when the chain is active.
+- **Not done yet:** Throat (warp the re-colour envelope) and an onset-aware
+  analysis frame (the envelope needs ≈ 35 ms of the new note to fully
+  update).
+
 ### Real-clip mode
 
 `tune_eval --clips DIR` scores WAV folders without ground truth: how close
@@ -187,8 +251,7 @@ Official numbers come only from the Corpus tier (master plan §10.1).
   to the 60 ms settle exclusion. An onset-settle metric (time to within
   10 c after onset) is needed (**T1.2**).
 - Not yet implemented:
-  - formant preservation (shifts ≤ 1 semitone move formants by ≤ 6%,
-    so it matters mostly for large corrections and transpose);
+  - formant preservation (since added in v0.2, see above);
   - humanize, flex and vibrato controls;
   - HQ mode;
   - stereo;
