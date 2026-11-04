@@ -53,8 +53,8 @@ below):
 
 **Decided:** closed-source commercial licensing (D1, 2026-11-04,
 provisional; consequences in §15.1).
-**Defaults still open** (change them in §15): plugins first; macOS (Apple
-Silicon + Intel) and Windows 10/11; iOS deferred.
+**Also decided (2026-11-04):** VOX ships first (D2); platforms are macOS
+and Windows (D3). Details in §15.
 
 ---
 
@@ -602,8 +602,8 @@ year.
 | # | Decision | Default in this plan | Who / when |
 |---|---|---|---|
 | D1 | Licensing model | **Decided 2026-11-04: closed commercial** (provisional, "for now"); see §15.1 | Done; revisit only with §15.1 checklist |
-| D2 | Product order | VOX → BEAT → Booth → MASTER | You, P0 |
-| D3 | Platforms | macOS + Windows; iOS in P5 | You, P0 |
+| D2 | Product order | **Decided 2026-11-04: VOX first.** Then BEAT → Booth → MASTER as planned (revisit after VOX launch data) | Done for VOX |
+| D3 | Platforms | **Decided 2026-11-04: macOS + Windows.** macOS 12+ as universal binaries (Apple Silicon + Intel); Windows 10/11 x64. Windows on ARM, Linux and iOS are out of scope for v1 (Linux only as a CI test host; iOS re-evaluated in P5) | Done |
 | D4 | AAX at launch | Yes if PACE approval lands by month 7, else +1 month | Plugin engineer |
 | D5 | Separation weights | Train our own (needs data budget) vs license a vendor SDK | ML engineer + you, month 3 |
 | D6 | Cloud | None until P5 | You, month 12 |
@@ -705,7 +705,8 @@ its own task-by-task plan in `docs/superpowers/plans/`):
 
 ### 17.1 First two weeks (checklist)
 - [x] D1 decided: closed commercial (2026-11-04)
-- [ ] Confirm D2–D3 (§15)
+- [x] D2 decided: VOX first (2026-11-04)
+- [x] D3 decided: macOS + Windows (2026-11-04)
 - [ ] Create `rapsuite` monorepo from pamplejuce; pin JUCE 9.0.5; CI green on macOS / Windows
 - [ ] Apple Developer + Azure Artifact Signing accounts; Avid developer account
 - [ ] JUCE Indie licence; Moonbase account; Tracktion licence quote
