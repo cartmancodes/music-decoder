@@ -51,10 +51,10 @@ below):
 4. The EU AI Act Art. 50 marking duties apply to generated audio (the beat
    generator), but likely not to tuning or mixing.
 
-**Decisions taken by default in this plan** (change them in §15):
-closed-source commercial licensing (the safe superset: nothing here stops
-us open-sourcing later); plugins first; macOS (Apple Silicon + Intel) and
-Windows 10/11; iOS deferred.
+**Decided:** closed-source commercial licensing (D1, 2026-11-04,
+provisional; consequences in §15.1).
+**Defaults still open** (change them in §15): plugins first; macOS (Apple
+Silicon + Intel) and Windows 10/11; iOS deferred.
 
 ---
 
@@ -601,7 +601,7 @@ year.
 
 | # | Decision | Default in this plan | Who / when |
 |---|---|---|---|
-| D1 | Licensing model | Closed commercial (bans GPL / NC) | You, before P0 ends |
+| D1 | Licensing model | **Decided 2026-11-04: closed commercial** (provisional, "for now"); see §15.1 | Done; revisit only with §15.1 checklist |
 | D2 | Product order | VOX → BEAT → Booth → MASTER | You, P0 |
 | D3 | Platforms | macOS + Windows; iOS in P5 | You, P0 |
 | D4 | AAX at launch | Yes if PACE approval lands by month 7, else +1 month | Plugin engineer |
@@ -613,6 +613,56 @@ Open questions to settle early: budget ceiling for data (D5 depends on
 it); whether ACE-Step training-data provenance is acceptable; whether to
 seek a commercial licence for madmom or openvpi weights instead of
 replacing them.
+
+### 15.1 Consequences of D1 (closed commercial)
+
+**Licences to buy or sign** (before the first build leaves the team):
+
+| Item | Requirement under closed | Note |
+|---|---|---|
+| JUCE 9 | Commercial EULA (AGPLv3 route is closed to us). Starter is free only while the **whole entity's trailing-12-month revenue *or funding*** stays ≤ $20k; **move to Indie** ($40/user/mo or $800 perpetual, ≤ $300k) **as soon as we raise money or pass $20k** | Also covers `@juce-framework/webview` (otherwise AGPL) |
+| Tracktion Engine (Booth) | Commercial tier (Indie ≤ $200k or Pro 1 ≤ $400k), separate from JUCE, 12-month minimum | Needed only from P3 (month 8); defer the purchase until then |
+| ASIO SDK (Booth, Windows) | Steinberg ASIO licence agreement (its GPLv3 option is unusable) | Free; paperwork |
+| AAX | Avid developer agreement + PACE signing | Free; 2–6 weeks |
+| VST3 / CLAP / AU | No action: VST3 SDK 3.8 is MIT, CLAP MIT, AU Apple SDK | – |
+
+**Code and model rules** (enforced by the CI licence scan from P0):
+- Shipped code may use only MIT, BSD, Apache-2.0, ISC, zlib, BSL-1.0,
+  WTFPL, 0BSD, or MPL-2.0 used unmodified. **GPL, LGPL, AGPL and any
+  non-commercial (NC) licence are banned** in anything we distribute.
+- That keeps out, among others: Rubber Band, SoundTouch, Bungee if
+  modified, zita-AT1 / x42, chowdsp GPL modules, Matchering, pedalboard,
+  DawDreamer, the `cmudict` PyPI wrapper, espeak-ng / phonemizer, madmom
+  models, openvpi vocoder weights, MIDI-GPT weights, VoxPopuli aligners and
+  the GPL-tagged or unlicensed community RoFormer weights.
+- GPL tools that are **not shipped** stay allowed for development and
+  testing (pluginval, Ardour for reference listening).
+- GPL projects may be studied for ideas only, under the clean-room rule
+  (§13); never copy their code.
+
+**This repo (music-decoder):** it stays an R&D workbench and isn't
+shipped, so its current dependencies (madmom, etc.) can stay for research.
+Porting our *own* code from it into the closed C++ suite is fine. That
+covers the KK + Temperley + chord-fit key fusion, the tab A\* search and
+the config conventions, because we wrote them. What can't move into a
+shipped product is anything that depends on madmom's models, so the
+Beat This! swap (§17 task 1) and the madmom-free key backend (task 2) come
+first.
+
+**Contributions and IP hygiene:**
+- No outside contributions to the `rapsuite` monorepo without a
+  contributor licence agreement (CLA) or copyright assignment.
+- Contractors (sound designers, producers, rappers, freelancers) sign
+  IP-assignment or licence contracts **before** work starts.
+- Keep a third-party notices file (MIT and BSD attribution) generated from
+  the licence scan and shipped in every installer.
+
+**Keeping open source possible later:** closed → open stays easy as long
+as we own all the code (hence the CLA rule) and our commercial-only
+licences (JUCE, Tracktion) can be swapped for their AGPL / GPL editions at
+that point. Model and kit contracts should therefore also allow
+distribution under an open licence where affordable; that is optional,
+negotiate case by case.
 
 ---
 
@@ -654,7 +704,8 @@ its own task-by-task plan in `docs/superpowers/plans/`):
    model files) recorded in `docs/reports/`.
 
 ### 17.1 First two weeks (checklist)
-- [ ] Confirm D1–D3 (§15)
+- [x] D1 decided: closed commercial (2026-11-04)
+- [ ] Confirm D2–D3 (§15)
 - [ ] Create `rapsuite` monorepo from pamplejuce; pin JUCE 9.0.5; CI green on macOS / Windows
 - [ ] Apple Developer + Azure Artifact Signing accounts; Avid developer account
 - [ ] JUCE Indie licence; Moonbase account; Tracktion licence quote
