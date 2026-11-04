@@ -1,0 +1,130 @@
+# VOX tuner spike v0: first measurements
+
+Date: 2026-11-04 · Code: [`prototypes/tune`](../../prototypes/tune) ·
+Spec: [VOX §6](../superpowers/specs/2026-11-04-vox-design.md#6-tune) ·
+Plan: [M1](../superpowers/plans/2026-11-04-vox-p0-p1.md#m1-tuner-spike)
+
+## Summary
+
+The Track-mode architecture meets the latency target and corrects pitch
+accurately on synthetic voices, **including vibrato and rap-speed
+syllables**:
+- reported latency **2.0 ms** at 44.1–192 kHz, verified by an exact null
+  test;
+- median residual error **≤ 1 cent** in every scenario;
+- no gross (> 50 cent) or octave errors;
+- no added high-frequency splice energy;
+- about **0.6–1.5% of one core** on this test machine.
+
+**Verdict: provisional GO for the ≤ 3 ms Track-mode design.** It isn't
+final until it passes on real rap vocals and in a listening session (plan
+tasks T1.6–T1.8). Synthetic signals can't tell us how splices sound on
+breathy, noisy, fast real voices.
+
+## Setup
+
+- Signals: additive "voice" (harmonics to 8 kHz, vowel /a/ formant
+  envelope, breath noise) with known f0, plus band-passed noise for
+  consonants. Five scenarios (`src/synth.cpp`), A natural minor, notes
+  detuned by known offsets so the expected target is unambiguous.
+- Tuner: retune 0 ms (hard-tune) and 50 ms; default detector range
+  70–800 Hz.
+- Judge: independent offline YIN on the output (not the tuner's own
+  detector), aligned by the reported latency. The first 60 ms after each
+  onset and the last 30 ms of each segment are not scored.
+- Machine: this cloud container (x86-64, 4 vCPU, unknown model), Clang 18
+  `-O2` Release build. Timings are single runs, so treat them as indicative.
+
+## Results (48 kHz)
+
+| Scenario | Input median / p95 (cents) | Hard-tune median / p95 | Within 10 c | > 50 c | Retune 50 ms median | Splices / s | ns / sample |
+|---|---|---|---|---|---|---|---|
+| steady_detuned (A2–E3, ±40 c) | 27.5 / 40.0 | **0.0 / 0.2** | 100% | 0% | 0.0 | 2.9 | 184 |
+| steady_high (A3–E4) | 27.5 / 40.0 | **0.9 / 7.0** | 99.7% | 0% | 1.1 | 4.1 | 131 |
+| vibrato (5.5 Hz, ±30 c) | 17.8 / 39.3 | **0.8 / 3.3** | 100% | 0% | 16.8 (vibrato kept, as intended) | 3.4 | 179 |
+| fast_flow (70–140 ms syllables) | 20.0 / 34.3 | **0.2 / 1.0** | 100% | 0% | 3.8 | 5.3 | 181 |
+| low_voice (E2–A2, 82–110 Hz) | 30.0 / 35.0 | **0.1 / 0.4** | 100% | 0% | 0.1 | 1.6 | 241 |
+
+- 44.1 kHz and 96 kHz give the same accuracy (within 0.1 cent).
+- **HF energy above 12 kHz** relative to total in voiced regions is
+  −29 to −35 dB in the input and 1–2 dB *lower* in the output in every
+  scenario, so the splices add no measurable clicks. The slight drop is
+  the low-pass effect of cubic interpolation.
+- **CPU:** 130–240 ns/sample means 0.6–1.2% of one core at 48 kHz on this
+  machine. The budget is the whole VOX chain ≤ 3% on an M1, so the tuner
+  should get to ≤ 1% after the optimisation task (T1.9).
+
+All 17 unit tests pass with Clang 18 and GCC 13, and under GCC
+AddressSanitizer + UndefinedBehaviorSanitizer. They include:
+- exact delay at ratio 1;
+- frequency accuracy and click-free output at constant ratios;
+- bounds on the delay wander;
+- bit-identical output for block sizes 1 / 7 / 64 / 512 / 4096;
+- **zero heap allocations** during processing and parameter changes;
+- hard-tune accuracy thresholds.
+
+## Findings (fed back into the spec)
+
+1. **Detector lag ruined hard-tune vibrato until we added a tracker.** On
+   our signals, cycfi/q reports a new estimate about every two periods,
+   then median-filters it. Hard-tune then left vibrato *worse* than the
+   input (26.5 c median against 17.8 c in). A per-period normalised
+   autocorrelation tracker took it to **0.8 c (33× better)** and fast flow
+   from 5.2 to 0.2 c:
+   - it searches ±4% around the last period every max(1.33 ms, ¼ period);
+   - its window is capped at 256 samples;
+   - q re-anchors it when they disagree by > 6%.
+
+   q stays the anchor for onsets, note changes and octave safety.
+2. **The voicing hold must cover q's update gap.** A 12 ms hold made
+   voicing flicker mid-note at 110 Hz. Each flicker sent the read head
+   back to rest with an unaligned jump. Fix: hold ≥ 3.5 periods, and
+   return to rest only after 20 ms of continuous unvoiced input.
+3. **Timing wander is inherent and needs a listening check.** While
+   correcting, the read head's delay moves within [latency, latency + one
+   input period]:
+   - up to about 14 ms extra at 70 Hz, and 5 ms at 200 Hz;
+   - it can't be compensated by the host (it isn't constant);
+   - consonants re-align to the reported latency once 20 ms of unvoiced
+     input has passed.
+
+   Whether this is audible as timing smear on fast flows is the main open
+   question for the listening session.
+4. **The pitch ratio can change continuously.** The spec said ratio
+   changes happen "only at splice boundaries". That isn't needed for a
+   resampling shifter (a per-sample ratio is just playback speed), and
+   doing it that way would add lag. Spec corrected.
+5. **cycfi/infra licence verified:** every header says "Distributed under
+   the MIT License" (the repo has no LICENSE file). This settles the open
+   item from the DSP research.
+
+## Limits of this result
+
+- Synthetic voices only. Real rap vocals have breath, noise, creak, fry,
+  distortion and room sound. **T1.6** (real vocal set) and **T1.8**
+  (listening) decide the M1 go/no-go.
+- `fast_flow` scores only 80 frames, because syllables are short relative
+  to the 60 ms settle exclusion. An onset-settle metric (time to within
+  10 c after onset) is needed (**T1.2**).
+- Not yet implemented:
+  - formant preservation (shifts ≤ 1 semitone move formants by ≤ 6%,
+    so it matters mostly for large corrections and transpose);
+  - humanize, flex and vibrato controls;
+  - HQ mode;
+  - stereo;
+  - RTSan (Clang 18 here predates it; it runs in the suite's CI with
+    Clang 20+).
+
+## Reproduce
+
+```bash
+cmake -S prototypes/tune -B prototypes/tune/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+```
+
+```bash
+cmake --build prototypes/tune/build && prototypes/tune/build/tune_tests
+```
+
+```bash
+prototypes/tune/build/tune_eval --out prototypes/tune/out/eval48
+```

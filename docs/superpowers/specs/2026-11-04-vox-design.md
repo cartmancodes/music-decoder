@@ -1,7 +1,7 @@
 # VOX: rap vocal chain plugin, design spec
 
 **Date:** 2026-11-04
-**Status:** draft for review
+**Status:** draft for review (updated 2026-11-04 with tuner spike v0 findings)
 **Parent:** [Rapper suite master plan](../plans/2026-11-04-rapper-suite-master-plan.md)
 (§4 VOX; decisions D1 closed-commercial, D2 VOX first, D3 macOS + Windows)
 
@@ -136,6 +136,13 @@ Rules:
 - Pitch-detection lag (about 2 periods at note onsets) is **not** latency.
   It affects how fast correction engages, and is hidden by the detector's
   attack prediction (§6.1).
+- **Timing wander (spike finding 3):** while correcting, the shifter's
+  read-head delay moves within [reported latency, reported latency + one
+  input pitch period]. That's up to about 14 ms extra at 70 Hz and 5 ms at
+  200 Hz. It's inherent to time-domain shifting and not compensable by the
+  host. Unvoiced input re-aligns to the reported latency after 20 ms.
+  Audibility on fast flows is a gate criterion of the M1 listening session
+  (plan T1.8).
 
 ---
 
@@ -143,8 +150,20 @@ Rules:
 
 ### 6.1 Pitch detection
 - **Algorithm:** bitstream autocorrelation (BACF) from **cycfi/q (MIT)**,
-  updated per sample, with its periodicity confidence and
-  `predict_frequency()` for early estimates during attacks.
+  with its periodicity confidence and `predict_frequency()` for early
+  estimates during attacks. q reports a new estimate roughly every 2
+  periods and median-filters it, which is too laggy for hard-tune on
+  vibrato (spike finding 1). So:
+- **Period tracker** between q's estimates:
+  - normalised autocorrelation, searched ±4% around the last period every
+    max(1.33 ms, ¼ period), window capped at 256 samples;
+  - q re-anchors it when they differ by > 6% (note changes, octave
+    safety).
+
+  In the spike this cut hard-tune vibrato error from 26.5 to 0.8 cents
+  median.
+- **Voicing hold** ≥ max(12 ms, 3.5 periods), so voicing doesn't flicker
+  in q's update gaps (spike finding 2).
 - **Range:** set by **Voice** (`tune.voice`): Bass 55–600 Hz, Low 70–800
   Hz, Mid 90–1000 Hz, High 120–1400 Hz. Default Low **[tune]**.
 - **Voicing gate:** voiced when confidence ≥ `θc` (0.8 **[tune]**) and
@@ -199,7 +218,14 @@ Rules:
   family of methods. **Nobody on the DSP team reads that code**; work only
   from public descriptions and papers. The design record lives in
   `docs/design/tune-shifter.md` in the suite repo.
-- **Ratio updates** happen only at splice boundaries.
+- **Ratio updates** are continuous (per sample). For a resampling shifter
+  the ratio is just playback speed, so restricting changes to splice
+  boundaries would only add lag (spike finding 4). Splices happen when the
+  delay leaves [latency, latency + period]. The jump distance is refined by
+  a short correlation search (±3% of the period, 0.67 ms window) and
+  crossfaded over 1.33 ms.
+- **Prototype:** `prototypes/tune` (reported latency 2.0 ms; results in
+  `docs/reports/2026-11-04-tune-spike-v0.md`).
 - **Range:** optimised for corrections within ±3 st; transpose up to ±12 st
   is allowed, with lower quality accepted.
 

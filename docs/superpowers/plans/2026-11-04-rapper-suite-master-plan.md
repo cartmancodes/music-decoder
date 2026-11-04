@@ -203,6 +203,7 @@ Autosave every 10 s plus on every edit, with crash-recovery journal.
 ## 4. VOX (rap vocal chain)
 
 > Detailed design: [VOX design spec](../specs/2026-11-04-vox-design.md).
+> Task plan: [VOX P0 + P1](2026-11-04-vox-p0-p1.md). Tuner spike results: [v0 report](../../reports/2026-11-04-tune-spike-v0.md).
 
 ### 4.1 Signal flow
 
