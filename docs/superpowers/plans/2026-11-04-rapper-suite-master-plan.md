@@ -202,6 +202,8 @@ Autosave every 10 s plus on every edit, with crash-recovery journal.
 
 ## 4. VOX (rap vocal chain)
 
+> Detailed design: [VOX design spec](../specs/2026-11-04-vox-design.md).
+
 ### 4.1 Signal flow
 
 ```
