@@ -17,8 +17,9 @@ into `rapsuite/libs/rapcore/pitch` unchanged once that repo exists.
 | Shifter | `include/tune/splice_shifter.hpp` | Period-synchronous resampling with correlation-refined ±1-period splices and 1.33 ms crossfades; 2.0 ms reported latency |
 | Tuner | `include/tune/tuner.hpp` | Wires the above; mono |
 | Evaluation | `src/synth.cpp`, `src/yin_offline.cpp`, `src/metrics.cpp` | Synthetic voices with known pitch; an independent offline YIN as judge; pitch-error and HF-artifact metrics |
-| Tools | `tools/tune_eval.cpp`, `tools/tune_render.cpp` | Benchmark table; render real WAV files |
-| Tests | `tests/` | doctest (from cycfi/infra); 17 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
+| Tools | `tools/tune_eval.cpp`, `tools/tune_render.cpp` | Benchmark table (accuracy, onset settle, HF energy, CPU); `--clips` for real WAV folders; render real WAV files |
+| Test audio | `data/README.md` | Local vs Corpus tiers; no audio is ever committed |
+| Tests | `tests/` | doctest (from cycfi/infra); 19 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
 
 Not yet built (see the task plan): LPC formant preservation, humanize /
 flex / vibrato controls, HQ (PSOLA) mode, stereo-linked processing, SIMD /

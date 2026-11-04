@@ -1,0 +1,3 @@
+file,key,scale,low_hz,high_hz,source,licence_or_consent_id,allowed_uses,notes
+take01_artistA.wav,A,minor,70,800,session 2026-11-20 (own recording),CONSENT-0001,"eval,listening,golden",dry SM7B
+pack_acapella_03.wav,C#,minor,70,800,Example vendor acapella pack v2,LICENCE-PACK-EX-2,"eval,listening",check pack terms before golden use

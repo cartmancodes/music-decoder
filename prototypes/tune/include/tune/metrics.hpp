@@ -31,4 +31,25 @@ double hf_energy_db(const std::vector<float>& audio, const SynthSignal& sig, int
 
 std::string format_stats(const PitchStats& s);
 
+// Onset settle time (plan T1.2): for each scored voiced segment, the time
+// from onset until the output stays within +/-`tol_cents` of the target for
+// at least `hold_s`. The YIN judge (2 ms hop) needs a full window inside the
+// segment, so half its window is subtracted as judge bias (clamped at 0).
+struct SettleStats {
+    int segments = 0;       // scored segments
+    int unsettled = 0;      // segments that never settled
+    double median_ms = 0;   // over settled segments
+    double p90_ms = 0;
+};
+SettleStats score_settle(const std::vector<float>& audio, const SynthSignal& sig,
+                         int delay_samples, double tol_cents = 10.0, double hold_s = 0.020);
+
+// Real clips have no ground truth. This scores how close voiced frames are
+// to the nearest note of `scale_mask` (bit i = pitch class i): a tuned output
+// should sit on scale notes; the input usually does not. Frames with YIN
+// aperiodicity above `max_aperiodicity` are skipped.
+PitchStats score_against_scale(const std::vector<float>& audio, double fs,
+                               unsigned scale_mask, double min_hz = 60.0,
+                               double max_hz = 1000.0, double max_aperiodicity = 0.2);
+
 }  // namespace tune

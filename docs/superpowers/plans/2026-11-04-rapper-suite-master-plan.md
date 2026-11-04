@@ -482,6 +482,17 @@ Rules: every item has a signed contract stored with a data card
 nobody tunes on (same discipline as the GuitarSet v3 work); and no
 YouTube-scraped audio in any training set.
 
+### 10.1 Test-audio source policy (decided 2026-11-04)
+
+| Tier | Folder | Allowed sources | Allowed uses | Never |
+|---|---|---|---|---|
+| **Local** | `data/local/` (git-ignored) | Anything the owner chooses for personal quick checks, incl. self-downloaded clips (the owner accepts that risk) | Private listening and smoke tests on the owner's own machine | Commit, upload, sharing with contractors or beta users, training, CI / golden fixtures, demos, marketing, presets, naming in reports |
+| **Corpus** | `data/corpus/` (git-ignored; audio in private bucket) | Own recordings, consented sessions, royalty-free packs whose licence permits it, CC0 | Benchmarks, listening tests, golden renders, training if the consent / licence covers it | Any file without a provenance row (source, licence / consent ID, allowed uses) in `manifest.csv` |
+
+Official numbers in reports and go/no-go decisions come only from the
+Corpus tier. Released songs are a poor tuner test anyway (already tuned
+and mixed), so dry takes are the priority.
+
 ---
 
 ## 11. Quality assurance

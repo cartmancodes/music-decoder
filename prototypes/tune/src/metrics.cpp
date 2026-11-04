@@ -117,4 +117,79 @@ std::string format_stats(const PitchStats& s) {
     return buf;
 }
 
+SettleStats score_settle(const std::vector<float>& audio, const SynthSignal& sig, int delay,
+                         double tol_cents, double hold_s) {
+    const double fs = sig.sample_rate;
+    const double min_hz = 60.0;
+    const auto frames = yin_track(audio, fs, min_hz, 1000.0, 0.002);
+    const double judge_bias_s = 0.5 * (std::ceil(fs / min_hz) + 64) / fs;
+    SettleStats out;
+    std::vector<double> settles;
+    const std::size_t n = sig.target.size();
+    std::size_t i = 0;
+    while (i < n) {
+        if (sig.target[i] < 0 || !sig.onset[i]) {
+            ++i;
+            continue;
+        }
+        std::size_t j = i + 1;
+        while (j < n && sig.target[j] == sig.target[i] && !sig.onset[j]) ++j;
+        const double t_on = static_cast<double>(i) / fs;
+        const double t_end = static_cast<double>(j) / fs;
+        const int target = sig.target[i];
+        ++out.segments;
+        double run_start = -1.0;
+        double settled_at = -1.0;
+        for (const auto& f : frames) {
+            const double t_in = f.t - static_cast<double>(delay) / fs;  // input time
+            if (t_in < t_on) continue;
+            if (t_in > t_end) break;
+            const bool ok = f.hz > 0.0 &&
+                            std::abs(1200.0 * std::log2(f.hz / midi_to_hz(target))) <= tol_cents;
+            if (ok) {
+                if (run_start < 0.0) run_start = t_in;
+                if (t_in - run_start >= hold_s) {
+                    settled_at = run_start;
+                    break;
+                }
+            } else {
+                run_start = -1.0;
+            }
+        }
+        if (settled_at < 0.0) ++out.unsettled;
+        else settles.push_back(std::max(0.0, settled_at - t_on - judge_bias_s) * 1000.0);
+        i = j;
+    }
+    if (!settles.empty()) {
+        out.median_ms = percentile(settles, 0.5);
+        out.p90_ms = percentile(settles, 0.9);
+    }
+    return out;
+}
+
+PitchStats score_against_scale(const std::vector<float>& audio, double fs, unsigned scale_mask,
+                               double min_hz, double max_hz, double max_aperiodicity) {
+    const Scale scale{static_cast<std::uint16_t>(scale_mask & 0x0FFF)};
+    const auto frames = yin_track(audio, fs, min_hz, max_hz);
+    std::vector<double> errs;
+    int gross = 0, within = 0;
+    for (const auto& f : frames) {
+        if (f.hz <= 0.0 || f.aperiodicity > max_aperiodicity) continue;
+        const double m = hz_to_midi(f.hz);
+        const double a = std::abs(100.0 * (m - nearest_allowed(scale, m)));
+        errs.push_back(a);
+        if (a > 50.0) ++gross;
+        if (a <= 10.0) ++within;
+    }
+    PitchStats s;
+    s.frames = static_cast<int>(errs.size());
+    if (s.frames > 0) {
+        s.median_abs_cents = percentile(errs, 0.5);
+        s.p95_abs_cents = percentile(errs, 0.95);
+        s.within10_pct = 100.0 * within / s.frames;
+        s.gross50_pct = 100.0 * gross / s.frames;
+    }
+    return s;
+}
+
 }  // namespace tune

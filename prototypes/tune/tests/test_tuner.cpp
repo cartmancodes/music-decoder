@@ -133,3 +133,48 @@ TEST_CASE("slow retune keeps vibrato (natural mode behaviour)") {
     CHECK(slow.median_abs_cents >= 10.0);
     CHECK(slow.gross50_pct <= 2.0);
 }
+
+TEST_CASE("onset settle time, hard-tune (T1.2 regression guard)") {
+    // Pinned from spike measurements (2026-11-04) with ~40% margin. Target
+    // from the plan (<= 2 periods + 5 ms) is not met yet in the higher
+    // register; see the spike report.
+    struct Case { const char* name; double max_median_ms, max_p90_ms; };
+    for (const Case c : {Case{"steady_detuned", 25.0, 35.0}, Case{"steady_high", 30.0, 45.0},
+                         Case{"vibrato", 30.0, 35.0}, Case{"fast_flow", 15.0, 26.0},
+                         Case{"low_voice", 25.0, 35.0}}) {
+        Scenario sc;
+        const SynthSignal sig = scenario_signal(c.name, &sc);
+        Tuner t;
+        t.prepare(48000.0);
+        TunerParams p;
+        p.tonic = sc.tonic;
+        p.scale = static_cast<ScaleType>(sc.scale);
+        p.retune_ms = 0.0;
+        t.set_params(p);
+        auto y = run(t, sig.audio, 128);
+        const SettleStats s = score_settle(y, sig, t.latency_samples());
+        INFO(c.name << ": median " << s.median_ms << " ms, p90 " << s.p90_ms << " ms, unsettled "
+                    << s.unsettled << "/" << s.segments);
+        CHECK(s.unsettled == 0);
+        CHECK(s.median_ms <= c.max_median_ms);
+        CHECK(s.p90_ms <= c.max_p90_ms);
+    }
+}
+
+TEST_CASE("scale-distance metric: tuned output sits on the scale") {
+    Scenario sc;
+    const SynthSignal sig = scenario_signal("steady_detuned", &sc);
+    const unsigned mask = Scale::make(sc.tonic, static_cast<ScaleType>(sc.scale)).mask;
+    Tuner t;
+    t.prepare(48000.0);
+    TunerParams p;
+    p.tonic = sc.tonic;
+    p.scale = static_cast<ScaleType>(sc.scale);
+    t.set_params(p);
+    auto y = run(t, sig.audio, 256);
+    const PitchStats in = score_against_scale(sig.audio, 48000.0, mask);
+    const PitchStats out = score_against_scale(y, 48000.0, mask);
+    INFO("in " << format_stats(in) << " out " << format_stats(out));
+    CHECK(in.median_abs_cents > 15.0);
+    CHECK(out.median_abs_cents < 3.0);
+}

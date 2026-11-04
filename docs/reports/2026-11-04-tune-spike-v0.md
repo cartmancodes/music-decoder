@@ -54,7 +54,7 @@ breathy, noisy, fast real voices.
   machine. The budget is the whole VOX chain ≤ 3% on an M1, so the tuner
   should get to ≤ 1% after the optimisation task (T1.9).
 
-All 17 unit tests pass with Clang 18 and GCC 13, and under GCC
+All unit tests pass (17 at v0; 19 with the settle and scale-distance tests) with Clang 18 and GCC 13, and under GCC
 AddressSanitizer + UndefinedBehaviorSanitizer. They include:
 - exact delay at ratio 1;
 - frequency accuracy and click-free output at constant ratios;
@@ -62,6 +62,32 @@ AddressSanitizer + UndefinedBehaviorSanitizer. They include:
 - bit-identical output for block sizes 1 / 7 / 64 / 512 / 4096;
 - **zero heap allocations** during processing and parameter changes;
 - hard-tune accuracy thresholds.
+
+### Onset settle time (T1.2, added later on 2026-11-04)
+
+The settle time is the time from onset until the output stays within
+±10 c of the target for ≥ 20 ms. It uses the YIN judge at a 2 ms hop,
+minus half its window as bias.
+
+| Scenario | Hard-tune median / p90 (ms) | Retune 50 ms median / p90 (ms) | Unsettled (hard / 50 ms) |
+|---|---|---|---|
+| steady_detuned | 17 / 24 | 21 / 35 | 0/6 · 0/6 |
+| steady_high | 22 / 33 | 23 / 47 | 0/6 · 0/6 |
+| vibrato | 20 / 24 | 41 / 106 | 0/4 · 0/4 |
+| fast_flow | 9.7 / 18 | 16 / 46 | 0/28 · 2/28 |
+| low_voice | 18 / 24 | 18 / 46 | 0/5 · 0/5 |
+
+Settling is dominated by detection lag at onsets. The higher register
+(22 ms) misses the "≤ 2 periods + 5 ms" target (≈ 13 ms at 250 Hz).
+q's `predict_frequency()` at onsets is the next step. Fast-flow syllables
+settle in ≈ 10 ms, which matters most for rap.
+
+### Real-clip mode
+
+`tune_eval --clips DIR` scores WAV folders without ground truth: how close
+voiced frames sit to the scale before and after tuning. It was checked on
+synthetic WAVs (input 16.5 → output 0.4 cents median for fast_flow).
+Official numbers come only from the Corpus tier (master plan §10.1).
 
 ## Findings (fed back into the spec)
 
