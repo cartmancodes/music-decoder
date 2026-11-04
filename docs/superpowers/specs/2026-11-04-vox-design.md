@@ -610,11 +610,14 @@ competitor's + 10% **[tune]**.
 | Licensing, installers, signing, crash reporting | – | 3 | 1 | – | 1 |
 | Test infrastructure (golden, latency, sweeps, RTSan, benchmarks) | 2 | 3 | – | 1 | 2 |
 | Listening tests + host matrix + beta | – | 1 | – | 1 | 6 |
-| **Total ≈ 102** | 25 | 17 | 11 | 7 | 15 |
+| **Total ≈ 74** | 25 | 17 | 11 | 6 | 15 |
 
-With the master plan's team (1 DSP, 1 plugin, 1 front end, 1 ML at part
-share, 0.5–1 QA), that fits the 6.5-month window from M0 to launch,
-including about 20% contingency. **The tuner is the critical path.**
+The window from M0 to launch is about 28 weeks. Front end (11), plugin
+(17), ML (6) and QA (15) fit comfortably. **DSP is the bottleneck: 25
+weeks of work for one engineer leaves almost no contingency, and the tuner
+is the critical path.** Mitigation: hire a contract DSP engineer for the
+chain blocks (8 weeks) from month 2, so the lead DSP engineer stays on the
+tuner. With that, about 20% contingency remains.
 
 ---
 
