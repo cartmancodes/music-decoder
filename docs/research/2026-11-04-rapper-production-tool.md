@@ -2,6 +2,13 @@
 
 Date: 2026-11-04 · Status: research / proposal (nothing built yet)
 
+> **Superseded in part:** the tool choices below are for a quick offline
+> prototype. For production-quality targets, the architecture, and the
+> picks that change (native engine instead of browser recording, neural or
+> C++ pitch correction instead of PSOLA, licensed samples instead of a
+> soundfont), see
+> [2026-11-04-rapper-tool-production-quality.md](2026-11-04-rapper-tool-production-quality.md).
+
 This note looks at what a rapper-focused production tool would need, which
 open-source parts exist in late 2026, and how much of the current
 `music-decoder` codebase we can reuse. Licences and legal points are flagged
