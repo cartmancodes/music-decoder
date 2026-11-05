@@ -27,6 +27,10 @@ progressions and styles.
 - Gate commands stay green (`pytest -q tests/unit tests/integration`,
   `ruff check src tests`, `ruff format --check src tests`, `mypy --strict src`)
   and the suite stays fast (the new metrics test has a 5 s budget).
+  **Measured on 2026-11-06:** `ruff format --check src tests` already fails on
+  the base commit (7 files of pre-existing drift, including
+  `compose/api.py`). The plan's first task is a format-only commit that
+  restores the gate (D12).
 
 **Assumptions (mine, not stated in the request):**
 
@@ -98,7 +102,7 @@ styles), and every target held there too.
 | A4 | Final chord rings through the last bar, single attack | no (ends at 3.9–3.95 beats, re-struck) | yes | **true (hard)** |
 | T1 | Melody tab max fret (EADGBE) | 15.3 (max **20**) | 12.4 (max 15) | **≤ 15 every composition** |
 | T2 | Hand-position shifts per fretted transition | 0.182 (lowest fret) / 0.135 (A\* at the old register) | 0.111 | **mean ≤ 0.13** |
-| V1 | Mean nearest-voice motion between successive distinct voicings (semitones) | 1.61 | 1.61 (unchanged) | **≤ 1.61 (guard)** |
+| V1 | Mean nearest-voice motion between successive distinct voicings (semitones) | 1.61 (1.621 on the §7 matrix) | unchanged | **≤ 1.63 on the §7 matrix (guard)** |
 
 What the baseline shows, in order of how much it hurts the music:
 
@@ -334,11 +338,13 @@ passes its `melody` through. Signatures otherwise stay the same.
 
 ### 5.5 Metrics module: new `compose/metrics.py`
 
-The pure functions behind §4, typed for `mypy --strict`. Each takes plain
-sequences (`Note`, `ChordSymbol`, `Scale`, frets) and a tempo. One function per
-metric, plus `summarize(arrangement, scale, progression, bars_per_chord, tempo_bpm) -> dict[str, float | None]`.
-It lives in `src/` (not `tests/`) so a future `--report` flag or benchmark
-script can reuse it. It does not import pretty_midi.
+The pure functions behind §4, typed for `mypy --strict`, one function per
+metric. Each takes plain sequences (`Note`, `ChordSymbol`, `Scale`, frets) and
+a tempo. Ratio metrics return `None` when nothing qualifies to be counted.
+M5 returns `(leaps, recovered)` counts so callers can pool them. The module
+lives in `src/` (not `tests/`) so a future `--report` flag or benchmark script
+can reuse it. It does not import pretty_midi. There is no `summarize()`
+aggregator (YAGNI): the regression test composes the functions directly.
 
 ### 5.6 Data flow after the change
 
@@ -357,8 +363,11 @@ compose(scale, progression, …)            # signature unchanged
 
 ## 6. Error handling and edge cases
 
-- `bars_per_chord ≥ 1` and a non-empty progression are validated as today.
-  `split_phrases` handles 1, 2, 3, 5, 6, 7, 9 … bars (unit-tested).
+- A non-empty progression is validated as today. **New:**
+  `bars_per_chord < 1` raises `InvalidProgressionError`. It used to give an
+  empty melody silently. The CLI already turns `MusicDecoderError` into a
+  clean `ClickException`. `split_phrases` handles 1, 2, 3, 5, 6, 7, 9 … bars
+  (unit-tested).
 - A progression of a single 1-bar chord gives one cadence bar ending on the
   target.
 - If the chord-scale pool has no candidate in range (impossible with a
@@ -387,6 +396,10 @@ compose(scale, progression, …)            # signature unchanged
   matrix, plus the per-composition hard invariants (M4 max interval, M6, M7,
   M8, M13, M14, A1, A4, T1). Budget < 5 s. The matrix is built once in a
   module-scoped fixture.
+- The design was dry-run before the plan was written: every module, the
+  tests and the regression test were built in a scratch copy of the repo.
+  Result: 421 passed, ruff and `mypy --strict` clean, and the musicality
+  test takes 2.6 s.
 - Existing tests: `test_strong_beats_favor_chord_tones_statistically` keeps
   `notes_per_bar=4` (the legacy grid) and should now pass by a wider margin.
   `test_all_notes_in_scale` and the e2e C-major pitch-class check stay valid
@@ -440,3 +453,4 @@ compose(scale, progression, …)            # signature unchanged
 | D9 | Size of the regression matrix | **400 melodies, < 5 s** | Covers 8 keys, both modes, 10 progressions, 2 bar lengths and 3 styles while keeping `pytest -q tests/unit` fast. The full 3000-melody sweep was run once here for the baseline. |
 | D10 | Voicing improvements | **Deferred** (§9) | The best impact for the effort is in melody and rhythm. The baseline voice leading is already fine. |
 | D11 | How tight to set the targets | **Means sit 1–5 points inside the prototype's values; per-composition floors sit below the prototype's minimum** (for example M1 ≥ 0.60 against a prototype minimum of 0.625) | The implementation will not match the prototype bit for bit. The targets must catch real regressions without flaking when a constant is retuned. |
+| D12 | The pre-existing `ruff format` drift in 7 files | **Fix it in a separate `style:` commit (no logic changes) before any feature work** | The gate must be green, and a separate commit keeps the feature diffs reviewable. |
