@@ -75,9 +75,12 @@ struct EnvelopeFit {
     int harmonics = 0;
 };
 // `reference(f)` is the expected envelope (linear amplitude) at frequency f.
+// `formant_scale` scales the F1/F2 search windows (for a deliberately
+// shifted envelope, e.g. Throat), so a moved F1 is not mistaken for F2.
 template <class F>
 EnvelopeFit fit_envelope(const std::vector<float>& audio, double fs, std::size_t start,
-                         std::size_t len, double f0, F reference, double max_hz = 3500.0);
+                         std::size_t len, double f0, F reference, double max_hz = 3500.0,
+                         double formant_scale = 1.0);
 
 }  // namespace tune
 

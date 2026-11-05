@@ -162,6 +162,60 @@ void controls_report(double rate) {
     }
 }
 
+// Throat (spike v0.4): F1 against the requested shift, both voice models.
+void throat_report(double rate) {
+    Scenario sc;
+    for (const auto& s : builtin_scenarios())
+        if (s.name == "steady_detuned") sc = s;
+    std::printf("\n| voice | throat st | F1 Hz | wanted Hz | error | LSD <=2 kHz vs shifted / original env dB | pitch median c |\n");
+    std::printf("|---|---|---|---|---|---|---|\n");
+    for (VoiceModel m : {VoiceModel::Resonator, VoiceModel::Gaussian}) {
+        const SynthSignal sig = synth_voice(sc.segments, rate, 1, m);
+        double base_f1 = 0.0;
+        for (double st : {0.0, -3.0, -1.0, 1.0, 3.0}) {
+            Tuner t;
+            t.prepare(rate);
+            TunerParams p;
+            p.tonic = sc.tonic;
+            p.scale = static_cast<ScaleType>(sc.scale);
+            p.formant_mode = FormantMode::Preserve;
+            p.throat_semitones = st;
+            t.set_params(p);
+            std::vector<float> y(sig.audio.size());
+            t.process(sig.audio.data(), y.data(), y.size());
+            const int lat = t.latency_samples();
+            const double scale = std::exp2(st / 12.0);
+            double f1 = 0, ls = 0, lo = 0;
+            int n = 0;
+            std::size_t i = 0;
+            while (i < sig.target.size()) {
+                if (sig.target[i] < 0 || !sig.onset[i]) { ++i; continue; }
+                std::size_t j = i + 1;
+                while (j < sig.target.size() && sig.target[j] == sig.target[i] && !sig.onset[j]) ++j;
+                const std::size_t start = i + static_cast<std::size_t>(0.15 * rate) + lat;
+                const std::size_t len = static_cast<std::size_t>(0.2 * rate);
+                if (start + len < j) {
+                    const double f0 = midi_to_hz(sig.target[i]);
+                    const auto a = fit_envelope(y, rate, start, len, f0,
+                        [m, scale](double f) { return vowel_envelope(f / scale, m); }, 2000.0, scale);
+                    const auto b = fit_envelope(y, rate, start, len, f0,
+                        [m](double f) { return vowel_envelope(f, m); }, 2000.0);
+                    f1 += a.f1_hz; ls += a.lsd_db; lo += b.lsd_db; ++n;
+                }
+                i = j;
+            }
+            if (n == 0) continue;
+            f1 /= n;
+            if (st == 0.0) base_f1 = f1;
+            const double want = base_f1 * scale;
+            std::printf("| %s | %+.0f | %.0f | %.0f | %+.1f%% | %.2f / %.2f | %.2f |\n",
+                        m == VoiceModel::Resonator ? "resonator" : "gaussian", st, f1, want,
+                        100.0 * (f1 / want - 1.0), ls / n, lo / n,
+                        score_pitch(y, sig, lat).median_abs_cents);
+        }
+    }
+}
+
 int synthetic(const std::string& out_dir, const std::vector<double>& retunes, double rate) {
     std::printf("fs = %.0f Hz, formant mode %s\n\n", rate,
                 g_formant_mode == FormantMode::Auto ? "auto" : g_formant_mode == FormantMode::Preserve ? "preserve" : "follow");
@@ -200,6 +254,7 @@ int synthetic(const std::string& out_dir, const std::vector<double>& retunes, do
     }
     formant_report(rate);
     controls_report(rate);
+    throat_report(rate);
     return 0;
 }
 

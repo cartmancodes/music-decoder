@@ -54,7 +54,7 @@ breathy, noisy, fast real voices.
   machine. The budget is the whole VOX chain ≤ 3% on an M1, so the tuner
   should get to ≤ 1% after the optimisation task (T1.9).
 
-All unit tests pass (17 at v0; 30 after v0.2; 34 after v0.3) with Clang 18 and GCC 13, and under GCC
+All unit tests pass (17 at v0; 30 after v0.2; 34 after v0.3; 38 after v0.4) with Clang 18 and GCC 13, and under GCC
 AddressSanitizer + UndefinedBehaviorSanitizer. They include:
 - exact delay at ratio 1;
 - frequency accuracy and click-free output at constant ratios;
@@ -229,6 +229,41 @@ note at −15 c):
 - Vibrato gain > 0 also keeps the singer's faster inflections, not only
   4–8 Hz vibrato (fast_flow median 7.4 c at gain 1). Whether to restrict
   it to a band is a listening-test question.
+
+### Throat (v0.4)
+
+**How it works:** the formant chain re-colours with a different all-pass
+warping (λ_r) than the analysis used (λ), which moves the whole envelope
+along the frequency axis. λ_r is solved in closed form so 1 kHz lands
+exactly at scale × 1 kHz. Checked analytically, every formant up to
+3.5 kHz lands within 0.8% of the requested ratio, even at ±6 st.
+
+- **Scale by mode:** Preserve uses scale = throat. Auto / Follow use
+  scale = pitch ratio × throat, so formants follow the correction as they
+  would without the chain, plus Throat.
+- **When the chain runs:** any non-zero Throat engages it. Throat 0 is
+  bit-identical to before (tested).
+
+| Voice | Throat | F1 | Wanted | Error | Envelope LSD ≤ 2 kHz vs shifted / original | Pitch median |
+|---|---|---|---|---|---|---|
+| resonator | −3 st | 648 Hz | 635 Hz | +1.9% | 2.6 / 5.1 dB | 0.17 c |
+| resonator | −1 st | 726 Hz | 713 Hz | +1.8% | 1.1 / 2.0 dB | 0.11 c |
+| resonator | +1 st | 804 Hz | 800 Hz | +0.4% | 1.1 / 1.9 dB | 0.11 c |
+| resonator | +3 st | 898 Hz | 898 Hz | 0.0% | 2.3 / 5.3 dB | 0.16 c |
+| gaussian | −3 st | 630 Hz | 617 Hz | +2.2% | 4.5 / 6.0 dB | 0.12 c |
+| gaussian | +3 st | 891 Hz | 873 Hz | +2.1% | 3.8 / 5.6 dB | 0.11 c |
+
+**Notes:**
+- The ±1 st Gaussian rows (+5–6%) are mostly F1-picking coarseness:
+  harmonics are 110–170 Hz apart, about 15–20% of F1.
+- A first measurement at ±6 st looked 12–18% off. That was the F1 search
+  window catching the moved F2 or missing the moved F1; with windows
+  scaled by the throat factor, ±6 st is within 1–7%.
+- Above ≈ 2.5 kHz the shifted envelope is limited by the model's noise
+  floor (3e-2), the same trade-off as Preserve, so envelope checks use the
+  F1–F2 region.
+- A live sweep of ±3 st at 2 Hz adds no zipper noise: HF energy is within
+  3 dB of a fixed setting, with no allocation.
 
 ### Real-clip mode
 

@@ -27,7 +27,8 @@ inline double peak_in(const std::vector<double>& freqs, const std::vector<double
 
 template <class F>
 EnvelopeFit fit_envelope(const std::vector<float>& audio, double fs, std::size_t start,
-                         std::size_t len, double f0, F reference, double max_hz) {
+                         std::size_t len, double f0, F reference, double max_hz,
+                         double formant_scale) {
     const double pi = 3.14159265358979323846;
     EnvelopeFit out;
     if (start + len > audio.size() || f0 <= 0.0) return out;
@@ -61,8 +62,8 @@ EnvelopeFit fit_envelope(const std::vector<float>& audio, double fs, std::size_t
         acc += d * d;
     }
     out.lsd_db = std::sqrt(acc / freqs.size());
-    out.f1_hz = detail::peak_in(freqs, meas_db, 450.0, 950.0);
-    out.f2_hz = detail::peak_in(freqs, meas_db, 950.0, 1600.0);
+    out.f1_hz = detail::peak_in(freqs, meas_db, 450.0 * formant_scale, 950.0 * formant_scale);
+    out.f2_hz = detail::peak_in(freqs, meas_db, 950.0 * formant_scale, 1600.0 * formant_scale);
     out.harmonics = static_cast<int>(freqs.size());
     return out;
 }

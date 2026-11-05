@@ -90,6 +90,9 @@ public:
         ar_.assign(order_ + 1, 0.0);
         gpow_.assign(order_ + 1, 1.0);
         for (int k = 1; k <= order_; ++k) gpow_[k] = gpow_[k - 1] * (-lambda_);
+        gpow_r_ = gpow_;
+        lambda_r_ = lambda_;
+        scale_r_ = 1.0;
         vw_.assign(order_ + 1, 0.0);
         vr_.assign(order_ + 1, 0.0);
         sr_.assign(order_ + 1, 0.0);
@@ -105,6 +108,9 @@ public:
         std::fill(ar_.begin(), ar_.end(), 0.0);
         aw_[0] = ar_[0] = 1.0;
         aw_block_ = ar_block_ = -1;
+        lambda_r_ = lambda_;
+        scale_r_ = 1.0;
+        for (int k = 0; k <= order_; ++k) gpow_r_[k] = gpow_[k];
         n_ = 0;
         prev_x_ = 0.0;
         frames_done_ = 0;
@@ -113,6 +119,31 @@ public:
     int order() const { return order_; }
     int hop() const { return hop_; }
     double lambda() const { return lambda_; }
+    double recolour_lambda() const { return lambda_r_; }
+
+    // Throat (spec §6.5): re-colour with a different warping so the whole
+    // envelope moves by `scale` along the frequency axis (> 1 = formants up,
+    // a smaller / brighter voice). The re-colour warping is solved in closed
+    // form so that a 1 kHz reference lands exactly at scale x 1 kHz:
+    //   Omega_lw(w_ref) = Omega_lr(scale * w_ref),
+    //   Omega_l(w) = w + 2 atan(l sin w / (1 - l cos w)).
+    // scale 1 restores lambda_r = lambda (exact inverse). Real-time safe.
+    void set_recolour_scale(double scale) {
+        if (std::abs(scale - scale_r_) < 1e-7) return;
+        scale_r_ = scale;
+        if (std::abs(scale - 1.0) < 1e-9) {
+            lambda_r_ = lambda_;
+        } else {
+            const double pi = 3.14159265358979323846;
+            const double w_ref = 2.0 * pi * 1000.0 / fs_;
+            const double big_omega =
+                w_ref + 2.0 * std::atan(lambda_ * std::sin(w_ref) / (1.0 - lambda_ * std::cos(w_ref)));
+            const double w2 = std::min(scale * w_ref, 0.9 * pi);
+            const double t = std::tan(0.5 * (big_omega - w2));
+            lambda_r_ = std::clamp(t / (std::sin(w2) + t * std::cos(w2)), -0.95, 0.95);
+        }
+        for (int k = 1; k <= order_; ++k) gpow_r_[k] = gpow_r_[k - 1] * (-lambda_r_);
+    }
 
     // Whiten the input sample at input time n_ (incremented here).
     float whiten(float xin) {
@@ -154,12 +185,12 @@ public:
         double num = ein, den = 1.0;
         sr_[0] = 0.0;
         for (int k = 1; k <= order_; ++k) {
-            sr_[k] = -lambda_ * sr_[k - 1] + vr_[k - 1] + lambda_ * vr_[k];
+            sr_[k] = -lambda_r_ * sr_[k - 1] + vr_[k - 1] + lambda_r_ * vr_[k];
             num -= ar_[k] * sr_[k];
-            den += ar_[k] * gpow_[k];
+            den += ar_[k] * gpow_r_[k];
         }
         const double y = num / den;
-        for (int k = 0; k <= order_; ++k) vr_[k] = gpow_[k] * y + sr_[k];
+        for (int k = 0; k <= order_; ++k) vr_[k] = gpow_r_[k] * y + sr_[k];
         return static_cast<float>(y);
     }
 
@@ -242,11 +273,12 @@ private:
     FormantConfig cfg_{};
     int order_ = 20, win_len_ = 960, hop_ = 240, block_ = 16;
     double lambda_ = 0.75;
+    double lambda_r_ = 0.75, scale_r_ = 1.0;  // re-colour warping (Throat)
     std::vector<double> ana_;
     std::size_t ana_mask_ = 0;
     std::vector<double> window_, frame_, chain_, chain2_, r_, a_, tmp_;
     std::vector<double> frames_;  // history_frames x order (reflection coefficients)
-    std::vector<double> kbuf_, aw_, ar_, gpow_, vw_, vr_, sr_;
+    std::vector<double> kbuf_, aw_, ar_, gpow_, gpow_r_, vw_, vr_, sr_;
     std::int64_t aw_block_ = -1, ar_block_ = -1;
     std::int64_t n_ = 0, frames_done_ = 0;
     double prev_x_ = 0.0;

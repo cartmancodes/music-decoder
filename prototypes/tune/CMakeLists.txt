@@ -41,6 +41,6 @@ enable_testing()
 add_executable(tune_tests tests/test_main.cpp tests/test_scale.cpp
   tests/test_correction.cpp tests/test_shifter.cpp tests/test_tuner.cpp
   tests/test_detector.cpp tests/test_formant.cpp
-  tests/test_controls.cpp)
+  tests/test_controls.cpp tests/test_throat.cpp)
 target_link_libraries(tune_tests PRIVATE tune)
 add_test(NAME tune_tests COMMAND tune_tests)

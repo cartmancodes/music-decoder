@@ -41,6 +41,9 @@ struct TunerParams {
     double vibrato = 0.0;       // 0..2: gain on the singer's own vibrato around the
                                 // corrected note. 0 = flatten (classic hard-tune),
                                 // 1 = keep natural vibrato, 2 = exaggerate
+    double throat_semitones = 0.0;  // formant shift on top of the formant mode
+                                    // (spec: -100..+100 % = -3..+3 st); + = smaller,
+                                    // brighter voice. Engages the formant chain.
 };
 
 // Control constants (spec §6.3, [tune] values from spike v0.3).
@@ -50,7 +53,9 @@ struct ControlConstants {
     static constexpr double flex_window_max_cents = 100.0;
     static constexpr double flex_window_min_cents = 15.0;
     static constexpr double centre_cutoff_hz = 2.0;  // centre / vibrato split
-    static constexpr int control_block = 32;          // samples between humanize updates
+    static constexpr int control_block = 32;          // samples between humanize / throat updates
+    static constexpr double throat_glide_ms = 20.0;   // throat parameter smoothing
+    static constexpr double throat_max_semitones = 6.0;  // UI range is +/-3 st (spec); +/-6 accepted
 };
 
 // One analysis frame for traces / UI (spec §11.3).
@@ -95,6 +100,7 @@ public:
         shifter_.reset();
         formant_.reset();
         centre_.reset(0.0);
+        throat_s_ = params_.throat_semitones;
         was_voiced_ = false;
         note_samples_ = 0;
         last_target_ = -1;
@@ -116,6 +122,11 @@ public:
     bool preserving() const {
         return params_.formant_mode == FormantMode::Preserve ||
                (params_.formant_mode == FormantMode::Auto && std::abs(params_.transpose_semitones) >= 0.5);
+    }
+    // The formant chain runs when preserving or when Throat is (or is still
+    // gliding) away from 0.
+    bool chain_active() const {
+        return preserving() || params_.throat_semitones != 0.0 || std::abs(throat_s_) > 1e-3;
     }
     int latency_samples() const { return shifter_.latency(); }
     std::int64_t jump_count() const { return shifter_.jump_count(); }
@@ -186,9 +197,23 @@ public:
         const double ratio = period > 0.0 ? std::exp2(cents / 1200.0) : 1.0;
         // The analysis always runs (so toggling Preserve has history); the
         // whitened signal is only used when preserving formants.
+        if (n_ % ControlConstants::control_block == 0) {
+            // Throat glide, then the re-colour envelope scale: Preserve keeps
+            // the envelope (scale = throat); Auto / Follow let it move with the
+            // pitch shift as plain resampling would (scale = ratio x throat).
+            const double target_st = std::clamp(params_.throat_semitones,
+                                                -ControlConstants::throat_max_semitones,
+                                                ControlConstants::throat_max_semitones);
+            const double a = std::exp(-ControlConstants::control_block /
+                                      (ControlConstants::throat_glide_ms * 1e-3 * fs_));
+            throat_s_ = target_st + a * (throat_s_ - target_st);
+            if (std::abs(throat_s_ - target_st) < 1e-4) throat_s_ = target_st;
+            const double follow = preserving() ? 1.0 : ratio;
+            formant_.set_recolour_scale(follow * std::exp2(throat_s_ / 12.0));
+        }
         const float e = formant_.whiten(x);
         float y;
-        if (preserving()) {
+        if (chain_active()) {
             const float ey = shifter_.process(e, x, ratio, period);
             // Re-apply the envelope of the input moment being read.
             y = formant_.recolour(ey, static_cast<double>(n_) - shifter_.current_delay());
@@ -224,6 +249,7 @@ private:
     std::int64_t note_samples_ = 0;
     int last_target_ = -1;
     double applied_retune_ms_ = -1.0;
+    double throat_s_ = 0.0;
     std::int64_t n_ = 0;
     TuneFrame last_{};
 };

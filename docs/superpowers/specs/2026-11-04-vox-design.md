@@ -268,9 +268,22 @@ Updated by tuner spike v0.2; measurements in the spike report.
     notes;
   - **Preserve;**
   - **Follow pitch.**
-- **Throat** (`tune.throat`, −100…+100 → ±3 st of envelope warp): planned
-  as a different warping factor or envelope warp at re-colour (not yet
-  built).
+- **Throat** (`tune.throat`, −100…+100 → ±3 st; spike v0.4):
+  - re-colour with a different all-pass warping λ_r, so the whole envelope
+    moves along the frequency axis;
+  - λ_r is solved in closed form so a 1 kHz reference lands exactly at
+    scale × 1 kHz (mapping error < 0.8% for every formant up to 3.5 kHz,
+    even at ±6 st);
+  - scale = throat in Preserve, and pitch ratio × throat in Auto / Follow
+    (formants move with the correction as without the chain, plus throat);
+  - any non-zero Throat engages the formant chain; Throat 0 is
+    bit-identical to before;
+  - changes glide over 20 ms (no zipper noise);
+  - steady (DC) gain is unchanged.
+
+  Measured: F1 lands within ≈ 0–6% of the requested shift at ±1 and ±3 st
+  on both synthetic voices, and pitch is unaffected (≤ 0.2 c). Above
+  ≈ 2.5 kHz the shifted envelope is limited by the model's noise floor.
 - **FR-TUNE-6:** with Preserve active and a ±3 st (and +5 st) shift, F1
   moves < 5% compared with the unshifted output. Spike: ≤ ≈ 4% at 44.1 /
   48 / 96 kHz on both synthetic voice models; Follow moves it 16–25%.
