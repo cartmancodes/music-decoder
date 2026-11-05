@@ -1,7 +1,7 @@
 // Track-mode tuner: detector -> note decider -> retune smoother -> splice
-// shifter, with LPC formant preservation around the shifter (spec §6.1-6.5).
-// Mono, per-sample processing; block size has no effect on the output
-// (NFR-6). Humanize, flex and vibrato (§6.3) are later spike steps.
+// shifter, with LPC formant preservation around the shifter (spec §6.1-6.5)
+// and the humanize / flex / vibrato controls (§6.3). Mono, per-sample
+// processing; block size has no effect on the output (NFR-6).
 #pragma once
 
 #include <algorithm>
@@ -32,6 +32,25 @@ struct TunerParams {
     double transpose_semitones = 0.0;
     double max_correction_cents = 600.0;  // clamp (+/- half an octave)
     FormantMode formant_mode = FormantMode::Auto;
+    // Spec §6.3 controls (spike v0.3):
+    double humanize = 0.0;      // 0..1: retune time grows with how long a note is held,
+                                // +humanize * 120 ms after 300 ms (also at retune 0)
+    double flex = 0.0;          // 0..1: 0 = off. Otherwise correction fades out when the
+                                // voice is far from the target (window 100 c at flex
+                                // ~0 down to 15 c at flex 1): scoops and slides pass
+    double vibrato = 0.0;       // 0..2: gain on the singer's own vibrato around the
+                                // corrected note. 0 = flatten (classic hard-tune),
+                                // 1 = keep natural vibrato, 2 = exaggerate
+};
+
+// Control constants (spec §6.3, [tune] values from spike v0.3).
+struct ControlConstants {
+    static constexpr double humanize_max_ms = 120.0;
+    static constexpr double humanize_full_after_ms = 300.0;
+    static constexpr double flex_window_max_cents = 100.0;
+    static constexpr double flex_window_min_cents = 15.0;
+    static constexpr double centre_cutoff_hz = 2.0;  // centre / vibrato split
+    static constexpr int control_block = 32;          // samples between humanize updates
 };
 
 // One analysis frame for traces / UI (spec §11.3).
@@ -63,6 +82,7 @@ public:
         formant_.prepare(fs_, formant);
         smoother_.prepare(fs_);
         release_.prepare(fs_, 5.0);
+        centre_.prepare(fs_, ControlConstants::centre_cutoff_hz);
         set_params(params_);
         reset();
     }
@@ -74,7 +94,11 @@ public:
         release_.reset(0.0);
         shifter_.reset();
         formant_.reset();
+        centre_.reset(0.0);
         was_voiced_ = false;
+        note_samples_ = 0;
+        last_target_ = -1;
+        applied_retune_ms_ = -1.0;
         n_ = 0;
         last_ = {};
     }
@@ -85,6 +109,7 @@ public:
         decider_.set_scale(Scale::make(p.tonic, p.scale));
         decider_.set_hysteresis_cents(p.hysteresis_cents);
         smoother_.set_retune_ms(p.retune_ms);
+        applied_retune_ms_ = p.retune_ms;
     }
 
     const TunerParams& params() const { return params_; }
@@ -104,8 +129,49 @@ public:
         if (f0 > 0.0) {
             const double midi_in = hz_to_midi(f0);
             target = decider_.decide(midi_in);
-            double want = (target - midi_in) * 100.0 * params_.amount;
+            const int t_note = static_cast<int>(target);
+            // A new note (voicing onset or target change) restarts the
+            // humanize clock and the centre filter, so the vibrato split
+            // never sees the jump between notes.
+            if (!was_voiced_ || t_note != last_target_) {
+                note_samples_ = 0;
+                centre_.reset(midi_in);
+            }
+            last_target_ = t_note;
+            const double centre = centre_.process(midi_in);
+            const double vib = midi_in - centre;
+
+            // Flex: weight by the centre's distance from the target.
+            double weight = 1.0;
+            if (params_.flex > 0.0) {
+                const double f = std::clamp(params_.flex, 0.0, 1.0);
+                const double window = ControlConstants::flex_window_max_cents +
+                                      (ControlConstants::flex_window_min_cents -
+                                       ControlConstants::flex_window_max_cents) * f;
+                const double d = std::abs(target - centre) * 100.0;
+                weight = d <= 0.5 * window ? 1.0
+                       : d >= window      ? 0.0
+                                          : (window - d) / (0.5 * window);
+            }
+            // Output pitch -> target + vibrato_gain * vib (at full amount and
+            // retune 0); vibrato 0 gives the classic flat hard-tune.
+            double want = ((target - midi_in) + params_.vibrato * vib) * 100.0 *
+                          params_.amount * weight;
             want = std::clamp(want, -params_.max_correction_cents, params_.max_correction_cents);
+
+            // Humanize: longer-held notes get a slower retune.
+            if (params_.humanize > 0.0 && note_samples_ % ControlConstants::control_block == 0) {
+                const double held_ms = 1000.0 * static_cast<double>(note_samples_) / fs_;
+                const double grow = std::min(held_ms / ControlConstants::humanize_full_after_ms, 1.0);
+                const double rt = params_.retune_ms +
+                                  std::clamp(params_.humanize, 0.0, 1.0) *
+                                      ControlConstants::humanize_max_ms * grow;
+                if (std::abs(rt - applied_retune_ms_) > 0.25) {
+                    smoother_.set_retune_ms(rt);
+                    applied_retune_ms_ = rt;
+                }
+            }
+            ++note_samples_;
             if (!was_voiced_) smoother_.reset(want);  // engage on the first voiced sample
             correction = smoother_.process(want);
             release_.reset(correction);
@@ -151,9 +217,13 @@ private:
     NoteDecider decider_;
     RetuneSmoother smoother_;
     OnePole release_;
+    ControlLowpass centre_;
     SpliceShifter shifter_;
     FormantChain formant_;
     bool was_voiced_ = false;
+    std::int64_t note_samples_ = 0;
+    int last_target_ = -1;
+    double applied_retune_ms_ = -1.0;
     std::int64_t n_ = 0;
     TuneFrame last_{};
 };

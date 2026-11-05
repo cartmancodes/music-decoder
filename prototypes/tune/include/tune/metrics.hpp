@@ -52,6 +52,18 @@ PitchStats score_against_scale(const std::vector<float>& audio, double fs,
                                unsigned scale_mask, double min_hz = 60.0,
                                double max_hz = 1000.0, double max_aperiodicity = 0.2);
 
+// Vibrato behaviour on scored segments (spec §6.3 vibrato control): per
+// segment, the output pitch's deviation from the target is split into its
+// mean (centre error) and the RMS around that mean (vibrato depth). Frames
+// within `settle_s` of an onset or `edge_s` of a segment end are skipped.
+struct VibratoStats {
+    int segments = 0;
+    double centre_error_cents = 0;  // mean over segments of |mean deviation|
+    double depth_cents = 0;         // mean over segments of RMS deviation around the mean
+};
+VibratoStats score_vibrato(const std::vector<float>& audio, const SynthSignal& sig,
+                           int delay_samples, double settle_s = 0.12, double edge_s = 0.05);
+
 // Formant envelope of a steady harmonic segment (spec FR-TUNE-6).
 // Harmonic amplitudes are measured by Hann-windowed projection at k * f0
 // over [start, start + len); multiplying by k removes the synthetic voice's

@@ -119,6 +119,49 @@ void formant_report(double rate) {
     }
 }
 
+// Spec §6.3 controls (spike v0.3): vibrato gain, humanize, flex.
+void controls_report(double rate) {
+    auto get = [](const char* n) {
+        for (const auto& s : builtin_scenarios())
+            if (s.name == n) return s;
+        return Scenario{};
+    };
+    auto run = [rate](const SynthSignal& sig, const Scenario& sc, TunerParams p, int& lat) {
+        Tuner t;
+        t.prepare(rate);
+        p.tonic = sc.tonic;
+        p.scale = static_cast<ScaleType>(sc.scale);
+        t.set_params(p);
+        std::vector<float> y(sig.audio.size());
+        t.process(sig.audio.data(), y.data(), y.size());
+        lat = t.latency_samples();
+        return y;
+    };
+    int lat = 0;
+    const Scenario vb = get("vibrato");
+    const SynthSignal vsig = synth_voice(vb.segments, rate, 1);
+    const VibratoStats vin = score_vibrato(vsig.audio, vsig, 0);
+    std::printf("\n| control | setting | held vibrato notes: depth c (input %.1f) | centre error c | short syllables (fast_flow): median c / settle p90 ms |\n", vin.depth_cents);
+    std::printf("|---|---|---|---|---|\n");
+    const Scenario ff = get("fast_flow");
+    const SynthSignal fsig = synth_voice(ff.segments, rate, 1);
+    struct C { const char* name; double vib, hum; };
+    for (const C c : {C{"vibrato", 0.0, 0.0}, C{"vibrato", 1.0, 0.0}, C{"vibrato", 2.0, 0.0},
+                      C{"humanize", 0.0, 0.5}, C{"humanize", 0.0, 1.0}}) {
+        TunerParams p;
+        p.vibrato = c.vib;
+        p.humanize = c.hum;
+        const auto y = run(vsig, vb, p, lat);
+        const VibratoStats v = score_vibrato(y, vsig, lat);
+        const auto yf = run(fsig, ff, p, lat);
+        const PitchStats st = score_pitch(yf, fsig, lat);
+        const SettleStats se = score_settle(yf, fsig, lat);
+        std::printf("| %s | %.1f | %.1f | %.1f | %.1f / %.1f |\n", c.name,
+                    c.vib > 0 || c.hum == 0 ? c.vib : c.hum, v.depth_cents, v.centre_error_cents,
+                    st.median_abs_cents, se.p90_ms);
+    }
+}
+
 int synthetic(const std::string& out_dir, const std::vector<double>& retunes, double rate) {
     std::printf("fs = %.0f Hz, formant mode %s\n\n", rate,
                 g_formant_mode == FormantMode::Auto ? "auto" : g_formant_mode == FormantMode::Preserve ? "preserve" : "follow");
@@ -156,6 +199,7 @@ int synthetic(const std::string& out_dir, const std::vector<double>& retunes, do
         }
     }
     formant_report(rate);
+    controls_report(rate);
     return 0;
 }
 

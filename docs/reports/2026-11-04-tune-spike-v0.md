@@ -54,7 +54,7 @@ breathy, noisy, fast real voices.
   machine. The budget is the whole VOX chain ≤ 3% on an M1, so the tuner
   should get to ≤ 1% after the optimisation task (T1.9).
 
-All unit tests pass (17 at v0; 30 after v0.2) with Clang 18 and GCC 13, and under GCC
+All unit tests pass (17 at v0; 30 after v0.2; 34 after v0.3) with Clang 18 and GCC 13, and under GCC
 AddressSanitizer + UndefinedBehaviorSanitizer. They include:
 - exact delay at ratio 1;
 - frequency accuracy and click-free output at constant ratios;
@@ -200,6 +200,36 @@ table and `tests/test_formant.cpp`):
   analysis frame (the envelope needs ≈ 35 ms of the new note to fully
   update).
 
+### Controls: humanize, flex, vibrato (v0.3, plan T1.4)
+
+Definitions are in spec §6.3. All three default to off, and with them off
+every earlier number above is unchanged. Measured at 48 kHz, retune 0:
+
+| Control | Setting | Held vibrato notes: depth (input 20.7 c) | Centre error | Short rap syllables: median / settle p90 |
+|---|---|---|---|---|
+| Vibrato gain | 0 (default) | 1.1 c | 0.3 c | 0.3 c / 6.1 ms |
+| Vibrato gain | 1 | 23.7 c | 2.7 c | 7.4 c / 6.1 ms |
+| Vibrato gain | 2 | 47.4 c | 5.4 c | 14.8 c / 5.8 ms |
+| Humanize | 0.5 | 17.1 c | 0.5 c | 0.7 c / 6.1 ms |
+| Humanize | 1 | 22.8 c | 0.0 c | 1.4 c / 6.1 ms |
+
+**Flex** on the `scoop` scenario (each note glides from −90 c into a held
+note at −15 c):
+
+| Flex | Early glide: \|output − input\| | Held note: \|output − target\| |
+|---|---|---|
+| 0 (off) | 71 c (pulled to the note) | 0.1 c |
+| 0.3 | 1.8 c (scoop passes through) | 0.5 c |
+| 0.6 | 1.8 c | 3.0 c |
+| 1.0 | 1.8 c | 13.9 c (only notes already close get corrected) |
+
+**Notes:**
+- Humanize does what it's for: held notes keep natural movement while
+  short syllables stay locked.
+- Vibrato gain > 0 also keeps the singer's faster inflections, not only
+  4–8 Hz vibrato (fast_flow median 7.4 c at gain 1). Whether to restrict
+  it to a band is a listening-test question.
+
 ### Real-clip mode
 
 `tune_eval --clips DIR` scores WAV folders without ground truth: how close
@@ -252,7 +282,6 @@ Official numbers come only from the Corpus tier (master plan §10.1).
   10 c after onset) is needed (**T1.2**).
 - Not yet implemented:
   - formant preservation (since added in v0.2, see above);
-  - humanize, flex and vibrato controls;
   - HQ mode;
   - stereo;
   - RTSan (Clang 18 here predates it; it runs in the suite's CI with

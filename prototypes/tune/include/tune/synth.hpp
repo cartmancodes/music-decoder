@@ -24,6 +24,8 @@ struct Segment {
     double vib_hz = 5.5;
     bool voiced = true;
     int target = -1;           // expected output note (MIDI) or -1 = don't score
+    bool legato = false;       // continues the previous voiced segment: no attack,
+                               // no onset flag, and the previous one has no release
 };
 
 struct SynthSignal {

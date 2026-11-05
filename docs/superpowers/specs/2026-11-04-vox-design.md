@@ -211,9 +211,9 @@ Rules:
 | Control | ID | Range | Definition |
 |---|---|---|---|
 | Retune speed | `tune.retune_ms` | 0–400 ms, default 20 | Time constant of a critically damped 2nd-order smoother on the correction. **0 = step change** (hard-tune) |
-| Humanize | `tune.humanize` | 0–100% | Retune time grows with the current note's duration: `τ_eff = τ × (1 + k·humanize·min(dur/300ms, 1))` **[tune k]** |
-| Flex | `tune.flex` | 0–100% | Deviation threshold `Δflex` (0–200 cents); a deviation larger than it (scoops, slides) is passed through and fades in as it approaches the target |
-| Vibrato | `tune.vibrato` | 0–200%, default 100 | Detected f0 is split into a centre (< 3 Hz low-pass) and a 4–8 Hz band; the band is scaled by this gain |
+| Humanize | `tune.humanize` | 0–100%, default 0 | Retune time grows with how long the current note has been held: `τ_eff = τ + humanize · 120 ms · min(held/300 ms, 1)`. Additive, so it also works at retune 0. The clock restarts on every new note, so short syllables stay snappy (spike v0.3) |
+| Flex | `tune.flex` | 0–100%, default 0 (off) | Correction is weighted by the distance d between the note centre and the target: window W = 100 c at flex → 0 down to 15 c at flex 1; full correction for d ≤ W/2, fading to none at d ≥ W. Scoops and slides pass through; correction engages as the voice approaches the note. High flex corrects only notes already close |
+| Vibrato | `tune.vibrato` | 0–200%, default **0** | Detected pitch is split into a centre (2 Hz 2nd-order low-pass, reset on each new note) and the rest. Output pitch → target + gain × rest. 0 = classic flat hard-tune, 100% = the singer's own vibrato kept around the corrected note, 200% = exaggerated. The "rest" also holds the singer's faster inflections, not only 4–8 Hz vibrato; restricting it to a band-pass is an open option (spike v0.3) |
 | Amount | `tune.amount` | 0–100% | Scales the final correction |
 | Transpose | `tune.transpose` | −12…+12 st | Added after correction (formant follows `tune.formant_follow`) |
 

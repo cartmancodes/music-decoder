@@ -192,4 +192,43 @@ PitchStats score_against_scale(const std::vector<float>& audio, double fs, unsig
     return s;
 }
 
+VibratoStats score_vibrato(const std::vector<float>& audio, const SynthSignal& sig, int delay,
+                           double settle_s, double edge_s) {
+    const double fs = sig.sample_rate;
+    const auto frames = yin_track(audio, fs, 60.0, 1000.0, 0.005);
+    VibratoStats out;
+    const std::size_t n = sig.target.size();
+    std::size_t i = 0;
+    while (i < n) {
+        if (sig.target[i] < 0 || !sig.onset[i]) { ++i; continue; }
+        std::size_t j = i + 1;
+        while (j < n && sig.target[j] == sig.target[i] && !sig.onset[j]) ++j;
+        const double t0 = static_cast<double>(i) / fs + settle_s;
+        const double t1 = static_cast<double>(j) / fs - edge_s;
+        const int target = sig.target[i];
+        std::vector<double> dev;
+        for (const auto& f : frames) {
+            const double t_in = f.t - static_cast<double>(delay) / fs;
+            if (t_in < t0 || t_in > t1 || f.hz <= 0.0) continue;
+            dev.push_back(1200.0 * std::log2(f.hz / midi_to_hz(target)));
+        }
+        if (dev.size() >= 10) {
+            double mean = 0.0;
+            for (double d : dev) mean += d;
+            mean /= dev.size();
+            double var = 0.0;
+            for (double d : dev) var += (d - mean) * (d - mean);
+            out.centre_error_cents += std::abs(mean);
+            out.depth_cents += std::sqrt(var / dev.size());
+            ++out.segments;
+        }
+        i = j;
+    }
+    if (out.segments > 0) {
+        out.centre_error_cents /= out.segments;
+        out.depth_cents /= out.segments;
+    }
+    return out;
+}
+
 }  // namespace tune

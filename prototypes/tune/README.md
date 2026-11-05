@@ -16,14 +16,13 @@ into `rapsuite/libs/rapcore/pitch` unchanged once that repo exists.
 | Retune curve | `include/tune/correction.hpp` | Critically damped 2nd-order smoother; `retune_ms` = time to ~90% |
 | Shifter | `include/tune/splice_shifter.hpp` | Period-synchronous resampling with correlation-refined ±1-period splices and 1.33 ms crossfades; 2.0 ms reported latency |
 | Formants | `include/tune/formant.hpp`, `include/tune/lpc.hpp` | Frequency-warped LPC whiten → shift → re-colour (exact inverse, no added latency); `FormantMode` Auto / Preserve / Follow |
-| Tuner | `include/tune/tuner.hpp` | Wires the above; mono |
+| Tuner | `include/tune/tuner.hpp` | Wires the above; mono; controls: retune, amount, transpose, humanize, flex, vibrato gain, formant mode |
 | Evaluation | `src/synth.cpp`, `src/yin_offline.cpp`, `src/metrics.cpp` | Synthetic voices with known pitch; an independent offline YIN as judge; pitch-error and HF-artifact metrics |
 | Tools | `tools/tune_eval.cpp`, `tools/tune_render.cpp` | Benchmark table (accuracy, onset settle, HF energy, CPU); `--clips` for real WAV folders; render real WAV files |
 | Test audio | `data/README.md` | Local vs Corpus tiers; no audio is ever committed |
-| Tests | `tests/` | doctest (from cycfi/infra); 30 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
+| Tests | `tests/` | doctest (from cycfi/infra); 34 cases incl. exact-latency null test, block-size invariance, no-allocation checks |
 
-Not yet built (see the task plan): Throat, humanize /
-flex / vibrato controls, HQ (PSOLA) mode, stereo-linked processing, SIMD /
+Not yet built (see the task plan): Throat, HQ (PSOLA) mode, stereo-linked processing, SIMD /
 decimated tracker.
 
 ## Build and run
@@ -51,7 +50,7 @@ prototypes/tune/build/tune_eval --out prototypes/tune/out/eval48
 prototypes/tune/build/tune_render vocal.wav vocal_tuned.wav --key A --scale minor --retune 0 --trace trace.csv
 ```
 
-`tune_render` options: `--transpose` semitones, `--formant auto|preserve|follow`, `--key` (C, C#, Db, …), `--scale` (major, minor,
+`tune_render` options: `--transpose` semitones, `--humanize 0..1`, `--flex 0..1`, `--vibrato 0..2`, `--formant auto|preserve|follow`, `--key` (C, C#, Db, …), `--scale` (major, minor,
 harmonic_minor, melodic_minor, major_pentatonic, minor_pentatonic, blues,
 chromatic), `--retune` ms (0 = hard-tune), `--amount` 0–1, `--low` / `--high`
 Hz detection range, `--trace` CSV at 200 Hz.

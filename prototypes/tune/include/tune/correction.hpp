@@ -65,4 +65,39 @@ private:
     double a_ = 0.0, y_ = 0.0;
 };
 
+// Second-order Butterworth low-pass on a control signal (pitch in semitones),
+// used to split the detected pitch into a slow "centre" and the vibrato band
+// (spec §6.3). reset(v) puts the filter in steady state at v, so a new note
+// starts without a transient.
+class ControlLowpass {
+public:
+    void prepare(double fs, double cutoff_hz) {
+        const double pi = 3.14159265358979323846;
+        const double w = 2.0 * pi * cutoff_hz / fs;
+        const double cw = std::cos(w), alpha = std::sin(w) / (2.0 * 0.70710678118654752);
+        const double a0 = 1.0 + alpha;
+        b0_ = (1.0 - cw) / 2.0 / a0;
+        b1_ = (1.0 - cw) / a0;
+        b2_ = b0_;
+        a1_ = -2.0 * cw / a0;
+        a2_ = (1.0 - alpha) / a0;
+    }
+    void reset(double v) {
+        // Transposed direct form II steady state for constant input v (DC gain 1).
+        z1_ = v * (1.0 - b0_);
+        z2_ = v * (b2_ - a2_);
+        y_ = v;
+    }
+    double process(double x) {
+        y_ = b0_ * x + z1_;
+        z1_ = b1_ * x - a1_ * y_ + z2_;
+        z2_ = b2_ * x - a2_ * y_;
+        return y_;
+    }
+    double value() const { return y_; }
+
+private:
+    double b0_ = 1, b1_ = 0, b2_ = 0, a1_ = 0, a2_ = 0, z1_ = 0, z2_ = 0, y_ = 0;
+};
+
 }  // namespace tune

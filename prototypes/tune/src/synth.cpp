@@ -71,15 +71,17 @@ SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32
     double phase = 0.0;  // fundamental phase, radians
     const double max_harm_hz = 8000.0;
 
-    for (const auto& seg : segs) {
+    for (std::size_t si = 0; si < segs.size(); ++si) {
+        const auto& seg = segs[si];
+        const bool next_legato = si + 1 < segs.size() && segs[si + 1].legato && segs[si + 1].voiced;
         const std::size_t n = static_cast<std::size_t>(std::lround(seg.dur_s * fs));
         const std::size_t attack = static_cast<std::size_t>(0.010 * fs);
         const std::size_t release = static_cast<std::size_t>(0.015 * fs);
         for (std::size_t i = 0; i < n; ++i) {
             const double u = n > 1 ? static_cast<double>(i) / static_cast<double>(n - 1) : 0.0;
             double env = 1.0;
-            if (i < attack) env = static_cast<double>(i) / attack;
-            if (n - i <= release) env = std::min(env, static_cast<double>(n - i) / release);
+            if (i < attack && !seg.legato) env = static_cast<double>(i) / attack;
+            if (n - i <= release && !next_legato) env = std::min(env, static_cast<double>(n - i) / release);
             double y = 0.0, f0 = 0.0;
             if (seg.voiced) {
                 const double t = static_cast<double>(i) / fs;
@@ -98,7 +100,7 @@ SynthSignal synth_voice(const std::vector<Segment>& segs, double fs, std::uint32
             s.audio.push_back(static_cast<float>(y));
             s.f0.push_back(f0);
             s.target.push_back(seg.voiced ? seg.target : -1);
-            s.onset.push_back(i == 0 && seg.voiced ? 1 : 0);
+            s.onset.push_back(i == 0 && seg.voiced && !seg.legato ? 1 : 0);
         }
     }
     return s;
@@ -156,6 +158,23 @@ std::vector<Scenario> builtin_scenarios() {
             const double end = note + std::clamp(d - 0.08, -0.45, 0.45);
             sc.segments.push_back({dur(rng), start, end, 0, 5.5, true, note});
             sc.segments.push_back({gap(rng), 0, 0, 0, 0, false, -1});
+        }
+        out.push_back(sc);
+    }
+    // Scoops: each note starts ~90 c flat and glides up over 160 ms into a
+    // held note 15 c flat (legato), the classic expressive onset that Flex
+    // should leave alone. Notes have no in-scale neighbour a semitone below,
+    // so the target is unambiguous throughout.
+    {
+        Scenario sc{"scoop", "Onset scoops from -90 c into held notes at -15 c", A, minor, {}};
+        const int notes[] = {52, 47, 45, 52};
+        for (int note : notes) {
+            Segment glide{0.16, note - 0.90, note - 0.15, 0, 5.5, true, note};
+            Segment hold{0.34, note - 0.15, note - 0.15, 0, 5.5, true, note};
+            hold.legato = true;
+            sc.segments.push_back(glide);
+            sc.segments.push_back(hold);
+            sc.segments.push_back({0.08, 0, 0, 0, 0, false, -1});
         }
         out.push_back(sc);
     }

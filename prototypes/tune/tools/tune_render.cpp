@@ -19,7 +19,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr,
                      "usage: %s IN.wav OUT.wav [--key A] [--scale minor] [--retune MS] "
                      "[--amount 0..1] [--low HZ] [--high HZ] [--transpose ST]\n"
-                     "       [--formant auto|preserve|follow] [--trace FILE.csv]\n",
+                     "       [--formant auto|preserve|follow] [--humanize 0..1] [--flex 0..1]\n"
+                     "       [--vibrato 0..2] [--trace FILE.csv]\n",
                      argv[0]);
         return 2;
     }
@@ -45,6 +46,9 @@ int main(int argc, char** argv) {
         else if (k == "--high") det.max_hz = std::stod(v);
         else if (k == "--trace") trace_path = v;
         else if (k == "--transpose") p.transpose_semitones = std::stod(v);
+        else if (k == "--humanize") p.humanize = std::stod(v);
+        else if (k == "--flex") p.flex = std::stod(v);
+        else if (k == "--vibrato") p.vibrato = std::stod(v);
         else if (k == "--formant") {
             if (v == "auto") p.formant_mode = FormantMode::Auto;
             else if (v == "preserve") p.formant_mode = FormantMode::Preserve;
