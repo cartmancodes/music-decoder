@@ -73,7 +73,7 @@ def accompany(
     style: Literal["arpeggio", "strum", "fingerstyle"],
     tuning: Tuning,
 ) -> tuple[Note, ...]:
-    """The accompaniment track as ``Note``s (the melody is not consulted yet)."""
+    """The accompaniment track as ``Note``s, thinned around ``melody``."""
     return tuple(
         Note(
             start_s=float(n.start),
@@ -82,7 +82,9 @@ def accompany(
             velocity=int(n.velocity),
             confidence=1.0,
         )
-        for n in _accompaniment_notes(voicings, bars_per_chord, tempo_bpm, style, tuning)
+        for n in _accompaniment_notes(
+            voicings, bars_per_chord, tempo_bpm, style, tuning, melody=melody
+        )
     )
 
 
