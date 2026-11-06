@@ -4780,6 +4780,8 @@ parameters, including its A* tab weights, are pinned in code and versioned by
 `metadata["composer_version"]`.
 ```
 
+> **Note (final-review polish):** the shipped docs differ slightly from the Task 8 text quoted above: fingerstyle puts the shape's bass note (not always the root) on beat 1, the pinch rule reads "only source of an essential tone (third, seventh, altered fifth or suspended fourth)", the validation matrix is described as 4 major + 4 minor keys with 5 progressions per mode, the §6.2 `compose()` sentence moved to the end of its paragraph, and the baseline `source` is `69c2fa7`. The shipped docs are authoritative.
+
 > **Note (fix round 1):** the fingerstyle bullets in Steps 4(b) and 6(d) also state the pinch's identity rule (the alternate-bass string stays in the pinch when it is the chord's only source of an essential tone). That is the behaviour of the Task 5 `keep_alt` fix; see the Task 5 implementation note.
 
 - [ ] **Step 5: Update `docs/architecture-overview.md`**

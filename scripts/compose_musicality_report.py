@@ -5,8 +5,11 @@
         --write tests/fixtures/compose/musicality_baseline.json
 
 The committed baseline was written with ``--write`` on the pre-change
-composer (commit recorded in the JSON's ``"source"``); re-running it now
-measures the current composer on the same inputs.
+composer (commit recorded in the JSON's ``"source"``: ``69c2fa7``, the
+last commit before the composer changed); re-running it now measures the
+current composer on the same inputs. The recorded label comes from
+``git describe --always --dirty``, so a run from a modified tree is marked
+``-dirty``.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from music_decoder.evaluation.compose_musicality import evaluate
 def _git_head() -> str:
     try:
         return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "describe", "--always", "--dirty"], capture_output=True, text=True, check=True
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"

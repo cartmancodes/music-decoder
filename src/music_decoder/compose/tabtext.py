@@ -60,7 +60,7 @@ def render_chord_shapes(voicings: Sequence[VoicedChord], tuning: Tuning) -> str:
         for vc in chunk:
             name = vc.chord.to_label()
             frets = {p.string: ("x" if p.fret < 0 else str(p.fret)) for p in vc.positions}
-            width = max(len(name), *(len(f) for f in frets.values())) + 2
+            width = max([len(name), *(len(f) for f in frets.values())]) + 2
             header += " " + name.ljust(width - 1)
             for s in range(len(rows)):
                 text = frets.get(s, "x")

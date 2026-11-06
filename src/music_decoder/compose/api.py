@@ -76,7 +76,7 @@ def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
     best: tuple[int, int] | None = None  # (fret, string)
     for s, open_pitch in enumerate(tuning.open_pitches):
         fret = pitch - open_pitch
-        if 0 <= fret <= 22 and (best is None or fret < best[0]):
+        if 0 <= fret <= COMPOSE_TAB_MAX_FRET and (best is None or fret < best[0]):
             best = (fret, s)
     return None if best is None else TabPosition(string=best[1], fret=best[0])
 

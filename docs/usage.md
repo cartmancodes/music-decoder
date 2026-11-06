@@ -257,10 +257,10 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   `"C G Am F"`, `"Dm7 G7 Cmaj7"`.
 - `--style` — `fingerstyle` (default), `strum`, or `arpeggio`.
 - `--tempo` — beats per minute, float. Default `100.0`.
-- `--bars` — bars per chord. Default `1`.
+- `--bars` — bars per chord; must be ≥ 1 (`0` or a negative number is
+  rejected with an error). Default `1`.
 - `--seed` — integer; same seed → same music (for a given
   `metadata.composer_version`). Default: a fresh random seed each run.
-- `--bars` must be ≥ 1; `0` or a negative number is rejected with an error.
 - `--tuning` — same set as `analyze`. Default `EADGBE`.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
@@ -984,9 +984,11 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 
 ### Composition style choices
 
-- **`fingerstyle`** — alternating bass (root on beat 1, another chord
-  tone on beat 3) with a treble pinch on beats 2 and 4 (the pinch keeps
-  the beat-3 bass string when it is the chord's only third or seventh).
+- **`fingerstyle`** — alternating bass (the shape's lowest note on beat 1,
+  another chord tone on beat 3) with a treble pinch on beats 2 and 4 (the
+  pinch keeps the beat-3 bass string when it is the chord's only source
+  of an essential tone: third, seventh, altered fifth or suspended
+  fourth).
   Best for ballads, folk and slow tempos. It is the default because it
   sounds reasonable on most progressions.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
@@ -1011,7 +1013,8 @@ default. Use `--tempo 60-80` for ballads, `--tempo 100-120` for pop,
 
 `--seed N` makes `compose()` fully deterministic. Same `(scale,
 progression, bars, tempo, style, seed, tuning)` always produces the
-same melody. Useful for:
+same melody (with the same numpy version, since numpy does not
+guarantee its random streams across releases). Useful for:
 
 - Iterating on a chord progression while keeping the melody constant.
 - Sharing a seed in a bug report so we can reproduce.
@@ -1028,7 +1031,7 @@ melodies, so a seed saved from an older version now gives a different
 To measure the composer, run `python scripts/compose_musicality_report.py`.
 It prints every musicality metric over the fixed evaluation matrices;
 `tests/fixtures/compose/musicality_baseline.json` holds the
-pre-version-2 numbers for comparison.
+pre-version-2 numbers for comparison (measured at commit `69c2fa7`).
 
 Without `--seed`, the random number generator is seeded from
 NumPy's default entropy source, so every run differs.

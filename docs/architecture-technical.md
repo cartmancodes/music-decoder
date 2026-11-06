@@ -809,7 +809,8 @@ always uses the phrase planner.
   - `strum`: strokes on eighths 0, 2, 3, 5, 6, 7 ("D · D U · U D U"). Down
     strokes play the voicing low→high with 8 ms between strings. Up strokes
     play the top 3 strings high→low. Each stroke rings until the next one.
-  - `fingerstyle`: alternating bass. The root goes on beat 1 and the
+  - `fingerstyle`: alternating bass. The bass note (the lowest string of
+    the shape) goes on beat 1 and the
     second-lowest voicing note on beat 3 (when the voicing has ≥ 4 notes).
     The treble pinch plays on beats 2 and 4. It leaves out the
     alternate-bass string, unless that string is the chord's only source
@@ -881,8 +882,9 @@ typed metric functions:
 defines two held-out input matrices (seeds 1000+ were never used for
 tuning):
 
-- a 400-melody validation matrix: 8 keys, both modes, 10 progressions, 1–2
-  bars per chord, × 3 styles
+- a 400-melody validation matrix: 4 major and 4 minor keys, 5
+  progressions per mode, 1–2 bars per chord, seeds 1000–1004 (each melody
+  accompanied in all 3 styles)
 - a 110-melody edge matrix: 3/5/7/9 bars, a single chord, secondary
   dominants including B7→Em in C, a borrowed chord, final suspended chords
 
@@ -962,11 +964,11 @@ every `AnalysisResult.metadata["hyperparameter_set"]`. Sections:
 - `tab_assignment` — six A* weights and `max_fret`.
 
 The adapters read this YAML at call time, so editing it changes the next
-`analyze()` without a code change. `compose()` reads none of it: the composer's
-parameters, including its A* tab weights, are pinned in code and versioned by
-`metadata["composer_version"]`. Set `MUSIC_DECODER_HYPERPARAMETERS` to
+`analyze()` without a code change. Set `MUSIC_DECODER_HYPERPARAMETERS` to
 point at a different file (the benchmark uses this to compare
-configurations). Keys the public pipeline honours:
+configurations). `compose()` reads none of this: the composer's
+parameters, including its A* tab weights, are pinned in code and versioned by
+`metadata["composer_version"]`. Keys the public pipeline honours:
 
 - `key_detection.backend` — `cnn` | `profile` ([key/\_\_init\_\_.py](../src/music_decoder/key/__init__.py)).
 - `beat_tracking.backend` — `madmom` | `librosa` ([dsp/\_\_init\_\_.py](../src/music_decoder/dsp/__init__.py)).
