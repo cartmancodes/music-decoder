@@ -378,7 +378,8 @@ _CADENCE_COVER = 0.9  # tolerates the 5% articulation gaps between re-struck not
 
 def _covered_fraction(notes: Sequence[Note], t0: float, t1: float) -> float:
     """Fraction of [t0, t1) during which at least one of ``notes`` sounds."""
-    spans = sorted((max(n.start_s, t0), min(n.end_s, t1)) for n in notes)
+    clipped = ((max(n.start_s, t0), min(n.end_s, t1)) for n in notes)
+    spans = sorted((start, end) for start, end in clipped if end > start)  # drop disjoint notes
     covered, reach = 0.0, t0
     for start, end in spans:
         if end <= reach:

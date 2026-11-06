@@ -286,3 +286,34 @@ def test_cadence_identity_accepts_re_struck_tones_with_articulation_gaps():
     assert m.cadence_identity(melody, base + restruck_f, [g7], STANDARD_EADGBE) is True
     half_f = [n(2, 0.95, 65)]  # only the first half
     assert m.cadence_identity(melody, base + half_f, [g7], STANDARD_EADGBE) is False
+
+
+def _sec(start_s: float, end_s: float, pitch: int) -> Note:
+    return Note(start_s=start_s, end_s=end_s, pitch=pitch, velocity=80, confidence=1.0)
+
+
+@pytest.mark.parametrize(
+    ("spans", "expected"),
+    [
+        ([(0.0, 0.95)], 0.95),
+        ([(2.0, 3.0)], 0.0),  # entirely after the interval
+        ([(-2.0, -1.0)], 0.0),  # entirely before it
+        ([(0.0, 0.95), (2.0, 3.0)], 0.95),  # a later note changes nothing
+        ([(-2.0, -1.0), (0.0, 0.5), (1.0, 2.0)], 0.5),  # a note touching the end adds nothing
+        ([(-1.0, 0.25), (0.5, 3.0)], 0.75),  # partial overlaps at both ends
+    ],
+)
+def test_covered_fraction_ignores_notes_outside_the_interval(spans, expected):
+    notes = [_sec(s, e, 52) for s, e in spans]
+    covered = m._covered_fraction(notes, 0.0, 1.0)
+    assert 0.0 <= covered <= 1.0
+    assert covered == pytest.approx(expected)
+
+
+def test_cadence_identity_ignores_accompaniment_after_the_final_note():
+    c_major = shape("C")  # C3 E3 G3 C4 E4
+    melody = [_sec(0.0, 1.0, 72)]  # held C5
+    under = [_sec(0.0, 0.95, 52)]  # E3 under 95% of it
+    assert m.cadence_identity(melody, under, [c_major], STANDARD_EADGBE) is True
+    later = [*under, _sec(2.0, 3.0, 52)]  # an E3 attack after the note has ended
+    assert m.cadence_identity(melody, later, [c_major], STANDARD_EADGBE) is True

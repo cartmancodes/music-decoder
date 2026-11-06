@@ -1,6 +1,11 @@
 import pytest
 
+from music_decoder.chords.templates import QUALITIES
+from music_decoder.compose import voicings as compose_voicings
 from music_decoder.compose.harmony import (
+    _DEGREE_STEPS,
+    CHORD_INTERVALS,
+    ESSENTIAL_INTERVALS,
     chord_pcs,
     chord_scale_pcs,
     essential_pcs,
@@ -113,3 +118,13 @@ def test_ambiguous_chromatic_chord_uses_the_flat_side_spelling():
     # F# major in C: F#-A#-C# and Gb-Bb-Db alter 3 semitones each (a tie);
     # the documented tie-break spells it Gb-Bb-Db, replacing G, B and D.
     assert chord_scale_pcs(C, ch("F#")) == frozenset({0, 1, 4, 5, 6, 9, 10})
+
+
+@pytest.mark.parametrize(
+    "table",
+    [CHORD_INTERVALS, ESSENTIAL_INTERVALS, _DEGREE_STEPS, compose_voicings._CHORD_PCS],
+    ids=["CHORD_INTERVALS", "ESSENTIAL_INTERVALS", "_DEGREE_STEPS", "voicings._CHORD_PCS"],
+)
+def test_every_chord_quality_has_a_row_in_each_compose_table(table):
+    # docs/architecture-technical.md "Add a new chord quality" lists these tables
+    assert set(table) == set(QUALITIES)

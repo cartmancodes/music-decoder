@@ -1309,9 +1309,17 @@ and composition output folders).
   [types.py](../src/music_decoder/types.py), update
   `_QUALITY_MAP` in
   [chords/labels.py](../src/music_decoder/chords/labels.py), and update
-  the `_CHORD_PCS` tables in
-  [compose/voicings.py](../src/music_decoder/compose/voicings.py) and
-  [compose/melody.py](../src/music_decoder/compose/melody.py).
+  the `_CHORD_PCS` table in
+  [compose/voicings.py](../src/music_decoder/compose/voicings.py), and add
+  the quality to all three tables in
+  [compose/harmony.py](../src/music_decoder/compose/harmony.py):
+  `CHORD_INTERVALS` (intervals above the root, used for pitch choice),
+  `ESSENTIAL_INTERVALS` (the identity tones that thinning keeps and H1/H2
+  check) and `_DEGREE_STEPS` (scale-degree steps used to spell the chord for
+  the chord-scale rule). `test_every_chord_quality_has_a_row_in_each_compose_table`
+  fails until every table has the row. Then extend `_QUALITY_SUFFIXES` in
+  `tests/unit/test_compose_api.py` and run
+  `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py`.
 - **Tweak A* weights**: edit `tab_assignment.weights` in
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
   with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in
