@@ -8,16 +8,27 @@ than a fifth only when justified and always recovered; smooth chord changes
 and final approaches. Every v2 musicality metric must stay within its stated
 tolerance.
 
-**Architecture:**
-- Repair five entries in the shared library `chords/voicings.py`.
-- Rebuild the tuning path in `compose/voicings.py`: pitch-preserving retune,
-  a narrower un-mute rule, a fretted-only span gate, a faithfulness gate and
-  a deterministic shape search, with the v2 root fallback as a last resort.
-- Add hard admissibility rules (`admissible`) to the melody sampler, plus
-  final-approach lookahead and a step bonus at chord changes. When nothing is
-  admissible, fall back to the v2 scoring.
-- Measure everything with new metrics, a third "tunings" evaluation matrix
-  and a committed v2 snapshot.
+**Architecture** (revision 2, after plan review round 1, whose responses
+are at the end of this plan):
+- Repair seven entries in the shared library `chords/voicings.py`: five
+  tone faults, plus two five-finger grips.
+- Rebuild the tuning path in `compose/voicings.py`:
+  - a pitch-preserving retune with a narrower un-mute rule
+  - a fretted-only span gate and a four-finger feasibility gate
+  - a faithfulness gate
+  - a deterministic shape search
+  - the v2 root fallback as a last resort
+- Add hard admissibility rules (`admissible`) to the melody sampler, plus:
+  - per-bar feasibility sets for the final bar and the approach bar
+  - a deterministic floor/target repair order
+  - a step bonus at chord changes
+  - a graded scoring ladder (strict → R1+R2 → v2) for the rare case where
+    nothing survives
+- Measure everything with:
+  - new metrics, including a pooled large-leap frequency `L0`
+  - development matrices (validation, edge, tunings)
+  - a frozen **holdout** matrix
+  - a committed v2 snapshot
 
 **Tech Stack:** Python 3, numpy, pretty_midi, click, pytest, ruff, mypy
 --strict. No new dependencies.
@@ -45,6 +56,15 @@ Read it first. Its section numbers (§) are cited throughout.
 - Every commit message ends with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push,
   merge, switch branches or rewrite history.
+- **Clean tree for generated fixtures.** Running the gate rewrites tracked
+  `.synth_marker` files. Before writing any fixture whose `source` comes
+  from `git describe --dirty`:
+  - Restore those markers with `git checkout -- tests/fixtures/synthetic/`.
+  - Check that `git status --porcelain --untracked-files=no` is empty.
+- **Development versus holdout.** The validation, edge and tunings matrices
+  are development data for v3 (spec §6). Never tune rules, weights or
+  thresholds to the holdout matrix. A failed holdout check is reported with
+  its numbers (spec §6.4).
 - `music_decoder.compose` as an *attribute* is the re-exported function, not
   the package. To patch module objects, use dotted strings in `mock.patch`
   or `importlib.import_module("music_decoder.compose.api")`.
@@ -53,6 +73,7 @@ Read it first. Its section numbers (§) are cited throughout.
   - `FORBIDDEN_INTERVALS = frozenset({6, 10, 11})`
   - `CHORD_CHANGE_STEP_BONUS = 1.0`
   - `MAX_FRETTED_SPAN = 3`
+  - `MAX_FINGERS = 4`
   - search base frets 0–9; search minimum of 4 sounding strings
   - `MAX_INTERVAL = 12` is unchanged
 
@@ -74,8 +95,11 @@ named.
    grid and `chord_floors=None`. The new rules must hold and nothing may
    raise. Task 6 pins `test_legacy_grid_and_no_floors_obey_the_leap_rules`.
 4. **One-chord and two-bar pieces** (a one-note final bar right after the
-   first bar). The approach lookahead must not crash or leap. Task 6 pins
-   `test_short_pieces_obey_the_leap_rules`.
+   first bar), and **chords foreign to the key** (review r1 F1: C → D#m).
+   The feasibility repair must not crash, leap or relax. Task 6 pins:
+   - `test_short_pieces_obey_the_leap_rules`
+   - `test_review_r1_major_seventh_is_repaired`
+   - `test_every_root_and_quality_composes_smoothly`
 5. **The searched chords, played by the composer itself** (Drop C G, Drop D
    G7, DADGAD D#dim and the rest). They must compose with H1 and H2 intact
    in every style, not just pass the shape check. Task 5 pins
@@ -88,13 +112,13 @@ named.
 | File | Responsibility | Tasks |
 |---|---|---|
 | `src/music_decoder/compose/metrics.py` | New leap and shape metrics | 1 |
-| `src/music_decoder/compose/voicings.py` | `shape_faults` (Task 1); retune, gate, search, fallback (Task 5) | 1, 5 |
-| `src/music_decoder/evaluation/compose_musicality.py` | `Case.tuning`, tunings matrix, new keys, per-tuning groups | 2 |
+| `src/music_decoder/compose/voicings.py` | `shape_faults` and `fingers_needed` (Task 1); retune, gates, search, fallback (Task 5) | 1, 5 |
+| `src/music_decoder/evaluation/compose_musicality.py` | `Case.tuning`, tunings and holdout matrices, new keys, L0 pooling, per-tuning groups | 2 |
 | `scripts/compose_musicality_report.py` | Docstring only | 2 |
 | `tests/fixtures/compose/musicality_v2.json` | New v2 snapshot (generated) | 2 |
 | `tests/unit/test_compose_samples.py` | New CLI regression tests for the three samples | 3, 4, 5, 6 |
-| `src/music_decoder/chords/voicings.py` | Five repaired shapes and the invariant docstring | 4 |
-| `src/music_decoder/compose/melody.py` | `admissible`, context fields, approach and recovery wiring, `cadence_reach` | 6 |
+| `src/music_decoder/chords/voicings.py` | Seven repaired shapes and the invariant docstring | 4 |
+| `src/music_decoder/compose/melody.py` | `admissible`, context fields, `feasible_sets`, the repair order and `ranked_scores` | 6 |
 | `src/music_decoder/compose/api.py` | `COMPOSER_VERSION = 3` | 6 |
 | `tests/unit/test_compose_musicality.py` | Guards (Task 4); new targets and v2 comparison (Task 7) | 4, 7 |
 | `docs/usage.md`, `docs/architecture-technical.md`, the spec's Results | Documentation | 8 |
@@ -141,6 +165,10 @@ Pure additions. The composer's behaviour does not change.
       has 4 tones
   - Export the four labels as module constants (`FAULT_TOO_FEW`,
     `FAULT_FOREIGN`, `FAULT_BASS`, `FAULT_MISSING`).
+  - `fingers_needed(frets: Sequence[int]) -> int` implements spec §3.1's
+    straight-barre model. Sum over each distinct fret `f > 0` the number of
+    maximal runs of adjacent strings that are all fretted at `f` or higher
+    and contain a note at exactly `f`. An open or muted string ends a run.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -193,7 +221,7 @@ def test_chord_change_moves_and_bass_is_root():
 In `tests/unit/test_compose_voicings.py`:
 
 ```python
-from music_decoder.compose.voicings import shape_faults
+from music_decoder.compose.voicings import fingers_needed, shape_faults
 from music_decoder.tabs.tuning import EB_HALF_STEP_DOWN
 
 
@@ -211,6 +239,24 @@ def test_shape_faults_names_each_defect_in_order():
     assert shape_faults((-1, 3, 2, 0, 1, -1), STANDARD_EADGBE, c("C")) == ()  # C E G C
     assert shape_faults((-1, 3, 5, 5, -1, -1), STANDARD_EADGBE, c("C")) == ("missing tone",)  # no E
     assert shape_faults((-1,) * 6, STANDARD_EADGBE, c("C")) == ("too few strings", "missing tone")
+
+
+@pytest.mark.parametrize(
+    ("frets", "fingers"),
+    [
+        ((0, 7, 6, 7, 5, 4), 5),  # the fret-7 notes are split by a fret-6 string
+        ((-1, 6, 5, 6, 4, 3), 5),  # v2 D#7 x65643
+        ((-1, 4, 3, 4, 2, 1), 5),  # v2 C#7 x43421
+        ((1, 3, 3, 2, 1, 1), 3),  # barred F
+        ((3, 2, 0, 0, 0, 3), 3),  # open G: the open strings split the fret-3 notes
+        ((3, 0, 0, 0, 0, 3), 2),  # one barre cannot cross open strings
+        ((-1, 4, 6, 4, 6, 4), 3),  # repaired C#7
+        ((0, 7, 9, 7, 9, 7), 3),  # Eb-tuned D#7 after the repair
+        ((-1,) * 6, 0),
+    ],
+)
+def test_fingers_needed(frets, fingers):
+    assert fingers_needed(frets) == fingers
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -219,7 +265,7 @@ Run: `pytest -q tests/unit/test_compose_metrics.py tests/unit/test_compose_voici
 
 Expected: FAIL with `AttributeError` / `ImportError` for the new names.
 
-- [ ] **Step 3: Implement the five metrics functions and `shape_faults`**
+- [ ] **Step 3: Implement the five metrics functions, `shape_faults` and `fingers_needed`**
 
 Use the signatures above. The metrics module defines its own private
 constants (`_FORBIDDEN_SIZES = frozenset({6, 10, 11})`,
@@ -242,15 +288,16 @@ git commit -m "feat(compose): leap and shape-fault metrics for the voicing/leap 
 
 ---
 
-### Task 2: Evaluation: tunings matrix, new metric keys and the v2 snapshot
+### Task 2: Evaluation: development and holdout matrices, new metric keys and the v2 snapshot
 
 The composer is still unchanged in this task. The snapshot must be written
-from it.
+from it, and it is the only time the holdout is evaluated before Task 7.
+Review r1 F4: this task makes **two commits**, each with a green full gate.
 
 **Files:**
 - Modify: `src/music_decoder/evaluation/compose_musicality.py`
-- Modify: `scripts/compose_musicality_report.py` (docstring: it also writes
-  `musicality_v2.json`; the three matrices)
+- Modify: `scripts/compose_musicality_report.py`. Docstring only: it also
+  writes `musicality_v2.json`, and covers the four matrices.
 - Create (generated): `tests/fixtures/compose/musicality_v2.json`
 - Test: `tests/unit/test_compose_evaluation.py`
 
@@ -258,46 +305,59 @@ from it.
 - Consumes: Task 1 metrics.
 - Produces:
   - `TUNING_PROGRESSIONS: tuple[tuple[str, str, tuple[str, ...]], ...]`,
-    holding:
+    the samples' progressions in sharp spelling:
     - `("B", "minor", ("Bm","G","D","A","Em7","C#dim","F#7","Bm"))`
     - `("G#", "major", ("G#","C7","Fm","C#","D#7","G#"))`
     - `("D#", "major", ("D#","Cm","Fm7","A#sus4","A#7","D#"))`
-
-    These are the samples' progressions in sharp spelling.
-  - `TUNING_SEEDS = VALIDATION_SEEDS`.
-  - `tunings_inputs() -> list[Inputs]`: 15 entries, one bar per chord.
+  - `tunings_inputs() -> list[Inputs]`: 15 entries (`VALIDATION_SEEDS`),
+    one bar per chord.
+  - `HOLDOUT_SEEDS = tuple(range(3000, 3005))`.
+  - `HOLDOUT_PROGRESSIONS`: the ten progressions of spec §5.5, verbatim and
+    in that order. For example `("F", "major", ("F","Dm7","Gm7","C7","F"))`
+    and `("C#", "minor", ("C#m","F#m","G#7","C#m","A","G#7","C#m"))`.
+  - `holdout_inputs() -> list[Inputs]`: 50 entries, one bar per chord,
+    EADGBE.
   - `build_cases(inputs, tuning: Tuning = STANDARD_EADGBE) -> list[Case]`.
     `Case` gains a `tuning: Tuning` field. `case_metrics` uses
     `case.tuning` everywhere it now uses `STANDARD_EADGBE` (accompany, S1,
     V1, H1, H2).
-  - `case_metrics` adds the keys:
-    - `"L1"` (int)
-    - `"L2.leaps"` and `"L2.recovered"` (ints)
-    - `"L3"` (int)
-    - `"L4"` (share of `chord_change_moves` ≤ 4, or `None`)
-    - `"L4max"` (max of the moves, or `None`)
-    - `"L5"` (abs of the last interval, or `None`)
-    - `"S2"` (share of voicings where `not bass_is_root`)
-  - `_aggregate` pools `L2` exactly like `M5` (skip the `"L2."` keys; emit
-    `"L2": {"pooled", "n"}`).
+  - `case_metrics` adds these keys:
+    - `"L0.large"` and `"L0.intervals"` (ints): the count of intervals with
+      `abs > 7`, and `len(intervals)`
+    - `"L0.any"` (bool)
+    - `"L1"`, `"L2.leaps"`, `"L2.recovered"` and `"L3"` (ints)
+    - `"L4"` (the share of `chord_change_moves` ≤ 4, or `None`)
+    - `"L4max"` (the max of those moves, or `None`)
+    - `"L5"` (`abs` of the last interval, or `None`)
+    - `"S2"` (the share of voicings where `not bass_is_root`)
+  - `_aggregate` changes:
+    - Pool `L2` like `M5`: skip the `"L2."` keys and emit
+      `"L2": {"pooled", "n"}`.
+    - Pool `L0` as `{"pooled": sum(large) / sum(intervals), "n": sum(intervals)}`.
+    - Skip `"L0.large"` and `"L0.intervals"`.
+    - Average `"L0.any"` normally.
   - `summarize` adds a group `f"tuning.{name}"` for each distinct
     `case.tuning.name` when the cases span more than one tuning.
-  - `evaluate()` returns `{"validation", "edge", "tunings"}`. The tunings
-    matrix is `[c for t in PRESETS.values() for c in build_cases(tunings_inputs(), t)]`
-    (`PRESETS` from `tabs.tuning`), 90 cases.
+  - `evaluate()` returns `{"validation", "edge", "tunings", "holdout"}`:
+    - tunings: `[c for t in PRESETS.values() for c in build_cases(tunings_inputs(), t)]`,
+      90 cases
+    - holdout: `build_cases(holdout_inputs())`, 50 cases
+  - Module docstring: the validation and edge matrices are v2-held-out but
+    v3 development data; the holdout is v3's acceptance data (spec §6).
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/unit/test_compose_evaluation.py`)
+- [ ] **Step 1: Write the failing tests that do not need the snapshot** (append to `tests/unit/test_compose_evaluation.py`)
 
 ```python
-V2 = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
-
-
-def test_tunings_matrix_covers_the_flagged_progressions_in_every_tuning():
+def test_tunings_and_holdout_matrices():
     inputs = ev.tunings_inputs()
     assert len(inputs) == 15 and {seed for *_, seed in inputs} == set(ev.VALIDATION_SEEDS)
     assert {bars for _, _, bars, _ in inputs} == {1}
     labels = {tuple(c.to_label() for c in prog) for _, prog, _, _ in inputs}
     assert ("G#", "C7", "Fm", "C#", "D#7", "G#") in labels
+    holdout = ev.holdout_inputs()
+    assert len(holdout) == 50 and {seed for *_, seed in holdout} == set(range(3000, 3005))
+    used = {seed for *_, seed in ev.validation_inputs() + ev.edge_inputs()}
+    assert not used & {seed for *_, seed in holdout}
 
 
 def test_case_metrics_use_the_case_tuning_and_report_leaps():
@@ -306,7 +366,8 @@ def test_case_metrics_use_the_case_tuning_and_report_leaps():
     (case,) = ev.build_cases(ev.tunings_inputs()[5:6], EB_HALF_STEP_DOWN)
     assert case.tuning == EB_HALF_STEP_DOWN
     row = ev.case_metrics(case)
-    assert {"L1", "L2.leaps", "L2.recovered", "L3", "L4", "L4max", "L5", "S2"} <= set(row)
+    assert {"L0.large", "L0.intervals", "L0.any", "L1", "L2.leaps", "L2.recovered",
+            "L3", "L4", "L4max", "L5", "S2"} <= set(row)
 
 
 def test_summarize_pools_l2_and_groups_by_tuning():
@@ -319,63 +380,87 @@ def test_summarize_pools_l2_and_groups_by_tuning():
     assert "tuning.EADGBE" not in ev.summarize(cases[:2])
 
 
-def test_committed_v2_snapshot_has_three_matrices_and_the_new_metrics():
-    snap = json.loads(V2.read_text())
-    assert {"source", "validation", "edge", "tunings"} <= set(snap)
-    v = snap["validation"]["overall"]
-    assert v["L1"]["max"] == 1 and v["L4max"]["max"] == 12  # v2's measured defects
-    assert snap["tunings"]["overall"]["S1.missing"]["mean"] > 0
+def test_l0_pools_intervals_while_m4_averages_pieces():  # review r1 F6
+    rows = [
+        {"M4": 0.002, "L0.large": 2, "L0.intervals": 1000, "L0.any": True},
+        {"M4": 0.0, "L0.large": 0, "L0.intervals": 10, "L0.any": False},
+    ]
+    out = ev._aggregate(rows)
+    assert out["M4"]["mean"] == 0.001  # mean of per-piece rates
+    assert out["L0"] == {"pooled": 0.002, "n": 1010.0}  # 2 / 1010, rounded to 4 places
+    assert out["L0.any"]["mean"] == 0.5
 ```
+
+`_aggregate` must skip any pooled pair (`M5`, `M15`, `L2` or `L0`) whose
+keys are absent from the rows. Today it would raise `KeyError` on rows
+without `M5.*`. This keeps the hand-built rows minimal.
 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pytest -q tests/unit/test_compose_evaluation.py`
 
-Expected: FAIL with `AttributeError: tunings_inputs` (and the missing
-fixture).
+Expected: FAIL with `AttributeError: tunings_inputs` / `holdout_inputs`.
 
 - [ ] **Step 3: Implement the interfaces above** in `compose_musicality.py`
   and update the script docstring.
 
-- [ ] **Step 4: Run every test except the snapshot test, plus the musicality suite**
+- [ ] **Step 4: Run the full gate**
 
-Run: `pytest -q tests/unit/test_compose_evaluation.py tests/unit/test_compose_musicality.py -k "not v2_snapshot"`
+Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`
 
-Expected: PASS. The existing musicality tests only read the validation and
-edge matrices, so they are unaffected.
+Expected: green. The existing musicality tests read only validation and
+edge, which are unchanged.
 
-- [ ] **Step 5: Commit the code (the snapshot comes next, from a clean tree)**
+- [ ] **Step 5: Commit 1 (code and runnable tests)**
 
 ```bash
 git add src/music_decoder/evaluation/compose_musicality.py scripts/compose_musicality_report.py tests/unit/test_compose_evaluation.py
-git commit -m "feat(eval): tunings matrix, leap/shape metric keys and per-tuning groups"
+git commit -m "feat(eval): tunings and holdout matrices, leap/shape metric keys, pooled L0"
 ```
 
-- [ ] **Step 6: Write the v2 snapshot from the unchanged composer**
-
-Run: `git status --short src` (expect no output), then
-`python scripts/compose_musicality_report.py --write tests/fixtures/compose/musicality_v2.json`.
-
-Expected values, measured in the spec:
-- `"source"` is the Step 5 commit's short hash with no `-dirty`.
-- validation `L1.max == 1`, `L4max.max == 12`, `M4.mean ≈ 0.004`,
-  `L4.mean ≈ 0.852`
-- edge `L4.mean ≈ 0.806`
-- tunings `S1.missing.mean ≈ 0.088`, `S2.mean ≈ 0.107`
-
-If `source` ends in `-dirty`, stop: something in the tree is modified.
-
-- [ ] **Step 7: Run the snapshot test**
-
-Run: `pytest -q tests/unit/test_compose_evaluation.py`
-
-Expected: PASS.
-
-- [ ] **Step 8: Commit the snapshot**
+- [ ] **Step 6: Restore a clean tracked tree, then write the v2 snapshot**
 
 ```bash
-git add tests/fixtures/compose/musicality_v2.json
-git commit -m "test(eval): commit composer v2 musicality snapshot (reference for v3)"
+git checkout -- tests/fixtures/synthetic/
+test -z "$(git status --porcelain --untracked-files=no)" || { echo "tracked tree not clean"; exit 1; }
+python scripts/compose_musicality_report.py --write tests/fixtures/compose/musicality_v2.json
+```
+
+Expected:
+- `"source"` is Commit 1's short hash, with no `-dirty`.
+- These v2 values were measured in the spec. Holdout values are new and
+  unknown.
+  - validation: `L1.max == 1`, `L4max.max == 12`, `L0.pooled ≈ 0.0044`,
+    `M4.mean ≈ 0.004`, `L4.mean ≈ 0.852`
+  - edge: `L4.mean ≈ 0.806`
+  - tunings: `S1.missing.mean ≈ 0.088`, `S2.mean ≈ 0.107`
+
+If `source` ends in `-dirty`, stop and find the modified tracked file.
+
+- [ ] **Step 7: Add the snapshot test** (append to `tests/unit/test_compose_evaluation.py`)
+
+```python
+V2 = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
+
+
+def test_committed_v2_snapshot_has_every_matrix_and_the_new_metrics():
+    snap = json.loads(V2.read_text())
+    assert {"source", "validation", "edge", "tunings", "holdout"} <= set(snap)
+    assert not snap["source"].endswith("-dirty")
+    v = snap["validation"]["overall"]
+    assert v["L1"]["max"] == 1 and v["L4max"]["max"] == 12  # v2's measured defects
+    assert set(v["L0"]) == {"pooled", "n"}
+    assert snap["tunings"]["overall"]["S1.missing"]["mean"] > 0
+```
+
+- [ ] **Step 8: Run the full gate, then commit 2 (snapshot and its test)**
+
+Run the full gate (green). Then restore the markers
+(`git checkout -- tests/fixtures/synthetic/`) and:
+
+```bash
+git add tests/fixtures/compose/musicality_v2.json tests/unit/test_compose_evaluation.py
+git commit -m "test(eval): commit composer v2 musicality snapshot (reference for v3, incl. holdout)"
 ```
 
 ---
@@ -407,6 +492,8 @@ SAMPLES = {
 }
 ```
 
+- **Imports:** `fingers_needed` and `shape_faults` from
+  `compose.voicings`; `metrics` from `compose`.
 - **Helper `_run(args, tmp_path) -> dict`:**
   - Wrap the call in `mock.patch("music_decoder.compose.api.render_wav")`.
   - Invoke `CliRunner().invoke(main, ["compose", *args, "--out", str(tmp_path), "--format", "json"])`.
@@ -437,6 +524,7 @@ def test_sample_voicings_are_faithful(name, tmp_path):
     for v in out["chord_voicings"]:
         chord, frets = ChordSymbol(**v["chord"]), [p["fret"] for p in v["positions"]]
         assert shape_faults(frets, tuning, chord) == (), chord
+        assert fingers_needed(frets) <= 4, chord
         sounding[chord.to_label()] = sorted(tuning.open_pitches[s] + f for s, f in enumerate(frets) if f >= 0)
     if name == "minor-10-B":
         assert {p % 12 for p in sounding["C#dim"]} == {1, 4, 7}
@@ -450,16 +538,17 @@ def test_sample_voicings_are_faithful(name, tmp_path):
     pytest.param(k, marks=pytest.mark.xfail(strict=True, reason="melodic leaps (Task 6)")) for k in SAMPLES
 ])
 def test_sample_melodies_are_singable(name, tmp_path):
+    # Musical assertions only, in a fixed order (spec §5.6). No version check
+    # here: it would mask these assertions while the composer is still v2.
     out = _run(SAMPLES[name], tmp_path)
     mel, prog, tempo = ...  # as above; bars_per_chord = 1
-    assert out["metadata"]["composer_version"] == 3
-    assert metrics.forbidden_interval_count(mel) == 0
-    assert metrics.unjustified_large_leap_count(mel, prog, 1, tempo) == 0
+    assert metrics.forbidden_interval_count(mel) == 0, "L1"
+    assert metrics.unjustified_large_leap_count(mel, prog, 1, tempo) == 0, "L3"
     leaps, recovered = metrics.large_leap_recovery_counts(mel)
-    assert recovered == leaps
-    assert max(metrics.chord_change_moves(mel, prog, 1, tempo)) <= 7
+    assert recovered == leaps, "L2"
+    assert max(metrics.chord_change_moves(mel, prog, 1, tempo)) <= 7, "L4max"
     final = abs(mel[-1].pitch - mel[-2].pitch)
-    assert final <= 7 and final != 6
+    assert final <= 7 and final != 6, "L5"
 
 
 @pytest.mark.parametrize("name", list(SAMPLES))
@@ -473,10 +562,23 @@ def test_sample_commands_are_deterministic(name, tmp_path):
 
 Run: `pytest -q -rxX tests/unit/test_compose_samples.py`
 
-Expected: `3 passed, 6 xfailed`, with no XPASS. Every xfail must fail on an
-`AssertionError`, not an error in the test's own code. Check this by running
-the file once with `--runxfail`: you should see 6 failures, all
-`AssertionError`.
+Expected: `3 passed, 6 xfailed`, with no XPASS.
+
+Then prove that each xfail fails *on the reported defect* (review r1 F3).
+Run `pytest -q --runxfail tests/unit/test_compose_samples.py -k "singable or faithful"`
+and read each failure:
+- **Melody tests:** the failing assertion's message must be
+  - `L3` for minor-10-B (G5→B4)
+  - `L1` for major-08-Ab (G4→F5, +10)
+  - `L3` for major-09-Eb (G#4→F5 at Cm→Fm7)
+- **Voicing tests:**
+  - minor-10-B fails on `shape_faults` for C#dim
+  - major-08-Ab on `shape_faults` for D#7 (a single note)
+  - major-09-Eb on `shape_faults` for A#7 (`root not in bass`)
+
+Any other failure, such as an error in the test code or a different
+assertion, must be fixed before committing. Record the six messages in the
+commit body.
 
 - [ ] **Step 3: Commit**
 
@@ -487,12 +589,13 @@ git commit -m "test(compose): the three flagged sample commands as strict-xfail 
 
 ---
 
-### Task 4: Repair the five library shapes
+### Task 4: Repair the seven library shapes
 
 **Files:**
 - Modify: `src/music_decoder/chords/voicings.py`. Change the entries for
-  C#dim, Ddim, D#dim, Fmaj7 and G#aug, and add an invariant paragraph to
-  the module docstring stating the §3.1 rules.
+  C#dim, Ddim, D#dim, Fmaj7, G#aug, C#7 and D#7, and add an invariant
+  paragraph to the module docstring stating the §3.1 rules: faithful and
+  playable.
 - Modify: `tests/unit/test_chord_detection_voicings.py`
 - Modify: `tests/unit/test_compose_metrics.py`
   (`test_shape_tone_mismatch_reports_inherited_shape_defects`)
@@ -509,22 +612,28 @@ git commit -m "test(compose): the three flagged sample commands as strict-xfail 
   - `"D#dim": (-1, -1, 1, 2, 4, 2)`
   - `"Fmaj7": (-1, -1, 3, 2, 1, 0)`
   - `"G#aug": (-1, -1, 6, 5, 5, 4)`
+  - `"C#7": (-1, 4, 6, 4, 6, 4)`
+  - `"D#7": (-1, 6, 8, 6, 8, 6)`
 
 - [ ] **Step 1: Write the failing tests** (in `test_chord_detection_voicings.py`)
 
 ```python
-from music_decoder.compose.voicings import shape_faults
+from music_decoder.compose.voicings import fingers_needed, shape_faults
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import ChordSymbol
 
 
-def test_every_library_shape_is_faithful():
-    faulty = {
-        label: shape_faults(v, STANDARD_EADGBE, ChordSymbol.parse(label))
-        for label, v in VOICINGS.items()
-        if label != "N"
-    }
-    assert {k: f for k, f in faulty.items() if f} == {}
+def test_every_library_shape_is_faithful_and_playable():
+    bad = {}
+    for label, v in VOICINGS.items():
+        if label == "N":
+            continue
+        fretted = [f for f in v if f > 0]
+        span = max(fretted) - min(fretted) if fretted else 0
+        faults = shape_faults(v, STANDARD_EADGBE, ChordSymbol.parse(label))
+        if faults or span > 3 or fingers_needed(v) > 4:
+            bad[label] = (faults, span, fingers_needed(v))
+    assert bad == {}
 
 
 @pytest.mark.parametrize(
@@ -535,6 +644,8 @@ def test_every_library_shape_is_faithful():
         ("D#dim", (-1, -1, 1, 2, 4, 2)),  # D#3 A3 D#4 F#4
         ("Fmaj7", (-1, -1, 3, 2, 1, 0)),  # F3 A3 C4 E4
         ("G#aug", (-1, -1, 6, 5, 5, 4)),  # G#3 C4 E4 G#4
+        ("C#7", (-1, 4, 6, 4, 6, 4)),  # C#3 G#3 B3 F4 G#4 (v2 x43421 needs 5 fingers)
+        ("D#7", (-1, 6, 8, 6, 8, 6)),  # D#3 A#3 C#4 G4 A#4 (v2 x65643 needs 5 fingers)
     ],
 )
 def test_repaired_shapes(label, frets):
@@ -545,9 +656,10 @@ def test_repaired_shapes(label, frets):
 
 Run: `pytest -q tests/unit/test_chord_detection_voicings.py`
 
-Expected: FAIL, listing exactly C#dim, Ddim, D#dim, Fmaj7 and G#aug.
+Expected: FAIL, listing exactly C#dim, Ddim, D#dim, Fmaj7, G#aug, C#7 and
+D#7.
 
-- [ ] **Step 3: Change the five entries and the docstring.**
+- [ ] **Step 3: Change the seven entries and the docstring.**
 
 - [ ] **Step 4: Update the three dependent tests**
 
@@ -561,7 +673,10 @@ Expected: FAIL, listing exactly C#dim, Ddim, D#dim, Fmaj7 and G#aug.
 2. **`test_guards_do_not_regress`:**
    - Replace the S1 equality loop with
      `assert cand["S1.missing"]["max"] == 0 and cand["S1.foreign"]["max"] == 0`.
-   - Replace the V1 line with `cand["V1"]["mean"] <= v2[matrix]["overall"]["V1"]["mean"] + 0.02`.
+   - Replace the V1 line with
+     `cand["V1"]["mean"] <= v2[matrix]["overall"]["V1"]["mean"] + 0.1`.
+     The unit is semitones per voice (spec §6.2). The measured change is
+     1.621 → 1.648.
    - Add a module-scoped `v2` fixture that loads `musicality_v2.json`.
    - Keep the M11a and H2 lines.
    - Update the comment: shapes are repaired, so V1 moves (spec §6.2).
@@ -577,6 +692,8 @@ Expected:
 - samples: `4 passed, 5 xfailed`
 - no XPASS. In particular the minor-10-B *melody* test stays xfailed (spec
   §5.7). If it XPASSes, stop and report.
+- Re-run the Task 3 `--runxfail` check for the three melody tests. The
+  failing messages must still be `L3`, `L1` and `L3` (review r1 F3).
 
 - [ ] **Step 6: Run the full gate, then commit**
 
@@ -585,7 +702,7 @@ Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff for
 ```bash
 git add src/music_decoder/chords/voicings.py tests/unit/test_chord_detection_voicings.py \
   tests/unit/test_compose_metrics.py tests/unit/test_compose_musicality.py tests/unit/test_compose_samples.py
-git commit -m "fix(chords): repair C#dim, Ddim, D#dim, Fmaj7 and G#aug library shapes"
+git commit -m "fix(chords): repair C#dim, Ddim, D#dim, Fmaj7, G#aug, C#7 and D#7 library shapes"
 ```
 
 ---
@@ -607,6 +724,7 @@ git commit -m "fix(chords): repair C#dim, Ddim, D#dim, Fmaj7 and G#aug library s
   `harmony.essential_pcs`.
 - Produces:
   - `MAX_FRETTED_SPAN = 3`
+  - `MAX_FINGERS = 4`
   - `SEARCH_MAX_BASE_FRET = 9`
   - `SEARCH_MIN_STRINGS = 4`
   - `_retune(frets: Sequence[int], tuning: Tuning, chord: ChordSymbol) -> tuple[int, ...] | None`
@@ -628,9 +746,10 @@ Behaviour is exactly spec §5.2:
   - at least one fret ≥ 0
   - every fret ≤ 22
   - the span of frets > 0 is at most `MAX_FRETTED_SPAN`
+  - `fingers_needed(frets) <= MAX_FINGERS`
 - **`search_voicing`:**
-  - window, bass rule, contiguity, finger rule and selection key as in
-    §5.2 item 5
+  - window, bass rule, contiguity and selection key as in §5.2 item 5
+  - its finger rule is `fingers_needed(combo) <= MAX_FINGERS`
   - acceptance is `shape_faults(...) == ()` and at least
     `SEARCH_MIN_STRINGS` sounding strings
 - **`voicings_for`:**
@@ -664,9 +783,9 @@ def test_every_chord_in_every_preset_tuning_is_faithful_and_playable():
                 fretted = [f for f in frets if f > 0]
                 span = max(fretted) - min(fretted) if fretted else 0
                 faults = shape_faults(frets, tuning, ChordSymbol.parse(label))
-                if faults or span > 3:
-                    bad.append((name, label, frets, faults))
-    assert bad == []  # v2: 98 of 576 faulty (spec §3.3)
+                if faults or span > 3 or fingers_needed(frets) > 4:
+                    bad.append((name, label, frets, faults, fingers_needed(frets)))
+    assert bad == []  # v2: 98 of 576 faulty; revision 1: 22 needing 5 fingers (spec §3.3)
 
 
 def test_standard_tuning_plays_the_library_shapes_unchanged():
@@ -680,16 +799,24 @@ def test_standard_tuning_plays_the_library_shapes_unchanged():
     [
         (DROP_D, "D", (0, -1, 0, 2, 3, 2)),  # low D added (root); open A2 stays muted
         (DROP_C, "C", (0, 5, 4, 2, 3, 2)),
-        (EB_HALF_STEP_DOWN, "D#7", (0, 7, 6, 7, 5, 4)),  # v2: a single D#2
+        (EB_HALF_STEP_DOWN, "D#7", (0, 7, 9, 7, 9, 7)),  # v2: a single D#2; not 0-7-6-7-5-4 (5 fingers)
+        (EB_HALF_STEP_DOWN, "C7", (-1, 4, 3, 1, 0, 1)),  # searched: retuned x32310 would need 5 fingers
         (EB_HALF_STEP_DOWN, "Cm", (-1, 4, 6, 6, 5, 4)),  # v2: C3 C3
         (D_STANDARD, "A#7", (-1, 3, 5, 3, 5, 3)),  # v2: open D2 under the barre
         (DROP_C, "G", (-1, 0, 2, 2, 2, 0)),  # searched
-        (DROP_D, "G7", (5, 2, 3, 0, 3, -1)),  # searched: span 4 rejected
+        (DROP_D, "G7", (5, 2, 3, 0, 3, 3)),  # searched: the retuned span of 4 is rejected
         (DADGAD, "D#dim", (1, 0, 1, 2, 0, 4)),  # searched
     ],
 )
 def test_retune_and_search_choices(tuning, label, frets):
     assert _frets(label, tuning) == frets
+
+
+# imports for this file: `_is_playable` and `search_voicing` from compose.voicings
+def test_five_finger_retunes_are_rejected():
+    assert not _is_playable((0, 7, 6, 7, 5, 4))
+    assert not _is_playable((-1, 6, 5, 6, 4, 3))
+    assert _is_playable((0, 7, 9, 7, 9, 7))
 
 
 def test_tuning_above_standard_uses_the_search():  # Review Focus 1
@@ -716,6 +843,7 @@ In `test_compose_api.py`, add (Review Focus 5):
     ("Drop_C", ("C", "G", "Am", "G7", "Gmaj7", "C")),
     ("Drop_D", ("C", "G7", "C")),
     ("DADGAD", ("D", "A#", "D#dim", "A#sus4", "Bmaj7", "D")),
+    ("Eb", ("C", "C7", "F", "B7", "C")),
 ])
 def test_searched_voicings_compose_with_their_identity_heard(tuning_name, labels, style):
     tuning = get_preset(tuning_name)
@@ -743,6 +871,8 @@ Expected:
 - PASS
 - samples: `6 passed, 3 xfailed`, with no XPASS
 - the existing Drop D test still passes
+- the Task 3 `--runxfail` check of the three melody tests still shows `L3`,
+  `L1` and `L3` (review r1 F3)
 
 - [ ] **Step 5: Run the full gate, then commit**
 
@@ -751,7 +881,7 @@ Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff for
 ```bash
 git add src/music_decoder/compose/voicings.py tests/unit/test_compose_voicings.py \
   tests/unit/test_compose_api.py tests/unit/test_compose_harmony.py tests/unit/test_compose_samples.py
-git commit -m "fix(compose): faithful chord voicings in every tuning (retune, span gate, shape search)"
+git commit -m "fix(compose): faithful, four-finger chord voicings in every tuning (retune, gates, shape search)"
 ```
 
 ---
@@ -762,57 +892,74 @@ git commit -m "fix(compose): faithful chord voicings in every tuning (retune, sp
 - Modify: `src/music_decoder/compose/melody.py`
 - Modify: `src/music_decoder/compose/api.py` (`COMPOSER_VERSION = 3`)
 - Modify: `tests/unit/test_compose_melody.py`
-- Modify: `tests/unit/test_compose_api.py`: the version assertion `== 3`.
-- Modify: `tests/unit/test_compose_samples.py`: remove the melody xfails.
+- Modify: `tests/unit/test_compose_api.py`: the version assertion becomes
+  `== 3`, plus the sweep tests below.
+- Modify: `tests/unit/test_compose_samples.py`: remove the melody xfails and
+  add the version test.
 
 **Interfaces:**
 - Consumes: Task 1 metrics (in tests).
 - Produces, in `compose.melody`:
-  - the constants `SMOOTH_LIMIT`, `FORBIDDEN_INTERVALS` and
-    `CHORD_CHANGE_STEP_BONUS`
-  - `NoteContext` fields `chord_change`, `prev_chord_tone`, `next_fixed`,
-    `approach` and `recovery_pool`, with the defaults of spec §5.3
-  - `admissible(candidate: int, ctx: NoteContext) -> bool` implementing
-    R1–R4
-  - `_candidates(..., target_pc, cadence_reach: int = MAX_INTERVAL)`
+  - the constants `SMOOTH_LIMIT = 7`,
+    `FORBIDDEN_INTERVALS = frozenset({6, 10, 11})` and
+    `CHORD_CHANGE_STEP_BONUS = 1.0`
+  - `NoteContext` fields `chord_change: bool = False`,
+    `prev_chord_tone: bool = False`,
+    `recovery_pool: frozenset[int] | None = None` and
+    `allowed: frozenset[int] | None = None`
+  - `admissible(candidate: int, ctx: NoteContext) -> bool`, rules R1–R4 of
+    spec §5.3
+  - `smooth(a: int, b: int) -> bool`: `abs(b - a) <= SMOOTH_LIMIT and abs(b - a) != 6`
+  - `feasible_sets(candidates: Sequence[int], n_free: int, goal: Collection[int]) -> list[frozenset[int]]`,
+    the backward construction of spec §5.3. It returns `[]` when
+    `n_free == 0`.
+  - `ranked_scores(candidates: Sequence[int], ctx: NoteContext, tessitura_center: int) -> tuple[list[float], int]`:
+    the ladder of levels 0, 1 and 2 from spec §5.3
+  - `_candidates` is **unchanged** from v2. Revision 1's `cadence_reach`
+    is dropped.
 
-**Wiring in `generate_melody`.** This must match the prototype exactly so
-that §6's numbers reproduce.
+**Wiring in `generate_melody`** (spec §5.3, "Repair order"):
 
-- **`final_approach`:**
-  - `cadence = cadence_pc(scale, progression[-1])`
-  - `in_window = tuple(p for p in range(pitch_low, pitch_high + 1) if p % 12 == cadence)`
-  - `floor = chord_floors[-1] if chord_floors is not None else None`
-  - `above = tuple(p for p in in_window if floor is None or p >= floor)`
-  - `final_approach = above or in_window`
-- **`one_note_final = len(bars[-1].slots) == 1`**
-- **Per slot `k` of bar `bar_idx`** (`n_slots = len(bar.slots)`):
+- **Before the loop:**
+  - `final_approach`: the final chord's `cadence_pc` pitches inside
+    `[pitch_low, pitch_high]`, kept only at or above
+    `chord_floors[-1]` when any remain (all of them if `chord_floors` is
+    `None`)
+  - `one_note_final = len(bars[-1].slots) == 1`
+- **At each bar start:**
+  - `approach_bar = one_note_final and bar_idx == len(bars) - 2`
+  - options: `floored = _candidates(...)` exactly as v2, then
+    `unfloored = _candidates(..., floor=None, ...)` if it differs
+  - pick `(candidates, target, feas)` by the spec's order:
+    - *Final bar:* cadence pitches sorted by `(abs(p - ref), p)`, with
+      `feas = feasible_sets(option, n - 1, {target})`. The bar can be
+      entered when `smooth(prev, target)` (for `n == 1`), or when some
+      `c` in `feas[0]` has `smooth(prev, c)`. `prev is None` always
+      enters.
+    - *Approach bar:* `feas = feasible_sets(option, n, final_approach)`.
+    - *Other bars:* `feas = None`; the option needs some pitch `smooth`
+      from `prev`.
+    - *If no option works:* `floored`, v2's `final_target(...)`, and
+      `feas = None`.
+- **Per sampled slot `k`:**
   - `chord_change = prev_chord is not None and chord != prev_chord`
   - `prev_chord_tone = prev is not None and prev % 12 in tones`
-  - `next_fixed = target if target is not None and k == n_slots - 2 else None`
-  - `approach_here(bar_idx, k) = one_note_final and bar_idx == len(bars) - 2 and k == n_slots - 1`;
-    set `approach = final_approach` when it is true
-  - `recovery_pool = frozenset(candidates)` if all of these hold, else `None`:
-    - `k + 1 < n_slots`
-    - `not (target is not None and k + 1 >= n_slots - 2)`
-    - `not approach_here(bar_idx, k + 1)`
-- **Scoring:** `scores = [score_pitch(c, ctx, centre) if admissible(c, ctx) else -math.inf for c in candidates]`.
-  If none is finite, use `[score_pitch(c, ctx, centre) for c in candidates]`.
-- **`_candidates`** is called with
-  `cadence_reach = SMOOTH_LIMIT if bar.final and len(bar.slots) == 1 else MAX_INTERVAL`.
-  Inside, the final-bar check becomes "some `p` in `above` with
-  `p % 12 == target_pc` and (`prev is None` or (`abs(p - prev) <= cadence_reach`
-  and `abs(p - prev) != 6`))".
+  - `allowed = feas[k] if feas else None`
+  - `recovery_pool = frozenset(candidates)` if `k + 1 < n` and the bar is
+    neither the final bar nor the approach bar, else `None`
+  - Then `scores, _ = ranked_scores(candidates, ctx, tessitura_center)`.
 - **`score_pitch`:** inside the `prev_pitch is not None` block, add
   `CHORD_CHANGE_STEP_BONUS` when `ctx.chord_change and 1 <= size <= 2`.
-- **R3 recovery check:** the pool must contain some `r` with
+- **R3 recovery check:** the pool contains some `r` with
   `1 <= (candidate - r) * sign(interval) <= 2`.
 
 - [ ] **Step 1: Write the failing unit tests** (in `test_compose_melody.py`,
   using the existing `_ctx`)
 
 ```python
-from music_decoder.compose.melody import CHORD_CHANGE_STEP_BONUS, _candidates, admissible
+from music_decoder.compose.melody import (
+    CHORD_CHANGE_STEP_BONUS, admissible, feasible_sets, ranked_scores,
+)
 
 
 def test_admissible_forbids_tritones_sevenths_and_wide_leaps():
@@ -823,8 +970,8 @@ def test_admissible_forbids_tritones_sevenths_and_wide_leaps():
 
 def test_admissible_large_leap_needs_arpeggiation_and_a_recovery():
     ok = dict(prev_chord_tone=True, recovery_pool=frozenset({74, 76, 77}))
-    assert admissible(76 + 4, _ctx(prev_pitch=72, **ok)) is False  # 80 = G#, not a chord tone
-    assert admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=frozenset({77}))) is True
+    assert not admissible(80, _ctx(prev_pitch=72, **ok))  # G# is not a C chord tone
+    assert admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=frozenset({77})))
     assert not admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=None))
     assert not admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=frozenset({76})))
     assert not admissible(79, _ctx(prev_pitch=67, prev_chord_tone=False, recovery_pool=frozenset({77})))
@@ -842,39 +989,44 @@ def test_admissible_forces_recovery_after_a_large_leap():
     assert not admissible(77, after) and not admissible(72, after) and not admissible(76, after)
 
 
-def test_admissible_keeps_the_final_approach_smooth():
-    assert admissible(67, _ctx(next_fixed=72)) and not admissible(64, _ctx(next_fixed=72))
-    assert not admissible(66, _ctx(next_fixed=72))  # tritone below the target
-    assert admissible(74, _ctx(approach=(67, 79))) and not admissible(73, _ctx(approach=(67, 79)))
+def test_admissible_respects_the_feasibility_set():
+    assert admissible(74, _ctx(allowed=frozenset({74}))) and not admissible(71, _ctx(allowed=frozenset({74})))
+
+
+def test_feasible_sets_walk_back_from_the_goal():
+    # review r1 F1: floored final bar of C -> D#m; target D#5 (75), prev E4 (64)
+    floored = [69, 70, 72, 74, 75, 77, 78]
+    (first,) = feasible_sets(floored, 1, {75})
+    assert first == {70, 72, 74, 75, 77, 78}  # 69 is a tritone from 75
+    assert not any(abs(c - 64) <= 7 and abs(c - 64) != 6 for c in first)  # dead end: repair
+    assert feasible_sets(floored, 0, {75}) == []
+
+
+def test_ranked_scores_ladder_keeps_r1_and_r2_before_giving_up():
+    ctx = _ctx(prev_pitch=64, allowed=frozenset())  # nothing is admissible
+    scores, level = ranked_scores([66, 75], ctx, 70)
+    assert level == 1 and math.isfinite(scores[0]) and scores[1] == -math.inf  # +11 stays forbidden
+    scores, level = ranked_scores([75], _ctx(prev_pitch=64, allowed=frozenset()), 70)
+    assert level == 2 and math.isfinite(scores[0])  # only a forbidden move exists
+    assert ranked_scores([66], _ctx(prev_pitch=64), 70)[1] == 0
 
 
 def test_chord_change_step_bonus():
     step = score_pitch(74, _ctx(chord_change=True), 72) - score_pitch(74, _ctx(), 72)
     assert step == pytest.approx(CHORD_CHANGE_STEP_BONUS)
     assert score_pitch(72, _ctx(chord_change=True), 72) == score_pitch(72, _ctx(), 72)
-
-
-def test_one_note_final_bar_floor_yields_unless_a_fifth_reaches_it():
-    c, g7 = Scale("C", "major"), ChordSymbol.parse("G7")
-    smooth = _candidates(c, g7, 62, 79, 68, 71, 7, cadence_reach=7)  # G5 is 8 above B4
-    octave = _candidates(c, g7, 62, 79, 68, 71, 7)
-    assert min(smooth) < 68 and min(octave) >= 68
 ```
 
-Check these against the existing `_ctx` defaults: `chord_pcs={0, 4, 7}`,
-`prev_pitch=72`, `prev_interval=0`. The case `79` from `67` is +12 between
-G4 and G5, both chord tones, and recovery 77 lies 2 below 79. If an
-assertion conflicts with the spec's R-rules, the spec wins: fix the
-assertion and note it in the commit.
-
 Rewrite `test_one_note_final_bar_stays_within_an_octave_when_a_floor_bites`
-as `test_one_note_final_bar_is_approached_within_a_fifth`, with the same
-200-seed loop. Assert `abs(notes[1].pitch - notes[0].pitch) <= 7` and
+as `test_one_note_final_bar_is_approached_within_a_fifth`. Keep the same
+200-seed loop, and assert `abs(notes[1].pitch - notes[0].pitch) <= 7`,
 `!= 6`, and `notes[1].pitch % 12 == 7`. Delete the `low_starts`
-precondition. Its branch is now covered by
-`test_one_note_final_bar_floor_yields_unless_a_fifth_reaches_it`.
+precondition.
 
-Generator-level tests:
+Generator-level tests in `test_compose_melody.py`: `_leap_invariants`,
+`test_generated_melodies_obey_the_leap_rules`,
+`test_legacy_grid_and_no_floors_obey_the_leap_rules` (Review Focus 3) and
+`test_short_pieces_obey_the_leap_rules` (Review Focus 4):
 
 ```python
 def _leap_invariants(notes, labels, bars=1, tempo=120.0):
@@ -911,46 +1063,94 @@ def test_short_pieces_obey_the_leap_rules():  # Review Focus 4
             _leap_invariants(notes, labels)
 ```
 
-Here `"A"` gives key A for `("A", "Dsus4")`. The floors list is cut to the
-progression's length (`[None]` for `("D",)`). All of these sweeps, and the
-admissibility cases above, were run against the planning prototype and pass.
-On these adversarial inputs the relaxed fallback was taken 3 times, and the
-invariants still held.
+Composer-level tests in `test_compose_api.py` (review r1 F1), using the
+real floors from `arrange()`:
+
+```python
+def _api_leap_invariants(arr, labels, tempo=100.0):
+    mel, p = arr.melody, _chords(*labels)
+    assert metrics.forbidden_interval_count(mel) == 0
+    assert metrics.unjustified_large_leap_count(mel, p, 1, tempo) == 0
+    leaps, recovered = metrics.large_leap_recovery_counts(mel)
+    assert recovered == leaps
+    assert max(metrics.chord_change_moves(mel, p, 1, tempo), default=0) <= 7
+    assert abs(mel[-1].pitch - mel[-2].pitch) <= 7
+
+
+def test_review_r1_major_seventh_is_repaired():
+    arr = arrange(Scale("C", "major"), _chords("C", "D#m"), seed=19)  # v2 and rev. 1: 64 -> 75
+    _api_leap_invariants(arr, ("C", "D#m"))
+    assert arr.melody[-1].pitch % 12 == 3  # still ends on D#, the root of D#m
+
+
+@pytest.mark.parametrize(("key", "mode", "labels", "seed"), [
+    ("C", "major", ("C", "D#m"), 20), ("C", "major", ("C", "D#m7"), 20),
+    ("A", "minor", ("Am", "D#m"), 20), ("A", "minor", ("Am", "D#m7"), 20),
+])
+def test_revision_1_sweep_failures_are_repaired(key, mode, labels, seed):
+    _api_leap_invariants(arrange(Scale(key, mode), _chords(*labels), seed=seed), labels)
+
+
+def test_every_root_and_quality_composes_smoothly():  # spec §6.4 bounded sweep
+    for key, mode, home in (("C", "major", "C"), ("A", "minor", "Am")):
+        for root in ROOTS:
+            for quality in QUALITIES:
+                x = chord_label(root, quality)
+                for labels in ((home, x), (home, x, home)):
+                    for seed in range(5):
+                        _api_leap_invariants(arrange(Scale(key, mode), _chords(*labels), seed=seed), labels)
+```
+
+The bounded sweep runs 1,920 compositions in about 2 s. With default
+arguments, `arrange()` uses tempo 100 and EADGBE. The file needs these
+imports: `ROOTS`, `QUALITIES` and `chord_label` from `chords.templates`,
+and `metrics` from `compose`. Every assertion in this step was run against
+the revision-2 planning prototype and passes.
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `pytest -q tests/unit/test_compose_melody.py`
+Run: `pytest -q tests/unit/test_compose_melody.py tests/unit/test_compose_api.py`
 
-Expected: FAIL (`ImportError: admissible`, and the generator sweeps fail on
-v2 melodies).
+Expected: FAIL (`ImportError: admissible`; the sweeps fail on v2 melodies;
+C → D#m seed 19 fails on L1).
 
-- [ ] **Step 3: Implement §5.3** with the wiring above. Then set
-  `COMPOSER_VERSION = 3` and update `test_compose_api.py`'s `== 2` to
+- [ ] **Step 3: Implement spec §5.3** with the wiring above. Then set
+  `COMPOSER_VERSION = 3`, and update `test_compose_api.py`'s `== 2` to
   `== 3`.
 
-- [ ] **Step 4: Turn the three melody params of `test_compose_samples.py`
-  into plain params, then run the compose suite**
+- [ ] **Step 4: Remove the three melody xfail markers and add the version test**
+
+In `test_compose_samples.py`, turn the melody params into plain params and
+add:
+
+```python
+def test_sample_metadata_reports_composer_version_3(tmp_path):
+    out = _run(SAMPLES["minor-10-B"], tmp_path)
+    assert out["metadata"]["composer_version"] == 3
+```
 
 Run: `pytest -q -rxX tests/unit/test_compose_melody.py tests/unit/test_compose_api.py tests/unit/test_compose_samples.py tests/unit/test_compose_musicality.py tests/unit/test_compose_arrangement.py tests/integration/test_compose_e2e.py`
 
 Expected:
 - PASS, with no xfail or XPASS left in the samples file
-- every v2 musicality test still passes (spec §6.3: the prototype passes
-  them all)
+- every existing v2 musicality test still passes
 
-- [ ] **Step 5: Check the numbers against the prototype**
+- [ ] **Step 5: Measure and report (no prototype-matching gate)**
 
-Run: `python scripts/compose_musicality_report.py | grep -E "^ *(M1|M2|M4|M4max|L1|L3|L4|L4max|L5) "`
+Run: `python scripts/compose_musicality_report.py | grep -E "^ *(M1|M2|M4|M4max|L0|L1|L3|L4|L4max|L5) "`
 
-Expected (validation, then edge):
-- `M1 mean=0.977` / `0.9843`
-- `M4 mean=0.0002` / `0`
-- `M4max max=8` / `7`
-- `L1 max=0`, `L3 max=0`, `L4max max=7`, `L5 max=7`
-- `L4 mean≈0.885` / `≈0.848`
+For reference, the spec's prototype values on the development matrices
+(validation / edge) are:
+- `M1 ≈ 0.977 / 0.984`
+- `L0 pooled ≈ 0.0003 / 0`
+- `M4max = 8 / 7`
+- `L1 = L3 = 0`, `L4max = 7`, `L5 = 7`
+- `L4 ≈ 0.884 / 0.848`
 
-A deviation of more than 0.005 in any mean means the wiring differs from
-spec §5.3. Find the difference before committing.
+A difference is not a failure in itself. Acceptance comes from the targets
+in Task 7 and spec §6. Still, explain any mean that differs by more than
+0.005 (a wiring difference, or a deliberate correction) in the commit body.
+**Do not look at or tune to the holdout numbers** in this task.
 
 - [ ] **Step 6: Run the full gate, then commit**
 
@@ -959,7 +1159,7 @@ Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff for
 ```bash
 git add src/music_decoder/compose/melody.py src/music_decoder/compose/api.py \
   tests/unit/test_compose_melody.py tests/unit/test_compose_api.py tests/unit/test_compose_samples.py
-git commit -m "fix(compose): singable melodies - no tritones/sevenths, justified recovered leaps, smooth approaches (composer v3)"
+git commit -m "fix(compose): singable melodies - no tritones/sevenths, justified recovered leaps, feasible smooth approaches (composer v3)"
 ```
 
 ---
@@ -973,25 +1173,43 @@ git commit -m "fix(compose): singable melodies - no tritones/sevenths, justified
 
 **Interfaces:**
 - Consumes:
-  - `evaluate()` with three matrices (Task 2)
+  - `evaluate()` with four matrices (Task 2)
   - `musicality_v2.json` (Task 2)
-  - metric keys `L1`, `L2`, `L3`, `L4`, `L4max`, `L5`, `S1.*` and `S2`
+  - metric keys `L0`, `L1`, `L2`, `L3`, `L4`, `L4max`, `L5`, `S1.*` and `S2`
 - Produces: none (tests only).
 
 - [ ] **Step 1: Write the tests**
 
 ```python
-MATRICES = ("validation", "edge", "tunings")
-TOL_MEAN, TOL_POOLED = 0.02, 0.05  # spec §6.3
+MATRICES = ("validation", "edge", "tunings", "holdout")
+TOL_MEAN, TOL_POOLED = 0.02, 0.05  # spec §6.3: under half a note per piece; about one pooled event
 
 
-def test_leap_targets(report, v2):
-    for matrix, l4_floor in (("validation", 0.87), ("edge", 0.83)):
+def test_leap_regression_locks_on_development_matrices(report, v2):
+    # Development data (spec §6): these are regression locks, not generalisation evidence.
+    for matrix, l4_lock in (("validation", 0.87), ("edge", 0.83)):
         o, ref = report[matrix]["overall"], v2[matrix]["overall"]
-        assert o["M4"]["mean"] <= 0.001 and o["M4"]["mean"] < ref["M4"]["mean"]
-        assert o["L4"]["mean"] >= l4_floor
-    for matrix in MATRICES:
+        assert o["L0"]["pooled"] <= 0.001 and o["L0"]["pooled"] < ref["L0"]["pooled"]
+        assert o["M4"]["mean"] <= 0.001 and o["M4"]["mean"] < ref["M4"]["mean"]  # mean of per-piece rates
+        assert o["L4"]["mean"] >= l4_lock
+
+
+@pytest.mark.parametrize("matrix", MATRICES)
+def test_chord_changes_are_smoother_than_v2(report, v2, matrix):
+    assert report[matrix]["overall"]["L4"]["mean"] >= v2[matrix]["overall"]["L4"]["mean"]
+    if matrix != "holdout":  # strict on development data (measured); spec §6.4 asks >= on the holdout
         assert report[matrix]["overall"]["L4"]["mean"] > v2[matrix]["overall"]["L4"]["mean"]
+
+
+def test_holdout_acceptance(report, v2):  # spec §6.4, frozen before evaluation
+    o, ref = report["holdout"]["overall"], v2["holdout"]["overall"]
+    assert o["L0"]["pooled"] <= min(0.002, ref["L0"]["pooled"]) or o["L0"]["pooled"] == 0.0
+    assert o["M4max"]["max"] <= 12 and o["M6"]["max"] <= 17 and o["T1"]["max"] <= 15
+    assert o["M7"]["min"] == 1.0 and o["M8"]["min"] >= 1.5
+    assert o["M12"]["min"] == 1.0 and o["M14"]["min"] == 1.0 and o["Tcount"]["min"] == 1.0
+    for style in STYLES:
+        for key in ("A1", "A4", "H1", "H2"):
+            assert o[f"{key}.{style}"]["min"] == 1.0, f"{key}.{style}"
 
 
 @pytest.mark.parametrize("matrix", MATRICES)
@@ -1017,7 +1235,10 @@ def test_tunings_matrix_keeps_every_v2_hard_invariant(report):
         assert report["tunings"][f"tuning.{name}"]["T1"]["max"] <= cap, name
 
 
-@pytest.mark.parametrize(("matrix", "group"), [*(("validation", g) for g in GROUPS), ("edge", "overall")])
+@pytest.mark.parametrize(
+    ("matrix", "group"),
+    [*(("validation", g) for g in GROUPS), ("edge", "overall"), ("holdout", "overall")],
+)
 def test_no_regression_against_v2(report, v2, matrix, group):
     cand, ref = report[matrix][group], v2[matrix][group]
     for metric in (*IMPROVE_UP, *IMPROVE_DOWN):
@@ -1047,7 +1268,14 @@ Then confirm that the new tests can fail, without committing anything:
 
 1. Temporarily set `FORBIDDEN_INTERVALS = frozenset()` in `melody.py`.
    `test_leap_and_shape_invariants` must fail (L1).
-2. Temporarily set `MAX_FRETTED_SPAN = 5` in `compose/voicings.py`.
+2. Temporarily make the bar-level repair use only the floored option. Both
+   `test_review_r1_major_seventh_is_repaired` and
+   `test_holdout_acceptance` or the bounded sweep must flag it. If only the
+   explicit regression flags it, say so in the commit body.
+3. Temporarily set `MAX_FINGERS = 5` in `compose/voicings.py`.
+   `test_every_chord_in_every_preset_tuning_is_faithful_and_playable` must
+   fail (the Eb D#7 retune `0-7-6-7-5-4` would be accepted again).
+4. Temporarily set `MAX_FRETTED_SPAN = 5` in `compose/voicings.py`.
    `test_leap_and_shape_invariants[tunings]` must fail (S2 or S1), or
    `test_every_chord_in_every_preset_tuning_is_faithful_and_playable` must
    fail.
@@ -1060,14 +1288,20 @@ and check that `git status --short src` is empty.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`
 
 Then run `pytest -q --durations=5 tests/unit/test_compose_musicality.py`.
-Expected: the module takes about 5 s or less, of which `evaluate()` is
-about 3.5 s. Record the figure for Task 8.
+Expected: the module takes about 6 s or less, of which `evaluate()` is
+about 4–4.5 s. Record the figure for Task 8.
+
+**If the holdout acceptance fails:** do not change thresholds or rules to
+make it pass. Report the failing numbers in the commit body and in Task 8's
+Results, and mark the test with `pytest.mark.xfail(strict=True, reason=...)`
+that names the metric. A correction must come from a defect reproduced on
+development data, with the spec updated (spec §6.4).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/unit/test_compose_musicality.py
-git commit -m "test(compose): v3 musicality targets - leaps, shapes, tunings matrix, no regression vs v2"
+git commit -m "test(compose): v3 musicality targets - leaps, shapes, tunings and holdout matrices, no regression vs v2"
 ```
 
 ---
@@ -1084,16 +1318,22 @@ git commit -m "test(compose): v3 musicality targets - leaps, shapes, tunings mat
 - Modify: `docs/architecture-technical.md`:
   - The determinism paragraph (line ~689): currently `3`.
   - §5.1 Voicings (lines ~698–722): rewrite steps 2–6 to match spec §5.2,
-    covering the un-mute rule, the fretted span ≤ 3, the faithfulness gate,
-    the search and the last-resort fallback.
-  - §5.2 Melody (lines ~756–790): add the admissibility rules R1–R4, the
-    relaxed fallback, the step bonus and the one-note-final-bar reach rule
-    to steps 2–5.
+    covering:
+    - the un-mute rule
+    - the fretted span ≤ 3 and the four-finger gate
+    - the faithfulness gate
+    - the search
+    - the last-resort fallback
+  - §5.2 Melody (lines ~756–790): add to steps 2–5:
+    - the admissibility rules R1–R4
+    - the feasibility sets and the repair order
+    - the ladder
+    - the step bonus
   - The S1 note in §5.3 (line ~838): the shapes are now repaired, and S1
     and S2 are asserted 0.
   - "Add a new chord quality" (line ~1312): drop the `_CHORD_PCS` step.
 - Modify: `docs/superpowers/specs/2026-11-07-compose-voicings-leaps-design.md`:
-  append `## 12. Results`.
+  append `## 13. Results`.
 - Modify: `src/music_decoder/compose/metrics.py`: check that its docstring
   names both specs (Task 1).
 
@@ -1104,16 +1344,21 @@ git commit -m "test(compose): v3 musicality targets - leaps, shapes, tunings mat
 Run: `python scripts/compose_musicality_report.py > /tmp/v3_report.txt`.
 Do **not** pass `--write`: both committed fixtures stay as they are.
 
-Compare against `musicality_v2.json` and the spec's §6 prototype column.
-Every number must match the prototype within 0.005, unless a later commit
-explains the difference.
+Compare against `musicality_v2.json`, spec §6 (targets) and the prototype
+column (for information). Any development-matrix mean that differs from the
+prototype by more than 0.005 must be explained in Results: a wiring
+difference, or a deliberate correction. The holdout has no prototype
+column; report it as measured.
 
-- [ ] **Step 2: Write `## 12. Results` in the spec**
+- [ ] **Step 2: Write `## 13. Results` in the spec**
 
 Include:
 - a before (v2 snapshot) / after (v3 report) table for every metric in §6.1
-  and §6.2, and for the §6.3 rows, on the validation, edge and tunings
-  matrices
+  and §6.2, and for the §6.3 rows, on the validation, edge, tunings and
+  **holdout** matrices, with the holdout clearly marked as the acceptance
+  data
+- the bounded-sweep result (1,920 compositions) and the ladder levels
+  observed, if any
 - the sample sweeps, re-measured with a throwaway script over seeds 0–299
   per sample command, writing outside the repo:
   - forbidden-interval pieces (v2: 22, 15 and 9 of 300; prototype 0)
@@ -1145,3 +1390,22 @@ git commit -m "docs(compose): composer v3 voicing and leap rules; spec results"
 
 Run `git status --short` and confirm that only `.synth_marker` files under
 `tests/fixtures/synthetic/` are modified. Leave them unstaged.
+\n
+---
+
+## Review responses (round 1)
+
+Review: `docs/superpowers/reviews/2026-11-07-voicings-leaps-plan-review-r1.md`
+(GPT-6 Astra, CHANGES_REQUESTED). Each finding was checked against the code
+and the planning prototype before any change. All six were confirmed and
+fixed; none is rebutted. The spec is now revision 2, and its §12 summarises
+the same changes.
+
+| # | Finding | Verification | Outcome |
+|---|---|---|---|
+| F1 (Important) | The relaxed fallback reintroduces a major seventh (C → D#m, seed 19) | Reproduced exactly on the revision-1 prototype: `[67, 64, 64, 75, 75]`, floors `[55, 69]`. Every candidate fails R1–R4 at the first slot of the two-note final bar. A wider bounded sweep (every root × quality after C and Am, seeds 0–29, 11,520 compositions) found 25 relaxed notes and 5 pieces with a forbidden interval. | **Fixed.** Spec §5.3 gains feasibility sets for the final and approach bars, a deterministic repair order (floored target → farther floored targets → unfloored targets) and a ladder (strict → R1+R2 only → v2). The ladder never drops R1 or R2 while some candidate satisfies them. `cadence_reach` is dropped and v2's `_candidates` is reused unchanged. On the prototype, the review case becomes `[67, 64, 64, 66, 63]`. The 11,520-piece sweep, all matrices and the sample sweeps never leave ladder level 0. New Task 6 tests: the review case, revision 1's four other sweep failures, a direct feasibility-set test, a direct ladder test (levels 1 and 2) and a 1,920-piece bounded sweep with real floors. Spec §8 now claims no universal guarantee: only level 2 can emit a forbidden interval, and only for a custom window too narrow to avoid one. |
+| F2 (Important) | Span ≤ 3 accepts five-finger grips, including the pinned Eb7 `0-7-6-7-5-4` | Reproduced the review's count with a straight-barre finger model: **22 / 576** accepted shapes need 5 fingers, including library C#7 `x43421` and D#7 `x65643` (the open-C7 grip moved up, so no open string replaces a finger). | **Fixed.** Spec §3.1 adds a playability standard: span ≤ 3 and `fingers_needed ≤ 4`, where a barre never crosses an open or muted string. It applies to the library, the retune gate and the search. The search's old "notes above the lowest fret" heuristic is replaced. Library C#7 → `x46464` and D#7 → `x68686` (the A#7 `x13131` family), so seven entries change, not five. Eb D#7 becomes `0-7-9-7-9-7` (3 fingers) and Eb C7 is searched as `x-4-3-1-0-1`. Result: 0 / 576 faulty and 0 / 576 needing five fingers; 29 of 480 alternate-tuning voicings are now searched. Tasks 1, 4 and 5 add `fingers_needed` tests, the negative cases `0-7-6-7-5-4` and `x65643`, a barre blocked by open strings, and a 576-shape fingering audit. The review's example `0-2-0-1-0-0` is also playable. It is not chosen because the retuned library shape passes the gate, and the design only searches when the retune fails. Preferring open-position shapes everywhere would change hundreds of voicings and is out of scope. |
+| F3 (Important) | `composer_version == 3` inside the melody xfail masks the musical assertions | Confirmed: the version assertion is first, so on v2 the xfail would always fail there. | **Fixed.** The version check is a separate test added in Task 6. The melody assertions carry labels (`L1`, `L3`, `L2`, `L4max`, `L5`), and Task 3 verifies with `--runxfail` that the first failure is `L3` / `L1` / `L3` for minor-10-B / major-08-Ab / major-09-Eb, and that the voicing failures are the reported chords. Tasks 4 and 5 repeat the melody check. With revision 2's voicing code and v2's melody code, all three flagged leaps were confirmed still present. |
+| F4 (Important) | Task 2 commits a test for a fixture that does not exist yet; the snapshot's cleanliness check is incomplete | Confirmed: `-k "not v2_snapshot"` does not make the full gate green. `git status --short src` misses tracked `.synth_marker` changes that make `git describe --dirty` report dirty. | **Fixed.** Task 2 now makes two commits, each with a green full gate: (1) code and runnable tests; (2) snapshot plus snapshot test. Before writing the snapshot it restores the markers (`git checkout -- tests/fixtures/synthetic/`) and requires `git status --porcelain --untracked-files=no` to be empty. The snapshot test asserts `source` is not `-dirty`. The same rule is in Global Constraints. |
+| F5 (Important) | "Held-out" matrices were used to choose the bonus and the tolerances | Confirmed: the step bonus (0.5 / 1.0 / 1.5), the L4 thresholds and the 0.02 tolerance were all set after measuring the validation and edge matrices. | **Fixed.** Spec §6 relabels validation, edge and tunings as v3 development data; their thresholds are regression locks. A new 50-melody **holdout** matrix (ten unused progressions across major and minor, all chord qualities, seeds 3000–3004, real floors) gets acceptance bounds frozen in spec §6.4 before it is ever evaluated: hard invariants, L0 ≤ min(v2, 0.002), L4 ≥ v2, and the no-regression tolerances. v2's holdout numbers enter the snapshot before any composer change. The tolerances are now justified in their own units (spec §6.3: under half a note per piece; about one pooled event). "Match the prototype within 0.005" is replaced by reporting and explaining deviations. A failed holdout check is reported, never tuned away (Task 7). |
+| F6 (Minor) | `M4 ≤ 0.001` is described as a per-interval frequency but is a mean of per-piece rates | Confirmed in `_aggregate`. | **Fixed.** New pooled `L0` (large / intervals, `n = intervals`, plus `L0.any` for affected pieces) with target pooled ≤ 0.001 on validation and edge. M4 is kept and described correctly. Task 2 adds an unequal-length aggregation test (rows of 1,000 and 10 intervals). |
