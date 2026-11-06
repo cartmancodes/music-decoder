@@ -111,10 +111,10 @@ hand, no learning involved — for things like:
 - Picking the **best fingering** for a tab, by trying every legal
   position on the guitar neck and choosing the one that minimizes
   hand movement and finger stretch.
-- **Composing the melody** from a chord progression by stepping
-  through the bars and rolling weighted dice — chord tones on the
-  strong beats, scale tones on the weak ones, with a soft preference
-  for staying close to the previous note.
+- **Composing the melody** from a chord progression in four-bar
+  phrases: rhythms from a small pattern library with a repeating
+  motif, each pitch picked by weighted dice that favour chord tones on
+  strong beats and small steps, and a final cadence on the home note.
 
 The composition side is *not* AI-generated. It's a deterministic
 recipe: same inputs, same output every time.
@@ -194,21 +194,34 @@ You give the tool a scale, a chord progression, and a few options
    the most playable position — usually open chords for common keys,
    barre chords otherwise.
 
-2. **Write the melody, bar by bar**. The tool walks through the
-   progression and, for each beat, rolls weighted dice:
-   - On strong beats (beats 1 and 3 in 4/4 time), it prefers a chord
-     tone — a note that's already in the chord that's sounding.
-   - On weak beats (beats 2 and 4), it prefers any note from the
-     scale.
-   - It also nudges itself toward small steps — usually the next note
-     is within a couple of half-steps of the previous one, the way a
-     singable melody behaves.
+2. **Write the melody, phrase by phrase**. The tool splits the piece into
+   four-bar phrases, the way a song verse is built:
+   - Each bar gets a rhythm from a small library of patterns: quarter notes,
+     pairs of eighths, dotted rhythms, held notes. The third bar of a phrase
+     repeats the first bar's rhythm and its rising-and-falling shape, and the
+     next phrase answers the first one with the same rhythms. That
+     repetition is what makes a tune feel like a tune.
+   - Every phrase ends on a long note. The very last note lands on the home
+     note of the key (or, if the last chord doesn't contain it, on that
+     chord's root), so the piece sounds finished.
+   - For each note it scores every candidate pitch and rolls weighted dice.
+     Notes that belong to the current chord get a strong preference on the
+     strong beats (beats 1 and 3). Small steps are preferred over jumps, and
+     after a big jump the line steps back the other way. The "leading tone"
+     (the note just below home) rises to the home note when the harmony
+     comes home. The line stays in a comfortable register above the chord.
+   - If a chord borrows a note from outside the scale (like G# in an E7
+     chord in A minor), the melody borrows it too, in place of the note it
+     replaces (G), instead of clashing.
    The "seed" you pass is the only source of randomness: same seed,
    same melody, every time.
 
-3. **Add the accompaniment**. Underneath the melody, the tool plays
-   the chord on every bar, in your chosen pattern (block strum,
-   ascending arpeggio, or fingerstyle bass-and-treble alternation).
+3. **Add the accompaniment**. Underneath the melody, the tool plays the
+   chord on every bar in your chosen pattern. The patterns are: a pop strum
+   (down, down-up, up-down-up), an eighth-note arpeggio, or fingerstyle with
+   an alternating bass. It leaves out chord notes that would crowd the
+   melody, but it never drops the notes in the chord shape that make it
+   major, minor or a seventh. It ends with one chord left ringing.
 
 4. **Render the audio**. The melody and accompaniment together get
    written to a MIDI file (a digital score) and then synthesized to a
@@ -216,8 +229,10 @@ You give the tool a scale, a chord progression, and a few options
    for instant playback.
 
 5. **Write the tab**. The melody notes get placed onto the guitar
-   neck so you can play them. The result is an ASCII tab string —
-   what you might see in any guitar magazine.
+   neck by the same fingering search used for analysis, so the line
+   stays in one hand position where it can. The tab shows the melody
+   note by note, then the chord shapes under their names, in the kind
+   of ASCII tab you might see in any guitar magazine.
 
 6. **Save everything**. The four files (MIDI, WAV, ASCII tab, JSON
    metadata) end up in a per-take folder named with a timestamp and a
