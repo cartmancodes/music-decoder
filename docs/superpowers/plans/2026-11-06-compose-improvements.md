@@ -4668,7 +4668,10 @@ always uses the phrase planner.
     play the top 3 strings high→low. Each stroke rings until the next one.
   - `fingerstyle`: alternating bass. The root goes on beat 1 and the
     second-lowest voicing note on beat 3 (when the voicing has ≥ 4 notes).
-    The treble pinch plays on beats 2 and 4.
+    The treble pinch plays on beats 2 and 4. It leaves out the
+    alternate-bass string, unless that string is the chord's only source
+    of an essential tone (for example the third of open C), in which
+    case it stays in the pinch.
   - **Final bar (every style):** one down stroke (10 ms per string) that
     rings to the end of the bar.
 - **Melody-aware thinning** (`_thin_below`): at each attack, voicing pitches
@@ -4776,6 +4779,8 @@ The adapters read this YAML at call time, so editing it changes the next
 parameters, including its A* tab weights, are pinned in code and versioned by
 `metadata["composer_version"]`.
 ```
+
+> **Note (fix round 1):** the fingerstyle bullets in Steps 4(b) and 6(d) also state the pinch's identity rule (the alternate-bass string stays in the pinch when it is the chord's only source of an essential tone). That is the behaviour of the Task 5 `keep_alt` fix; see the Task 5 implementation note.
 
 - [ ] **Step 5: Update `docs/architecture-overview.md`**
 
@@ -4901,9 +4906,10 @@ search `analyze` uses; **Chords** shows each chord shape under its name
 
 ```markdown
 - **`fingerstyle`** — alternating bass (root on beat 1, another chord
-  tone on beat 3) with a treble pinch on beats 2 and 4. Best for
-  ballads, folk and slow tempos. It is the default because it sounds
-  reasonable on most progressions.
+  tone on beat 3) with a treble pinch on beats 2 and 4 (the pinch keeps
+  the beat-3 bass string when it is the chord's only third or seventh).
+  Best for ballads, folk and slow tempos. It is the default because it
+  sounds reasonable on most progressions.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
   up-down-up), with strings staggered a few milliseconds like a real
   pick stroke. Best for pop and rock progressions.

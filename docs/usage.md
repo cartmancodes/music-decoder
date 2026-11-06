@@ -985,9 +985,10 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 ### Composition style choices
 
 - **`fingerstyle`** — alternating bass (root on beat 1, another chord
-  tone on beat 3) with a treble pinch on beats 2 and 4. Best for
-  ballads, folk and slow tempos. It is the default because it sounds
-  reasonable on most progressions.
+  tone on beat 3) with a treble pinch on beats 2 and 4 (the pinch keeps
+  the beat-3 bass string when it is the chord's only third or seventh).
+  Best for ballads, folk and slow tempos. It is the default because it
+  sounds reasonable on most progressions.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
   up-down-up), with strings staggered a few milliseconds like a real
   pick stroke. Best for pop and rock progressions.

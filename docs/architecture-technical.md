@@ -811,7 +811,10 @@ always uses the phrase planner.
     play the top 3 strings high→low. Each stroke rings until the next one.
   - `fingerstyle`: alternating bass. The root goes on beat 1 and the
     second-lowest voicing note on beat 3 (when the voicing has ≥ 4 notes).
-    The treble pinch plays on beats 2 and 4.
+    The treble pinch plays on beats 2 and 4. It leaves out the
+    alternate-bass string, unless that string is the chord's only source
+    of an essential tone (for example the third of open C), in which
+    case it stays in the pinch.
   - **Final bar (every style):** one down stroke (10 ms per string) that
     rings to the end of the bar.
 - **Melody-aware thinning** (`_thin_below`): at each attack, voicing pitches
