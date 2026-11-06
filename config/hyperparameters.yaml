@@ -34,10 +34,3 @@ tab_assignment:
     w_high: 1.6
     w_chord_intra: 0.3
   max_fret: 22
-composition:
-  notes_per_bar: 4
-  strong_beat_chord_tone_prob: 0.7
-  weak_beat_chord_tone_prob: 0.3
-  markov_max_interval_semitones: 4
-  velocity_strong: 80
-  velocity_weak: 70

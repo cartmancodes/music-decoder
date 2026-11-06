@@ -9,12 +9,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from music_decoder.compose.arrangement import _accompaniment_notes, build_midi
+from music_decoder.compose.arrangement import (
+    THIN_MARGIN_SEMITONES,
+    _accompaniment_notes,
+    _voiced_pitches,
+    build_midi,
+)
+from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import generate_melody
+from music_decoder.compose.tabtext import render_composition_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.synth import render_wav
-from music_decoder.tabs.render import render_ascii_tab
+from music_decoder.tabs.assigner import assign_tab
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import (
     ChordSymbol,
@@ -27,6 +34,23 @@ from music_decoder.types import (
     VoicedChord,
 )
 
+# Bumped whenever the composer changes what a given seed produces.
+COMPOSER_VERSION = 2
+
+# A* fingering parameters for the melody tab. Pinned here (values as tuned on
+# GuitarSet dev for analyze(), 2026-10) rather than read from
+# config/hyperparameters.yaml, so compose output depends only on its inputs,
+# its seed and COMPOSER_VERSION.
+COMPOSE_TAB_WEIGHTS: dict[str, float] = {
+    "w_move": 0.5,
+    "w_string": 0.15,
+    "w_span": 0.5,
+    "w_high": 1.6,
+    "w_open": 0.05,
+    "w_chord_intra": 0.3,
+}
+COMPOSE_TAB_MAX_FRET = 22
+
 
 @dataclass(frozen=True)
 class Arrangement:
@@ -38,11 +62,13 @@ class Arrangement:
     melody_tab: tuple[TabbedNote, ...]
 
 
-def _validate(scale: Scale, progression: Sequence[ChordSymbol]) -> None:
+def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: int) -> None:
     if scale.mode not in ("major", "minor"):
         raise InvalidScaleError(f"Mode must be major or minor, got {scale.mode!r}")
     if not progression:
         raise InvalidProgressionError("Progression must contain at least one chord.")
+    if bars_per_chord < 1:
+        raise InvalidProgressionError(f"bars_per_chord must be >= 1, got {bars_per_chord}")
 
 
 def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
@@ -56,12 +82,34 @@ def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
 
 
 def _melody_tab(melody: Sequence[Note], tuning: Tuning) -> tuple[TabbedNote, ...]:
+    """A* fingering with compose's pinned weights; any note A* drops falls
+    back to its lowest-fret position so the tab never loses notes."""
+    result = assign_tab(
+        melody, tuning=tuning, weights=COMPOSE_TAB_WEIGHTS, max_fret=COMPOSE_TAB_MAX_FRET
+    )
+    assigned = {(tn.note.start_s, tn.note.pitch): tn for tn in result.tabbed_notes}
     out: list[TabbedNote] = []
     for n in melody:
-        position = _lowest_fret_position(n.pitch, tuning)
-        if position is not None:
-            out.append(TabbedNote(note=n, position=position))
+        tabbed = assigned.get((n.start_s, n.pitch))
+        if tabbed is None:
+            position = _lowest_fret_position(n.pitch, tuning)
+            if position is None:
+                continue
+            tabbed = TabbedNote(note=n, position=position)
+        out.append(tabbed)
     return tuple(out)
+
+
+def _melody_floor(voicing: VoicedChord, tuning: Tuning) -> int | None:
+    """Lowest melody pitch that keeps the shape's defining tones (third,
+    seventh…) at least a minor third below the tune."""
+    pitches = _voiced_pitches(voicing, tuning)
+    lows = [
+        min(p for p in pitches if p % 12 == pc)
+        for pc in essential_pcs(voicing.chord)
+        if any(p % 12 == pc for p in pitches)
+    ]
+    return max(lows) + THIN_MARGIN_SEMITONES if lows else None
 
 
 def accompany(
@@ -98,8 +146,12 @@ def arrange(
     tuning: Tuning = STANDARD_EADGBE,
     seed: int | None = None,
 ) -> Arrangement:
-    """Pure core of compose(): voicings, melody, accompaniment and melody tab."""
-    _validate(scale, progression)
+    """Pure core of compose(): voicings, melody, accompaniment and melody tab.
+
+    Reads no files or configuration: the result depends only on the
+    arguments and ``COMPOSER_VERSION``.
+    """
+    _validate(scale, progression, bars_per_chord)
     voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
     melody = tuple(
         generate_melody(
@@ -108,6 +160,7 @@ def arrange(
             bars_per_chord=bars_per_chord,
             tempo_bpm=tempo_bpm,
             seed=seed,
+            chord_floors=[_melody_floor(v, tuning) for v in voicings],
         )
     )
     return Arrangement(
@@ -123,26 +176,6 @@ def arrange(
         ),
         melody_tab=_melody_tab(melody, tuning),
     )
-
-
-def _ascii_tab_for(arrangement: Arrangement, tuning: Tuning) -> str:
-    """Melody tab plus each chord voicing, spread evenly over the melody span
-    (a visual approximation; the MIDI is the source of truth for timing)."""
-    melody = arrangement.melody
-    voicings = arrangement.voicings
-    notes: list[TabbedNote] = list(arrangement.melody_tab)
-    if voicings and melody:
-        span_start = min(n.start_s for n in melody)
-        span_end = max(n.end_s for n in melody)
-        seg = (span_end - span_start) / len(voicings) if span_end > span_start else 0.0
-        for ci, vc in enumerate(voicings):
-            t0 = span_start + ci * seg
-            anchor = Note(start_s=t0, end_s=t0 + seg, pitch=0, velocity=0, confidence=1.0)
-            for pos in vc.positions:
-                if pos.fret < 0:  # muted string — not played
-                    continue
-                notes.append(TabbedNote(note=anchor, position=pos))
-    return render_ascii_tab(notes, num_strings=len(tuning.open_pitches))
 
 
 def compose(
@@ -186,7 +219,13 @@ def compose(
     wav_path = work / "composition.wav"
     render_wav(midi_path, wav_path)
 
-    ascii_tab = _ascii_tab_for(arrangement, tuning)
+    ascii_tab = render_composition_tab(
+        arrangement.melody_tab,
+        arrangement.voicings,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        tuning=tuning,
+    )
 
     return Composition(
         midi_path=midi_path,
@@ -202,5 +241,6 @@ def compose(
             "style": style,
             "seed": seed,
             "tuning": tuning.name,
+            "composer_version": COMPOSER_VERSION,
         },
     )
