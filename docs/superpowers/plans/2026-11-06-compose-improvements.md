@@ -3205,6 +3205,15 @@ def test_final_stroke_keeps_the_seventh_under_the_cadence(style):
     acc = [_note(n.start, n.end, n.pitch) for n in notes]
     assert metrics.cadence_identity(melody, acc, voicings, STANDARD_EADGBE) is True
     assert metrics.final_chord_rings(acc, 2, 120.0)
+
+
+def test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass():
+    # open C is C3 E3 G3 C4 E4: E3 is the alternate bass, and also the chord's third.
+    # Under an F4 on beat 2 the pinch used to skip E3 and thin E4 away, leaving no E.
+    melody = [_note(0.5, 1.0, 65)]
+    acc = _acc(["C", "G"], "fingerstyle", melody=melody)
+    beat2 = [a for a in acc if a.start_s < 1.0 and a.end_s > 0.5]
+    assert 4 in {a.pitch % 12 for a in beat2}
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -3359,8 +3368,13 @@ def _fingerstyle_bar(
             bass = pitches[0] if k == 0 else alt_bass
             out.append(pretty_midi.Note(velocity=72, pitch=int(bass), start=start, end=end))
             continue
-        for p in _thin_below(pitches[1:] or pitches, essential, melody, start, start + beat):
-            if alternate and p == alt_bass:
+        pinch = _thin_below(pitches[1:] or pitches, essential, melody, start, start + beat)
+        # The alternate bass is played on beats 1 and 3, so it is left out of the
+        # pinch unless it is an essential tone that nothing else in the pinch has.
+        alt_pc = alt_bass % 12
+        keep_alt = alt_pc in essential and all(p % 12 != alt_pc for p in pinch if p != alt_bass)
+        for p in pinch:
+            if alternate and p == alt_bass and not keep_alt:
                 continue
             out.append(pretty_midi.Note(velocity=64, pitch=int(p), start=start, end=end))
     return out
@@ -3463,7 +3477,9 @@ with:
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_arrangement.py -q`. Expected: `28 passed`.
+Run: `pytest tests/unit/test_compose_arrangement.py -q`. Expected: `29 passed`.
+
+> **Implementation note (2026-11-06):** the original `_fingerstyle_bar` thinned `pitches[1:]` and then skipped the alternate-bass pitch from the pinch unconditionally. When the alternate-bass string is the chord's third (open C, G, C7, G7), `_thin_below` counted it as already supplying that pitch class, restored nothing, and the caller then dropped it, so the beat-2/4 pinch under a high melody note had no third (spec §5.4). The alternate bass is now left out of the pinch only when its pitch class is not essential, or another pinch note already has it; otherwise the low alt-bass string stays in the pinch. `_thin_below` is unchanged. Pinned by `test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass`.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: 0 failures, clean.
 
 - [ ] **Step 5: Commit**

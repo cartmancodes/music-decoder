@@ -193,3 +193,12 @@ def test_final_stroke_keeps_the_seventh_under_the_cadence(style):
     acc = [_note(n.start, n.end, n.pitch) for n in notes]
     assert metrics.cadence_identity(melody, acc, voicings, STANDARD_EADGBE) is True
     assert metrics.final_chord_rings(acc, 2, 120.0)
+
+
+def test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass():
+    # open C is C3 E3 G3 C4 E4: E3 is the alternate bass, and also the chord's third.
+    # Under an F4 on beat 2 the pinch used to skip E3 and thin E4 away, leaving no E.
+    melody = [_note(0.5, 1.0, 65)]
+    acc = _acc(["C", "G"], "fingerstyle", melody=melody)
+    beat2 = [a for a in acc if a.start_s < 1.0 and a.end_s > 0.5]
+    assert 4 in {a.pitch % 12 for a in beat2}

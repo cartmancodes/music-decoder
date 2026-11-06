@@ -140,8 +140,13 @@ def _fingerstyle_bar(
             bass = pitches[0] if k == 0 else alt_bass
             out.append(pretty_midi.Note(velocity=72, pitch=int(bass), start=start, end=end))
             continue
-        for p in _thin_below(pitches[1:] or pitches, essential, melody, start, start + beat):
-            if alternate and p == alt_bass:
+        pinch = _thin_below(pitches[1:] or pitches, essential, melody, start, start + beat)
+        # The alternate bass is played on beats 1 and 3, so it is left out of the
+        # pinch unless it is an essential tone that nothing else in the pinch has.
+        alt_pc = alt_bass % 12
+        keep_alt = alt_pc in essential and all(p % 12 != alt_pc for p in pinch if p != alt_bass)
+        for p in pinch:
+            if alternate and p == alt_bass and not keep_alt:
                 continue
             out.append(pretty_midi.Note(velocity=64, pitch=int(p), start=start, end=end))
     return out
