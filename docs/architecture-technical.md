@@ -647,22 +647,26 @@ compatibility.
 
 ## 5. Data flow: `compose()`
 
-Implemented in [compose/api.py](../src/music_decoder/compose/api.py):
+Implemented in [compose/api.py](../src/music_decoder/compose/api.py). All the
+musical work happens in the pure `arrange()`, which reads no files or
+configuration. `compose()` adds only file I/O:
 
 ```text
-(scale, progression, style, tempo, bars_per_chord, seed)
+(scale, progression, style, tempo, bars_per_chord, seed, tuning)
   │
   ▼
-_validate(scale, progression)
-  │   Checks mode ∈ {major, minor}; progression non-empty.
+arrange(...)                                   # pure: no files, no YAML
+  │ _validate(scale, progression, bars_per_chord)
+  │   mode ∈ {major, minor}; progression non-empty; bars_per_chord ≥ 1.
   │   Otherwise raises InvalidScaleError / InvalidProgressionError.
+  │ compose.voicings.voicings_for(chord, tuning)[0] for each chord
+  │ _melody_floor(voicing) for each chord     # keep the tune above the third/seventh
+  │ compose.melody.generate_melody(..., chord_floors=...)
+  │ accompany(voicings, melody, ...)           # melody-aware accompaniment
+  │ _melody_tab(melody, tuning)                # A* with pinned weights + fallback
   ▼
-compose.voicings.voicings_for(chord, tuning) for each chord
-  │   Returns 1-3 ranked VoicedChord candidates per chord.
-  │   The orchestrator picks index [0] (the lowest-fret playable voicing).
-  ▼
-compose.melody.generate_melody(scale, progression, tempo, seed)
-  │   Returns list[Note] spanning the entire progression.
+Arrangement(melody, voicings, accompaniment, melody_tab)
+  │
   ▼
 work = out_dir / f"{ts}-{payload_hash}"        # per-call directory
   │   payload_hash = sha1(scale|progression|tempo|style|seed)[:8]
@@ -673,17 +677,23 @@ compose.arrangement.build_midi(...)            → composition.mid
 synth.render_wav(...)                          → composition.wav
   │
   ▼
-_ascii_tab_for(melody, voicings, tuning)       → ASCII string
+compose.tabtext.render_composition_tab(...)    → ASCII string
   │
   ▼
 Composition(midi_path, wav_path, ascii_tab, melody_notes, chord_voicings, metadata)
 ```
 
-`compose()` is fully synchronous. Determinism: the only source of
-randomness is `numpy.random.default_rng(seed)` inside the melody
-generator; same seed → same melody. The output directory layout is
-content-addressed (`{timestamp}-{first 8 hex of payload SHA-1}`) so the
-caller can keep multiple takes side by side.
+`compose()` is fully synchronous. Determinism: the only source of randomness
+is `numpy.random.default_rng(seed)` inside the melody generator. It drives
+both the rhythm plan and the pitch choices, so the same seed gives the same
+music. `metadata["composer_version"]` (currently `2`) is bumped whenever the
+composer changes what a given seed produces. Seeds from before version 2
+(the uniform quarter-note generator) give different melodies now. The melody
+tab's A\* weights are pinned in `compose/api.py` (`COMPOSE_TAB_WEIGHTS`), so
+editing `config/hyperparameters.yaml` or setting
+`MUSIC_DECODER_HYPERPARAMETERS` changes `analyze()` but never compose
+output. The output directory layout is content-addressed (`{timestamp}-{first
+8 hex of payload SHA-1}`), so callers can keep several takes side by side.
 
 ### 5.1 Voicings
 
@@ -713,55 +723,183 @@ caller can keep multiple takes side by side.
 ### 5.2 Melody generator
 
 [compose/melody.py](../src/music_decoder/compose/melody.py)
-`generate_melody` builds a list of `Note` for the whole progression:
+`generate_melody` builds the list of `Note` for the whole progression in two
+layers. The pitch-class helpers it uses (scale, chord tones, essential tones,
+chord scale) live in [compose/harmony.py](../src/music_decoder/compose/harmony.py).
 
-1. Compute the scale's pitch-class set: major = `(0, 2, 4, 5, 7, 9, 11)`,
-   minor (natural) = `(0, 2, 3, 5, 7, 8, 10)`, both rotated by the tonic's
-   pitch class.
-2. Enumerate all MIDI pitches in `[pitch_low=60, pitch_high=84]` (C4 to
-   C6) whose pitch class is in the scale → `scale_pitches`.
-3. For each chord segment in the progression, for each bar
-   (`bars_per_chord` of them), for each beat (`notes_per_bar=4`):
-   - Determine if the beat is "strong" (`nidx % 2 == 0` for 4 notes per
-     bar — beats 1 and 3).
-   - Sample `use_chord_tone ~ Bernoulli(p_strong=0.7 / p_weak=0.3)`.
-   - Pool = chord-tone scale pitches if `use_chord_tone` else all scale
-     pitches.
-   - **Markov constraint**: prefer pitches within
-     `markov_max_interval_semitones=4` of `prev_pitch`. If no candidates
-     within that window, fall back to the full pool.
-   - Pick uniformly from the filtered pool with `rng.choice`.
-   - Velocity: 80 strong, 70 weak.
-   - Note duration: `seconds_per_note * 0.95` (small gap).
-4. Update `prev_pitch` after each note.
+**Rhythm and phrases**, from [compose/rhythm.py](../src/music_decoder/compose/rhythm.py):
 
-The "Markov" part is a hard interval cap, not a learned transition matrix:
-it biases toward stepwise/melodic motion rather than wide leaps.
+1. `phrase_layout(n_bars)` fixes the phrase structure from the bar count
+   alone. The piece is cut into 4-bar phrases. A remainder of 2 or 3 bars
+   becomes a shorter last phrase, and a remainder of 1 turns the last 4 into
+   3 + 2. The layout also gives each phrase's cadence bar and the motif
+   *echo pairs*: bar 3 echoes bar 1 in a 4-bar antecedent, and a consequent
+   phrase echoes the antecedent bar for bar. The metrics read the same
+   layout.
+2. `plan_bars(n_bars, rng)` gives every bar a rhythm (eighth-note values that
+   sum to 8) from `BODY_RHYTHMS` (11 one-bar templates: quarters, eighth
+   pairs, dotted figures, half notes). An echoing bar reuses its source bar's
+   rhythm. Every phrase ends on a `CADENCE_RHYTHMS` bar (last note ≥ a half
+   note).
+
+**Pitches**, chosen one note at a time:
+
+1. **Chord-scale pool.** `chord_scale_pcs(scale, chord)` spells the chord
+   as a stack of thirds over the scale (root, third, fifth, seventh; a sus4
+   has a fourth in place of the third). Each out-of-scale chord tone then
+   replaces the scale degree it occupies. An out-of-scale root takes the
+   spelling that alters the fewest semitones, with ties going to the
+   flat-side spelling. Examples:
+   - E7 in A minor gives A harmonic minor (G→G#).
+   - D7 in C major replaces F with F# and keeps G.
+   - B7 in C major replaces D and F with D# and F# and keeps G, the third of
+     the Em it resolves to.
+   - A major in C replaces C with C#.
+
+   Every other degree is kept. Over diatonic chords the pool is just the
+   scale. The spelling is a heuristic for chromatic chords without a clear
+   function, not a claim of a uniquely correct scale.
+2. **Register.** Candidates are the pool's pitches in
+   `[pitch_low=62, pitch_high=79]` (D4–G5). Over each chord they are also
+   kept at or above `chord_floors[i]`, a minor third above the voicing's
+   highest identity tone (for an open D chord, F#4 + 3 = A4). The floor
+   yields to musical necessity: it is dropped for a bar if it would leave
+   fewer than 5 candidates, no pitch within an octave of the previous note,
+   or, in the last bar, no reachable cadence note.
+3. **Final target.** In the last bar the final note is fixed in advance: the
+   tonic if the final chord contains it, otherwise the chord root, nearest
+   the previous pitch. That is always within an octave, because the window
+   spans more than an octave and the floor yields when needed. Every note of
+   the bar must also stay within an octave of the target, so no move,
+   including the forced final one, exceeds 12 semitones.
+4. **Score** each candidate with `score_pitch` (weights are module constants):
+   - interval size (steps preferred; repeats, wide leaps and the tritone
+     penalised; more than an octave excluded)
+   - chord fit by metric weight (chord tones strongly preferred on beats 1
+     and 3 and on long notes; quarter-or-longer notes a semitone off a chord
+     tone discouraged)
+   - leap recovery (an opposite-direction step after a leap of a fourth or
+     more)
+   - **leading-tone resolution** (the leading tone steps up to the tonic
+     when the harmony moves to a tonic-containing chord)
+   - motif echo (same direction and size as the echoed bar's interval)
+   - register gravity toward `tessitura_center=70`
+   - a pull toward the final target in the last bar
+   - a penalty on non-chord tones that end a phrase
+5. **Sample** from the softmax of the scores with the seeded generator.
+
+Velocity: 80 on beat 1, 75 on beat 3, 70 elsewhere, and 80 on the final note.
+Each note sounds for 95% of its slot.
+
+`notes_per_bar=N` (an integer) keeps the legacy uniform grid of N equal
+notes per bar, still with the scorer and the final-note target. `compose()`
+always uses the phrase planner.
 
 ### 5.3 Arrangement
 
 [compose/arrangement.py](../src/music_decoder/compose/arrangement.py)
 `build_midi` writes a two-track `pretty_midi.PrettyMIDI`:
 
-- **Melody track** — program `25` (Acoustic Steel Guitar). One
+- **Melody track:** program `25` (Acoustic Steel Guitar), one
   `pretty_midi.Note` per generated `Note`.
-- **Accompaniment track** — same program. Pattern depends on `style`:
-  - `strum`: block chord on beats 1 and 3, sustained ~1.9 beats.
-  - `arpeggio`: ascending then descending sequence over the voicing's
-    pitches across one bar (8-ish eighth notes), each note 95% of the
-    inter-note step.
-  - `fingerstyle`: bass note on beats 1 and 3, treble cluster (everything
-    above the bass) on beats 2 and 4, each ~95% of a beat.
+- **Accompaniment track:** same program. It is built by
+  `_accompaniment_notes(..., melody=melody)` on a straight 4/4 grid:
+  - `arpeggio`: 8 eighths per bar. The bass goes on the downbeat, then seven
+    notes cycle up and back down the treble strings.
+  - `strum`: strokes on eighths 0, 2, 3, 5, 6, 7 ("D · D U · U D U"). Down
+    strokes play the voicing low→high with 8 ms between strings. Up strokes
+    play the top 3 strings high→low. Each stroke rings until the next one.
+  - `fingerstyle`: alternating bass. The bass note (the lowest string of
+    the shape) goes on beat 1 and the
+    second-lowest voicing note on beat 3 (when the voicing has ≥ 4 notes).
+    The treble pinch plays on beats 2 and 4. It leaves out the
+    alternate-bass string, unless that string is the chord's only source
+    of an essential tone (for example the third of open C), in which
+    case it stays in the pinch.
+  - **Final bar (every style):** one down stroke (10 ms per string) that
+    rings to the end of the bar.
+- **Melody-aware thinning** (`_thin_below`): at each attack, voicing pitches
+  that come within a minor third of the lowest melody note sounding over
+  that attack are dropped. Two rules override this:
+  - The bass is always kept.
+  - Each **essential** tone (third, seventh, altered fifth or suspended
+    fourth, from `harmony.essential_pcs`) is put back at its lowest voicing
+    pitch unless a kept note has it, or the melody note still sounding at
+    the end of the attack's window does. A passing melody note earlier in
+    the window does not count, because the accompaniment rings on under the
+    notes that follow. For the final ringing chord that window is the whole
+    bar, so the harmony under the held cadence note is always complete.
+
+  So the accompaniment never drops an identity tone that the chord's shape
+  provides. Combined with the melody floors in §5.2, the tune stays on top
+  of almost every attack. Where a floor has to yield, a restored identity
+  tone can briefly meet a passing melody note; identity takes priority over
+  clearance. (A few canonical shapes are
+  themselves imperfect. The C#dim shape has no G and adds A#. These shape
+  defects are reported separately as S1 and left for a future voicing
+  change.)
 
 Accompaniment pitches come from `_voiced_pitches(voicing, tuning) =
 sorted(open_pitches[s] + fret for fretted strings)`.
 
 ### 5.4 ASCII tab for the composition
 
-`_ascii_tab_for` greedy-assigns each melody note to the highest string
-that produces a non-negative fret ≤ 22, then calls
-[render_ascii_tab](../src/music_decoder/tabs/render.py). The ASCII tab is
-an approximate visual reference; the MIDI is the source of truth.
+`arrange()` fingers the melody with the A\* search that `analyze()` also uses
+(`music_decoder.tabs.assigner.assign_tab`). The weights and fret cap are
+pinned in `compose/api.py` rather than read from YAML. A note A\* cannot
+place falls back to its lowest-fret position, so no note is lost.
+
+[compose/tabtext.py](../src/music_decoder/compose/tabtext.py)
+`render_composition_tab` prints two labelled blocks:
+
+- **`Melody`:** one column per note, in playing order, with bars separated
+  by `|` and four bars per line. No note can overwrite another.
+- **`Chords`:** each chord's shape under its name (`x` = muted string).
+
+String labels follow the tuning (`E A D G B e`, `D A D G A d`, …). Rhythm is
+not drawn; the MIDI file is the source of truth for timing. (The shared
+`tabs.render.render_ascii_tab` used by `analyze` is unchanged.)
+
+### 5.4.1 Musicality metrics and evaluation
+
+[compose/metrics.py](../src/music_decoder/compose/metrics.py) holds pure,
+typed metric functions:
+
+- melody: strong-beat chord tones, step / repeat / large-leap ratios, pooled
+  leap recovery, ambitus, final resolution and length, distinct durations
+  and IOI entropy, motif echo coverage and contour agreement, phrase-end
+  length, exposed chromatic clashes, leading-tone resolution
+- accompaniment: grid alignment, melody above the accompaniment and exposed
+  semitone clashes (both judged over each melody note's whole sounding
+  interval), final-chord ring, essential-tone coverage per bar, and cadence
+  identity (the full harmony under the held final note)
+- tab: hand-position shifts
+- voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
+  score) and shape defects (essential tones missing from, or foreign tones in,
+  each canonical shape)
+
+[evaluation/compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py)
+defines two held-out input matrices (seeds 1000+ were never used for
+tuning):
+
+- a 400-melody validation matrix: 4 major and 4 minor keys, 5
+  progressions per mode, 1–2 bars per chord, seeds 1000–1004 (each melody
+  accompanied in all 3 styles)
+- a 110-melody edge matrix: 3/5/7/9 bars, a single chord, secondary
+  dominants including B7→Em in C, a borrowed chord, final suspended chords
+
+It summarises every metric overall and per mode and bar length.
+`scripts/compose_musicality_report.py` prints that summary.
+`tests/fixtures/compose/musicality_baseline.json` is the same summary for
+the pre-change composer, measured on identical inputs.
+[tests/unit/test_compose_musicality.py](../tests/unit/test_compose_musicality.py)
+asserts two things:
+
+- absolute targets
+- that every subgroup improves on that baseline
+
+The definitions, numbers and reasons are in
+[the design spec](superpowers/specs/2026-11-06-compose-improvements-design.md).
 
 ### 5.5 Synthesis
 
@@ -824,13 +962,13 @@ every `AnalysisResult.metadata["hyperparameter_set"]`. Sections:
   `template_hmm`), `qualities` list (must equal templates `QUALITIES`
   or `detect_chords` raises), `min_segment_duration_s`.
 - `tab_assignment` — six A* weights and `max_fret`.
-- `composition` — notes per bar, strong/weak chord-tone probabilities,
-  Markov interval cap, strong/weak velocities.
 
 The adapters read this YAML at call time, so editing it changes the next
 `analyze()` without a code change. Set `MUSIC_DECODER_HYPERPARAMETERS` to
 point at a different file (the benchmark uses this to compare
-configurations). Keys the public pipeline honours:
+configurations). `compose()` reads none of this: the composer's
+parameters, including its A* tab weights, are pinned in code and versioned by
+`metadata["composer_version"]`. Keys the public pipeline honours:
 
 - `key_detection.backend` — `cnn` | `profile` ([key/\_\_init\_\_.py](../src/music_decoder/key/__init__.py)).
 - `beat_tracking.backend` — `madmom` | `librosa` ([dsp/\_\_init\_\_.py](../src/music_decoder/dsp/__init__.py)).
@@ -1171,9 +1309,17 @@ and composition output folders).
   [types.py](../src/music_decoder/types.py), update
   `_QUALITY_MAP` in
   [chords/labels.py](../src/music_decoder/chords/labels.py), and update
-  the `_CHORD_PCS` tables in
-  [compose/voicings.py](../src/music_decoder/compose/voicings.py) and
-  [compose/melody.py](../src/music_decoder/compose/melody.py).
+  the `_CHORD_PCS` table in
+  [compose/voicings.py](../src/music_decoder/compose/voicings.py), and add
+  the quality to all three tables in
+  [compose/harmony.py](../src/music_decoder/compose/harmony.py):
+  `CHORD_INTERVALS` (intervals above the root, used for pitch choice),
+  `ESSENTIAL_INTERVALS` (the identity tones that thinning keeps and H1/H2
+  check) and `_DEGREE_STEPS` (scale-degree steps used to spell the chord for
+  the chord-scale rule). `test_every_chord_quality_has_a_row_in_each_compose_table`
+  fails until every table has the row. Then extend `_QUALITY_SUFFIXES` in
+  `tests/unit/test_compose_api.py` and run
+  `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py`.
 - **Tweak A* weights**: edit `tab_assignment.weights` in
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
   with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in

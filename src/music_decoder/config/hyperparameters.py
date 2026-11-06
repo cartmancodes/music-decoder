@@ -165,9 +165,7 @@ def load_hyperparameters(path: Path | None = None) -> HyperparameterSet:
         id=str(raw["id"]),
         basic_pitch=_build(BasicPitchParams, _section(raw, "basic_pitch"), {}),
         crepe=_build(CrepeParams, raw.get("crepe", {}) or {}, _DEFAULTS["crepe"]),
-        post_processing=_build(
-            PostProcessingParams, _section(raw, "post_processing"), {}
-        ),
+        post_processing=_build(PostProcessingParams, _section(raw, "post_processing"), {}),
         key_detection=_build(
             KeyDetectionParams,
             _section(raw, "key_detection"),

@@ -48,7 +48,8 @@ def test_env_var_overrides_default_path(tmp_path: Path, monkeypatch) -> None:  #
 
 
 def test_analyze_metadata_id_follows_loaded_hyperparameters(
-    tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    monkeypatch,  # type: ignore[no-untyped-def]
 ) -> None:
     from music_decoder.api import _hp_id
 

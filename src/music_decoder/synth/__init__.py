@@ -94,9 +94,7 @@ def render_wav(
         if soundfont is None:
             _log.warning("synth_fallback_to_sine", extra={"reason": "no_soundfont"})
         else:
-            _log.warning(
-                "synth_fallback_to_sine", extra={"reason": "fluidsynth_unimportable"}
-            )
+            _log.warning("synth_fallback_to_sine", extra={"reason": "fluidsynth_unimportable"})
         chosen = SynthBackend.SINE
     return synthesize_midi_to_wav(
         midi_path,

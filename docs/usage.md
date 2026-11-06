@@ -257,9 +257,10 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   `"C G Am F"`, `"Dm7 G7 Cmaj7"`.
 - `--style` — `fingerstyle` (default), `strum`, or `arpeggio`.
 - `--tempo` — beats per minute, float. Default `100.0`.
-- `--bars` — bars per chord. Default `1`.
-- `--seed` — integer; same seed → same melody. Default: a fresh random
-  seed each run.
+- `--bars` — bars per chord; must be ≥ 1 (`0` or a negative number is
+  rejected with an error). Default `1`.
+- `--seed` — integer; same seed → same music (for a given
+  `metadata.composer_version`). Default: a fresh random seed each run.
 - `--tuning` — same set as `analyze`. Default `EADGBE`.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
@@ -282,13 +283,28 @@ Expected pretty output (paths will differ):
 MIDI:    out/20260508T142510-7c4a3b21/composition.mid
 WAV:     out/20260508T142510-7c4a3b21/composition.wav
 ASCII tab:
-e|---5---5-7---7---5-...
-B|---5-------5-------|
-G|---5-------5-------|
-D|---5-------5-------|
-A|-3-------3---------|
-E|-------------------|
+Melody
+e|-12-10----12-|-8-10---------8-|----8-------|-10----10-15-|
+B|-------12----|------12-10-8---|-10---10-12-|----12-------|
+G|-------------|----------------|------------|-------------|
+D|-------------|----------------|------------|-------------|
+A|-------------|----------------|------------|-------------|
+E|-------------|----------------|------------|-------------|
+
+Chords
+   Cmaj7  Am7  Dm7  G7
+e|-0------0----1----1--|
+B|-0------1----1----0--|
+G|-0------0----2----0--|
+D|-2------2----0----0--|
+A|-3------0----x----2--|
+E|-x------x----x----3--|
 ```
+
+The tab has two parts: **Melody** lists every melody note in playing
+order (bars separated by `|`, four bars per line), fingered by the same
+search `analyze` uses; **Chords** shows each chord shape under its name
+(`x` = muted string). Rhythm is not drawn; the MIDI file has the exact timing.
 
 A minor blues feel with strummed chords:
 
@@ -665,7 +681,7 @@ same conventions:
 {
   "midi_path": "out/20260508T142510-7c4a3b21/composition.mid",
   "wav_path":  "out/20260508T142510-7c4a3b21/composition.wav",
-  "ascii_tab": "e|---5...",
+  "ascii_tab": "Melody\ne|-12-10...",
   "melody_notes": [{"start_s": 0.0, "end_s": 0.57, "pitch": 67, ...}, ...],
   "chord_voicings": [
     {
@@ -685,7 +701,8 @@ same conventions:
     "tempo_bpm": 100.0,
     "style": "fingerstyle",
     "seed": 42,
-    "tuning": "EADGBE"
+    "tuning": "EADGBE",
+    "composer_version": 2
   }
 }
 ```
@@ -967,13 +984,26 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 
 ### Composition style choices
 
-- **`fingerstyle`** — alternating bass + treble. Best for ballads,
-  folk, slow tempos. Default for a reason; sounds reasonable on most
-  progressions.
-- **`strum`** — block chords on beats 1 and 3. Best for fast pop /
-  rock progressions.
-- **`arpeggio`** — chord tones rolled out one at a time. Best for
-  delicate, classical-leaning pieces.
+- **`fingerstyle`** — alternating bass (the shape's lowest note on beat 1,
+  another chord tone on beat 3) with a treble pinch on beats 2 and 4 (the
+  pinch keeps the beat-3 bass string when it is the chord's only source
+  of an essential tone: third, seventh, altered fifth or suspended
+  fourth).
+  Best for ballads, folk and slow tempos. It is the default because it
+  sounds reasonable on most progressions.
+- **`strum`** — a pop strum on the eighth-note grid (down, down-up,
+  up-down-up), with strings staggered a few milliseconds like a real
+  pick stroke. Best for pop and rock progressions.
+- **`arpeggio`** — bass on the downbeat, then seven eighth notes rolling
+  up and down the chord. Best for delicate, classical-leaning pieces.
+
+In every style the accompaniment leaves out chord notes that would sit
+on or just under the melody (never the bass, and never the notes that
+make the chord's shape major, minor or a seventh), and the piece ends on one
+ringing chord. The melody is written in four-bar phrases with a
+repeated motif, resolves leading tones, follows altered chords (G# over
+E7 in A minor), and ends on a long tonic (or on the last chord's root
+if that chord does not contain the tonic).
 
 Use `--bars 2` or higher when the chord changes feel too fast at
 default. Use `--tempo 60-80` for ballads, `--tempo 100-120` for pop,
@@ -983,12 +1013,25 @@ default. Use `--tempo 60-80` for ballads, `--tempo 100-120` for pop,
 
 `--seed N` makes `compose()` fully deterministic. Same `(scale,
 progression, bars, tempo, style, seed, tuning)` always produces the
-same melody. Useful for:
+same melody (with the same numpy version, since numpy does not
+guarantee its random streams across releases). Useful for:
 
 - Iterating on a chord progression while keeping the melody constant.
 - Sharing a seed in a bug report so we can reproduce.
 - Generating multiple takes by sweeping seed: `for s in 1 2 3 4 5; do
   music-decoder compose --seed $s ...; done`.
+
+Seeds are reproducible within one composer version, which is recorded
+in `metadata.composer_version` (currently `2`). Version 2 (November
+2026) replaced the uniform quarter-note generator with phrase-planned
+melodies, so a seed saved from an older version now gives a different
+(more musical) take. Compose output does not depend on
+`config/hyperparameters.yaml` or `MUSIC_DECODER_HYPERPARAMETERS`.
+
+To measure the composer, run `python scripts/compose_musicality_report.py`.
+It prints every musicality metric over the fixed evaluation matrices;
+`tests/fixtures/compose/musicality_baseline.json` holds the
+pre-version-2 numbers for comparison (measured at commit `69c2fa7`).
 
 Without `--seed`, the random number generator is seeded from
 NumPy's default entropy source, so every run differs.

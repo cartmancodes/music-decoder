@@ -1,0 +1,1847 @@
+{
+ "edge": {
+  "bars1": {
+   "A1.arpeggio": {
+    "max": 0.1429,
+    "mean": 0.1112,
+    "min": 0.0968
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9637,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9633,
+    "min": 0.5714
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.9295,
+    "min": 0.1429
+   },
+   "A3.arpeggio": {
+    "max": 0.5,
+    "mean": 0.1057,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.5,
+    "mean": 0.1048,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1298,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.2364,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8737,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 1.0,
+    "mean": 0.3333,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.75,
+    "mean": 0.1104,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 12.0,
+    "pooled": 0.3333
+   },
+   "M2": {
+    "max": 1.0,
+    "mean": 0.3368,
+    "min": 0.0
+   },
+   "M3": {
+    "max": 0.7143,
+    "mean": 0.287,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0435,
+    "mean": 0.0004,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 9.0,
+    "mean": 3.8545,
+    "min": 1.0
+   },
+   "M5": {
+    "n": 2.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 17.0,
+    "mean": 10.1545,
+    "min": 1.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.1182,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 16.3364,
+    "min": 5.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1765,
+    "min": 0.0
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.0583,
+    "mean": 1.6198,
+    "min": 1.3111
+   }
+  },
+  "major": {
+   "A1.arpeggio": {
+    "max": 0.1429,
+    "mean": 0.1114,
+    "min": 0.0968
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9651,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.967,
+    "min": 0.65
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.9352,
+    "min": 0.25
+   },
+   "A3.arpeggio": {
+    "max": 0.5,
+    "mean": 0.1115,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.5,
+    "mean": 0.11,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1334,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.25,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8748,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 1.0,
+    "mean": 0.3533,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.75,
+    "mean": 0.125,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 12.0,
+    "pooled": 0.3333
+   },
+   "M2": {
+    "max": 1.0,
+    "mean": 0.3334,
+    "min": 0.0
+   },
+   "M3": {
+    "max": 0.7143,
+    "mean": 0.2877,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 5.0,
+    "mean": 3.8125,
+    "min": 1.0
+   },
+   "M5": {
+    "n": 1.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 17.0,
+    "mean": 9.775,
+    "min": 1.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.1125,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 16.2625,
+    "min": 5.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1768,
+    "min": 0.0
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.0583,
+    "mean": 1.6169,
+    "min": 1.3111
+   }
+  },
+  "minor": {
+   "A1.arpeggio": {
+    "max": 0.125,
+    "mean": 0.1109,
+    "min": 0.1
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9599,
+    "min": 0.5714
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9532,
+    "min": 0.5714
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.9145,
+    "min": 0.1429
+   },
+   "A3.arpeggio": {
+    "max": 0.25,
+    "mean": 0.0901,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.2083,
+    "mean": 0.0907,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.25,
+    "mean": 0.1202,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.2,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8706,
+    "min": 0.6667
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.5556,
+    "mean": 0.2833,
+    "min": 0.1111
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.5,
+    "mean": 0.0813,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 0.0,
+    "pooled": -1.0
+   },
+   "M2": {
+    "max": 0.6087,
+    "mean": 0.3461,
+    "min": 0.1429
+   },
+   "M3": {
+    "max": 0.5714,
+    "mean": 0.2848,
+    "min": 0.087
+   },
+   "M4": {
+    "max": 0.0435,
+    "mean": 0.0014,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 9.0,
+    "mean": 3.9667,
+    "min": 3.0
+   },
+   "M5": {
+    "n": 1.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 17.0,
+    "mean": 11.1667,
+    "min": 3.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.1333,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 16.5333,
+    "min": 8.0
+   },
+   "T2": {
+    "max": 0.3043,
+    "mean": 0.1756,
+    "min": 0.0
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 1.7694,
+    "mean": 1.6265,
+    "min": 1.36
+   }
+  },
+  "overall": {
+   "A1.arpeggio": {
+    "max": 0.1429,
+    "mean": 0.1112,
+    "min": 0.0968
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9637,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9633,
+    "min": 0.5714
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.9295,
+    "min": 0.1429
+   },
+   "A3.arpeggio": {
+    "max": 0.5,
+    "mean": 0.1057,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.5,
+    "mean": 0.1048,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1298,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.2364,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8737,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 1.0,
+    "mean": 0.3333,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.75,
+    "mean": 0.1104,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 12.0,
+    "pooled": 0.3333
+   },
+   "M2": {
+    "max": 1.0,
+    "mean": 0.3368,
+    "min": 0.0
+   },
+   "M3": {
+    "max": 0.7143,
+    "mean": 0.287,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0435,
+    "mean": 0.0004,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 9.0,
+    "mean": 3.8545,
+    "min": 1.0
+   },
+   "M5": {
+    "n": 2.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 17.0,
+    "mean": 10.1545,
+    "min": 1.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.1182,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 16.3364,
+    "min": 5.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1765,
+    "min": 0.0
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.0583,
+    "mean": 1.6198,
+    "min": 1.3111
+   }
+  }
+ },
+ "source": "69c2fa7",
+ "validation": {
+  "bars1": {
+   "A1.arpeggio": {
+    "max": 0.1111,
+    "mean": 0.1037,
+    "min": 0.0952
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.925,
+    "min": 0.5625
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9169,
+    "min": 0.5625
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.8466,
+    "min": 0.125
+   },
+   "A3.arpeggio": {
+    "max": 0.375,
+    "mean": 0.1237,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.375,
+    "mean": 0.1103,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1512,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.065,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8331,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.6667,
+    "mean": 0.3533,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.5,
+    "mean": 0.0458,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 20.0,
+    "pooled": 0.2
+   },
+   "M2": {
+    "max": 0.7333,
+    "mean": 0.3583,
+    "min": 0.0667
+   },
+   "M3": {
+    "max": 0.6,
+    "mean": 0.2673,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0667,
+    "mean": 0.0007,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 10.0,
+    "mean": 3.92,
+    "min": 2.0
+   },
+   "M5": {
+    "n": 2.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 16.0,
+    "mean": 11.56,
+    "min": 5.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.315,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.25,
+    "mean": 0.0063,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 15.595,
+    "min": 8.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1783,
+    "min": 0.0667
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.5,
+    "mean": 1.621,
+    "min": 1.2444
+   }
+  },
+  "bars2": {
+   "A1.arpeggio": {
+    "max": 0.1111,
+    "mean": 0.1037,
+    "min": 0.0952
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.8988,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.895,
+    "min": 0.5312
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.7963,
+    "min": 0.0938
+   },
+   "A3.arpeggio": {
+    "max": 0.4375,
+    "mean": 0.11,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.3438,
+    "mean": 0.1092,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.4688,
+    "mean": 0.1383,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.23,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8938,
+    "min": 0.75
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.8333,
+    "mean": 0.3187,
+    "min": 0.0833
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.5,
+    "mean": 0.1417,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 19.0,
+    "pooled": 0.5789
+   },
+   "M2": {
+    "max": 0.5806,
+    "mean": 0.3463,
+    "min": 0.0968
+   },
+   "M3": {
+    "max": 0.6452,
+    "mean": 0.2897,
+    "min": 0.0968
+   },
+   "M4": {
+    "max": 0.0323,
+    "mean": 0.0003,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 23.0,
+    "mean": 4.165,
+    "min": 3.0
+   },
+   "M5": {
+    "n": 3.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 24.0,
+    "mean": 13.955,
+    "min": 7.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.16,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.25,
+    "mean": 0.0063,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 16.19,
+    "min": 8.0
+   },
+   "T2": {
+    "max": 0.3226,
+    "mean": 0.1636,
+    "min": 0.0323
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.5,
+    "mean": 1.621,
+    "min": 1.2444
+   }
+  },
+  "major": {
+   "A1.arpeggio": {
+    "max": 0.1111,
+    "mean": 0.1032,
+    "min": 0.0952
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.908,
+    "min": 0.5625
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9006,
+    "min": 0.5312
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.8123,
+    "min": 0.0938
+   },
+   "A3.arpeggio": {
+    "max": 0.4375,
+    "mean": 0.1245,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.375,
+    "mean": 0.1127,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1555,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.155,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8672,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.6667,
+    "mean": 0.3275,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 39.0,
+    "pooled": 0.3846
+   },
+   "M2": {
+    "max": 0.7333,
+    "mean": 0.3601,
+    "min": 0.0667
+   },
+   "M3": {
+    "max": 0.6452,
+    "mean": 0.2749,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 4.0,
+    "mean": 3.96,
+    "min": 3.0
+   },
+   "M5": {
+    "n": 0.0,
+    "pooled": -1.0
+   },
+   "M6": {
+    "max": 19.0,
+    "mean": 12.965,
+    "min": 7.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.26,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 15.885,
+    "min": 10.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1711,
+    "min": 0.0323
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 1.9667,
+    "mean": 1.6036,
+    "min": 1.2444
+   }
+  },
+  "minor": {
+   "A1.arpeggio": {
+    "max": 0.1111,
+    "mean": 0.1041,
+    "min": 0.0952
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9158,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9113,
+    "min": 0.5312
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.8305,
+    "min": 0.0938
+   },
+   "A3.arpeggio": {
+    "max": 0.3125,
+    "mean": 0.1092,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.3125,
+    "mean": 0.1069,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.375,
+    "mean": 0.1341,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.14,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8597,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.8333,
+    "mean": 0.3446,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.5,
+    "mean": 0.0938,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 0.0,
+    "pooled": -1.0
+   },
+   "M2": {
+    "max": 0.6,
+    "mean": 0.3445,
+    "min": 0.0667
+   },
+   "M3": {
+    "max": 0.6,
+    "mean": 0.2821,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0667,
+    "mean": 0.001,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 23.0,
+    "mean": 4.125,
+    "min": 2.0
+   },
+   "M5": {
+    "n": 5.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 24.0,
+    "mean": 12.55,
+    "min": 5.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.215,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.25,
+    "mean": 0.0125,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 15.9,
+    "min": 8.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1708,
+    "min": 0.0323
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.5,
+    "mean": 1.6383,
+    "min": 1.2778
+   }
+  },
+  "overall": {
+   "A1.arpeggio": {
+    "max": 0.1111,
+    "mean": 0.1037,
+    "min": 0.0952
+   },
+   "A1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "A2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.9119,
+    "min": 0.5
+   },
+   "A2.fingerstyle": {
+    "max": 1.0,
+    "mean": 0.9059,
+    "min": 0.5312
+   },
+   "A2.strum": {
+    "max": 1.0,
+    "mean": 0.8214,
+    "min": 0.0938
+   },
+   "A3.arpeggio": {
+    "max": 0.4375,
+    "mean": 0.1169,
+    "min": 0.0
+   },
+   "A3.fingerstyle": {
+    "max": 0.375,
+    "mean": 0.1098,
+    "min": 0.0
+   },
+   "A3.strum": {
+    "max": 0.5,
+    "mean": 0.1448,
+    "min": 0.0
+   },
+   "A4.arpeggio": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.fingerstyle": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "A4.strum": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "H1.arpeggio": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H1.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.arpeggio": {
+    "max": 1.0,
+    "mean": 0.1475,
+    "min": 0.0
+   },
+   "H2.fingerstyle": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "H2.strum": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M1": {
+    "max": 1.0,
+    "mean": 0.8634,
+    "min": 0.5
+   },
+   "M10": {
+    "max": -0.0,
+    "mean": 0.0,
+    "min": -0.0
+   },
+   "M11a": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M11b": {
+    "max": 0.8333,
+    "mean": 0.336,
+    "min": 0.0
+   },
+   "M12": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "M13": {
+    "max": 0.5,
+    "mean": 0.0938,
+    "min": 0.0
+   },
+   "M14": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "M15": {
+    "n": 39.0,
+    "pooled": 0.3846
+   },
+   "M2": {
+    "max": 0.7333,
+    "mean": 0.3523,
+    "min": 0.0667
+   },
+   "M3": {
+    "max": 0.6452,
+    "mean": 0.2785,
+    "min": 0.0
+   },
+   "M4": {
+    "max": 0.0667,
+    "mean": 0.0005,
+    "min": 0.0
+   },
+   "M4max": {
+    "max": 23.0,
+    "mean": 4.0425,
+    "min": 2.0
+   },
+   "M5": {
+    "n": 5.0,
+    "pooled": 0.0
+   },
+   "M6": {
+    "max": 24.0,
+    "mean": 12.7575,
+    "min": 5.0
+   },
+   "M7": {
+    "max": 1.0,
+    "mean": 0.2375,
+    "min": 0.0
+   },
+   "M8": {
+    "max": 0.95,
+    "mean": 0.95,
+    "min": 0.95
+   },
+   "M9": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "S1.foreign": {
+    "max": 0.25,
+    "mean": 0.0063,
+    "min": 0.0
+   },
+   "S1.missing": {
+    "max": 0.0,
+    "mean": 0.0,
+    "min": 0.0
+   },
+   "T1": {
+    "max": 20.0,
+    "mean": 15.8925,
+    "min": 8.0
+   },
+   "T2": {
+    "max": 0.3333,
+    "mean": 0.1709,
+    "min": 0.0323
+   },
+   "Tcount": {
+    "max": 1.0,
+    "mean": 1.0,
+    "min": 1.0
+   },
+   "V1": {
+    "max": 2.5,
+    "mean": 1.621,
+    "min": 1.2444
+   }
+  }
+ }
+}

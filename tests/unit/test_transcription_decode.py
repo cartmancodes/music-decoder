@@ -32,9 +32,7 @@ def test_transcribe_is_run_model_then_decode() -> None:
         mock.patch(
             "music_decoder.transcription.basic_pitch_wrapper.run_model", return_value=sentinel
         ) as rm,
-        mock.patch(
-            "music_decoder.transcription.decode_model_output", return_value=()
-        ) as dec,
+        mock.patch("music_decoder.transcription.decode_model_output", return_value=()) as dec,
     ):
         out = transcription.transcribe(np.zeros(22050, np.float32), 22050)
     rm.assert_called_once()

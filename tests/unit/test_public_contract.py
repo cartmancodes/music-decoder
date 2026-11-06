@@ -14,19 +14,40 @@ from music_decoder import api, errors
 
 
 def test_package_exports_are_frozen():
-    assert sorted(music_decoder.__all__) == sorted([
-        "DADGAD", "DROP_C", "DROP_D", "D_STANDARD", "EB_HALF_STEP_DOWN",
-        "STANDARD_EADGBE", "AnalysisResult", "ChordSegment", "ChordSymbol",
-        "Composition", "KeyEstimate", "Note", "Scale", "TabPosition",
-        "TabbedNote", "Tuning", "VoicedChord", "analyze", "compose",
-    ])
+    assert sorted(music_decoder.__all__) == sorted(
+        [
+            "DADGAD",
+            "DROP_C",
+            "DROP_D",
+            "D_STANDARD",
+            "EB_HALF_STEP_DOWN",
+            "STANDARD_EADGBE",
+            "AnalysisResult",
+            "ChordSegment",
+            "ChordSymbol",
+            "Composition",
+            "KeyEstimate",
+            "Note",
+            "Scale",
+            "TabPosition",
+            "TabbedNote",
+            "Tuning",
+            "VoicedChord",
+            "analyze",
+            "compose",
+        ]
+    )
 
 
 def test_analyze_signature_is_frozen():
     sig = inspect.signature(api.analyze)
     params = list(sig.parameters)
     assert params == [
-        "source", "declared_kind", "tuning", "use_separation", "progress",
+        "source",
+        "declared_kind",
+        "tuning",
+        "use_separation",
+        "progress",
     ]
     p = sig.parameters
     assert p["source"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
@@ -44,8 +65,14 @@ def test_compose_signature_is_frozen():
     sig = inspect.signature(api.compose)
     params = list(sig.parameters)
     assert params == [
-        "scale", "progression", "bars_per_chord", "tempo_bpm",
-        "style", "tuning", "seed", "out_dir",
+        "scale",
+        "progression",
+        "bars_per_chord",
+        "tempo_bpm",
+        "style",
+        "tuning",
+        "seed",
+        "out_dir",
     ]
     p = sig.parameters
     assert p["scale"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
@@ -90,9 +117,7 @@ def test_error_hierarchy_is_frozen():
         # MusicDecoderError. (A class is a subclass of itself, so this also
         # holds for MusicDecoderError. Catches a broken root link that the
         # declared-base check above would miss.)
-        assert issubclass(cls, errors.MusicDecoderError), (
-            f"{name} must be a MusicDecoderError"
-        )
+        assert issubclass(cls, errors.MusicDecoderError), f"{name} must be a MusicDecoderError"
 
 
 def test_cli_subcommands_and_flags_are_frozen():
@@ -106,11 +131,19 @@ def test_cli_subcommands_and_flags_are_frozen():
         assert cmd in r.output
     ra = CliRunner().invoke(main, ["analyze", "--help"])
     assert ra.exit_code == 0
-    for flag in ("--tuning", "--solo-guitar", "--full-mix",
-                 "--no-separation", "--format"):
+    for flag in ("--tuning", "--solo-guitar", "--full-mix", "--no-separation", "--format"):
         assert flag in ra.output
     rc = CliRunner().invoke(main, ["compose", "--help"])
     assert rc.exit_code == 0
-    for flag in ("--scale", "--progression", "--style", "--tempo",
-                 "--bars", "--seed", "--tuning", "--out", "--format"):
+    for flag in (
+        "--scale",
+        "--progression",
+        "--style",
+        "--tempo",
+        "--bars",
+        "--seed",
+        "--tuning",
+        "--out",
+        "--format",
+    ):
         assert flag in rc.output

@@ -176,14 +176,18 @@ def test_out_of_range_note_does_not_poison_its_chord():
     from music_decoder.tabs.assigner import assign_tab as _assign
     from music_decoder.tabs.tuning import STANDARD_EADGBE as _STD
 
-    chord = [
-        TranscribedNote(0.0, 1.0, p, 80, 0.9) for p in (31, 43, 47, 50, 55, 59)
-    ]
+    chord = [TranscribedNote(0.0, 1.0, p, 80, 0.9) for p in (31, 43, 47, 50, 55, 59)]
     r = _assign(
         chord,
         tuning=_STD,
-        weights={"w_move": 1.0, "w_string": 0.3, "w_span": 0.5, "w_high": 0.4,
-                 "w_open": 0.2, "w_chord_intra": 0.6},
+        weights={
+            "w_move": 1.0,
+            "w_string": 0.3,
+            "w_span": 0.5,
+            "w_high": 0.4,
+            "w_open": 0.2,
+            "w_chord_intra": 0.6,
+        },
         max_fret=22,
     )
     assert sorted(t.note.pitch for t in r.tabbed_notes) == [43, 47, 50, 55, 59]
