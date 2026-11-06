@@ -726,3 +726,116 @@ compose(scale, progression, …)            # signature unchanged
 | r3 F1: a brief melody tone could remove an essential tone from the whole ringing final chord (C–Am–F–G7, seed 5, ended on G major with no F; A–Dsus4 and Am–Dsus4, seed 1, lost their G; 8 of 110 edge endings were affected) | **Fixed.** `_thin_below` now counts only the melody note still sounding at the end of the window as supplying an essential tone. Register clearance still uses every overlapping note (§5.4 step 4, D20). New metric H2 (cadence identity under the whole held final note) replaces the `H1final` alias. It is measured on baseline and candidate with the same definition (baseline arpeggio 0.148, candidate 1.0 in every style), asserted = 1 on both matrices and guarded ≥ baseline. Tests: hand-built passing-tone and held-seventh thinning cases plus the final stroke in every style (Task 5); both reproductions and two edge-matrix endings through `arrange()` in every style (Task 7); hand-built H2 cases, including re-struck tones and the H1-passes/H2-fails contrast (Task 2). A2 and A3 were re-measured: validation is unchanged; edge A2 is 0.987, still above the baseline. A4 still holds. Round-1 F4 is closed. |
 | r3 F2: §7 overstated which targets run on both matrices; D9 still said 80 edge melodies | **Fixed.** §7 now lists exactly what each matrix receives: statistical targets, floors and pooled thresholds on validation; hard invariants and guards on both; paired improvement on the edge matrix. The thresholds and the edge matrix are unchanged, and single-note pieces are not forced to meet multi-bar rhythm targets. D9 says 400 + 110. Historical revision-2 counts and timings are labelled as such. |
 
+
+## 14. Results
+
+Measured on 2026-11-06 after all plan tasks (Tasks 0–8) and the final-review
+polish had landed (branch `feat/compose-improve`, head `ab74763`). "Before" is
+the committed baseline `tests/fixtures/compose/musicality_baseline.json`,
+written by the pre-change composer at `69c2fa7`. "After" is a fresh run of
+`python scripts/compose_musicality_report.py` on the finished composer. Both
+use the same inputs and the same metric code: `metrics.py`, `rhythm.py`,
+`harmony.py` and `evaluation/compose_musicality.py` are unchanged since
+`69c2fa7`. The validation matrix is 400 held-out melodies (seeds 1000–1004,
+times 3 styles for the A/H metrics). The edge matrix is 110 melodies. Every
+value is the "overall" group. The full per-subgroup numbers come from the
+script.
+
+All but one "after" value equal the candidate column predicted in §3.2
+(validation) and the edge highlights, so the dry run reproduced on the real
+branch. The exception is validation A3 fingerstyle, which is 0.069 rather than
+the predicted 0.067. That comes from the Task 5 fingerstyle fix (`ad229bb`,
+below): keeping the low third in the beat-2/4 pinch occasionally sounds a
+semitone against the melody. It still meets both targets: ≤ 0.10, and
+≤ 0.7 × baseline = 0.077.
+
+| ID | Metric | Stat | Better | Validation before | Validation after | Edge before | Edge after |
+|---|---|---|---|---|---|---|---|
+| M1 | Strong-beat chord-tone ratio | mean | ↑ | 0.863 | 0.980 | 0.874 | 0.991 |
+| M2 | Stepwise ratio | mean | ↑ | 0.352 | 0.554 | 0.337 | 0.562 |
+| M3 | Repeated-note ratio | mean | ↓ | 0.279 | 0.095 | 0.287 | 0.100 |
+| M4 | Large-leap ratio (> a fifth) | mean | allowed rise (≤ 0.02) | 0.0005 | 0.0040 | 0.0004 | 0.0064 |
+| M4max | Largest interval (semitones) | max | ↓ | 23 | 12 | 9 | 12 |
+| M5 | Leap recovery (pooled) | pooled | ↑ | 0.000 (n=5) | 0.761 (n=771) | 0.000 (n=2) | 0.718 (n=170) |
+| M6 | Ambitus (semitones) | max | ↓ | 24 | 17 | 17 | 16 |
+| M7 | Final resolution to tonic/root | mean | ↑ | 0.237 | 1.000 | 0.118 | 1.000 |
+| M8 | Final note length (beats) | min | ↑ | 0.950 | 1.900 | 0.950 | 1.900 |
+| M9 | Distinct durations | mean | ↑ | 1.000 | 4.100 | 1.000 | 3.736 |
+| M10 | IOI entropy (bits) | mean | ↑ | 0.000 | 1.470 | 0.000 | 1.272 |
+| M11a | Echo-pair coverage | mean | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| M11b | Echo contour agreement | mean | ↑ | 0.336 | 0.695 | 0.333 | 0.774 |
+| M12 | Phrase-final long notes | mean | ↑ | 0.000 | 1.000 | 0.000 | 1.000 |
+| M13 | Exposed chromatic clashes | mean | ↓ | 0.094 | 0.024 | 0.110 | 0.020 |
+| M14 | Melody on the 8th grid | mean | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| M15 | Leading-tone resolution (pooled) | pooled | ↑ | 0.385 (n=39) | 0.825 (n=40) | 0.333 (n=12) | 1.000 (n=14) |
+| A1.arpeggio | Stroke heads on 16th grid, arpeggio | mean | ↑ | 0.104 | 1.000 | 0.111 | 1.000 |
+| A1.strum | Stroke heads on 16th grid, strum | mean | ↑ | 1.000 | 1.000 | 1.000 | 1.000 |
+| A1.fingerstyle | Stroke heads on 16th grid, fingerstyle | mean | ↑ | 1.000 | 1.000 | 1.000 | 1.000 |
+| A2.arpeggio | Melody above accompaniment, arpeggio | mean | ↑ | 0.912 | 1.000 | 0.964 | 0.987 |
+| A2.strum | Melody above accompaniment, strum | mean | ↑ | 0.821 | 1.000 | 0.929 | 0.987 |
+| A2.fingerstyle | Melody above accompaniment, fingerstyle | mean | ↑ | 0.906 | 1.000 | 0.963 | 0.987 |
+| A3.arpeggio | Exposed semitone clashes, arpeggio | mean | ↓ | 0.117 | 0.062 | 0.106 | 0.037 |
+| A3.strum | Exposed semitone clashes, strum | mean | ↓ | 0.145 | 0.087 | 0.130 | 0.058 |
+| A3.fingerstyle | Exposed semitone clashes, fingerstyle | mean | ↓ | 0.110 | 0.069 | 0.105 | 0.056 |
+| A4.arpeggio | Final chord rings (one attack), arpeggio | mean | ↑ | 0.000 | 1.000 | 0.000 | 1.000 |
+| A4.strum | Final chord rings (one attack), strum | mean | ↑ | 0.000 | 1.000 | 0.000 | 1.000 |
+| A4.fingerstyle | Final chord rings (one attack), fingerstyle | mean | ↑ | 0.000 | 1.000 | 0.000 | 1.000 |
+| H1.arpeggio | Shape essential tones heard per bar, arpeggio | min | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| H1.strum | Shape essential tones heard per bar, strum | min | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| H1.fingerstyle | Shape essential tones heard per bar, fingerstyle | min | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| H2.arpeggio | Cadence identity under held final note, arpeggio | mean | ↑ | 0.147 | 1.000 | 0.236 | 1.000 |
+| H2.strum | Cadence identity under held final note, strum | mean | ↑ | 1.000 | 1.000 | 1.000 | 1.000 |
+| H2.fingerstyle | Cadence identity under held final note, fingerstyle | mean | ↑ | 1.000 | 1.000 | 1.000 | 1.000 |
+| S1.missing | Shapes missing an essential tone | mean | guard | 0.000 | 0.000 | 0.000 | 0.000 |
+| S1.foreign | Shapes with a foreign tone | mean | guard | 0.006 | 0.006 | 0.000 | 0.000 |
+| T1 | Melody tab max fret | max | ↓ | 20 | 15 | 20 | 15 |
+| T2 | Hand-position shifts per note | mean | ↓ | 0.171 | 0.124 | 0.176 | 0.097 |
+| Tcount | Melody notes tabbed | min | guard | 1.000 | 1.000 | 1.000 | 1.000 |
+| V1 | Nearest-pitch proximity of shapes | mean | guard | 1.621 | 1.621 | 1.620 | 1.620 |
+
+Reading the table:
+- **Improved**, as targeted: every "↑"/"↓" metric moved in the right
+  direction on both matrices.
+- **Flat**: rows already at 1.0 (A1 strum/fingerstyle, H2 strum/fingerstyle)
+  stay there.
+- **Allowed regression (M4)**: the one permitted regression, bounded at
+  ≤ 0.02, with M4max hard-capped at 12. On the edge matrix M4max rises from
+  9 to 12. The old composer's ±4 cap kept that matrix's leaps small, but its
+  fallback jumped up to 23 semitones on the validation matrix.
+- **Guards**: M11a, M14, H1, S1, Tcount and V1 are equal to the baseline.
+  Voicing shapes are out of scope (§9), so S1 and V1 are reported, not
+  improved.
+- **Edge A2 (0.987)** is the documented D17/D20 trade: identity before
+  clearance.
+
+**Gate at completion** (head `ab74763`, fresh run):
+- `pytest -q tests/unit tests/integration`: 571 passed, 3 skipped. The 3 skips
+  are the GuitarSet cache and fixtures without tab ground truth, all
+  pre-existing.
+- The 24–39 warnings are a pre-existing `synth/fluidsynth_wrapper.py`
+  `sf2_path` deprecation, in code this branch does not change.
+- `ruff check src tests`: clean.
+- `ruff format --check src tests`: 159 files already formatted.
+- `mypy --strict src`: no issues in 80 source files.
+- The compose test modules run in about 4.6 s, of which the shared
+  `evaluate()` fixture takes about 2.8 s.
+
+**Deviations from the plan during implementation:**
+- `ad229bb` (Task 5): the plan's `_fingerstyle_bar` dropped the
+  alternate-bass string from the beat-2/4 pinch even when that string was the
+  shape's only third. Examples are open C, G, C7 and G7 under a high melody
+  note, which breaks §5.4. The pinch now keeps that string when its pitch
+  class is essential and no other pinch note has it. This is pinned by
+  `test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass`, and
+  the plan's Task 5 carries an implementation note.
+- `d900cdb` and `ab74763` (docs and polish):
+  - The docs describe the pinch rule.
+  - The baseline's `source` label was corrected from `59294b1` to `69c2fa7`,
+    the commit that actually reproduces it; no metric value changed.
+  - The report script labels dirty trees.
+  - `_lowest_fret_position` uses `COMPOSE_TAB_MAX_FRET`.
+  - `tabtext` no longer raises on an empty chord shape.
+  - Wording fixes in `docs/usage.md` and `docs/architecture-technical.md`.
+- Commit `69c2fa7` carries a `Co-Authored-By: Claude Sonnet 5.5` trailer
+  instead of the mandated Opus 5.5 line. It was left in place because
+  committed history is not rewritten.
