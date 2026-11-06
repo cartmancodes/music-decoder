@@ -16,9 +16,9 @@
 
 **Execution method:** superpowers:subagent-driven-development (pre-approved by the pipeline: Opus implements, GPT-6 Astra reviews).
 
-**Spec:** `docs/superpowers/specs/2026-11-06-compose-improvements-design.md` (revision 3). Read §3 (paired baseline and targets), §4 (definitions), §5 (design), §10 (decisions) and §11–§12 (review responses).
+**Spec:** `docs/superpowers/specs/2026-11-06-compose-improvements-design.md` (revision 4, final). Read §3 (paired baseline and targets), §4 (definitions), §5 (design), §10 (decisions) and §11–§13 (review responses).
 
-**Dry run:** every code block below was built in a scratch copy of this repo, and the tasks were then replayed in order on a fresh copy. After every task all four gates were green, ending at `pytest -q tests/unit tests/integration` with 548 passed, 3 skipped. On replay, Task 3's baseline JSON had identical validation values to the previous revision; only the edge matrix and S1 keys were new. If a step's result differs from its "Expected" line, stop and investigate; do not loosen a threshold to make it pass.
+**Dry run:** every code block below was built in a scratch copy of this repo, and the tasks were then replayed in order on a fresh copy. After every task all four gates were green, ending at `pytest -q tests/unit tests/integration` with 570 passed, 3 skipped. On replay, Task 3 regenerated the committed baseline identically. If a step's result differs from its "Expected" line, stop and investigate; do not loosen a threshold to make it pass.
 
 ## Global Constraints
 
@@ -415,6 +415,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `hand_shift_rate(frets)`
   - `nearest_pitch_proximity(voicings, tuning)`
   - `shape_tone_mismatch(voicing, tuning) -> tuple[frozenset[int], frozenset[int]]`: (missing essential, foreign)
+  - `cadence_identity(melody, accompaniment, voicings, tuning) -> bool | None`: H2, the full harmony under the held final note
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -805,6 +806,30 @@ def test_shape_tone_mismatch_reports_inherited_shape_defects():
     assert missing == frozenset({7}) and foreign == frozenset({10})
     acc = [n(0, 4, 52), n(0, 4, 58), n(0, 4, 61)]
     assert m.essential_tone_coverage([], acc, [shape("C#dim")], 1, TEMPO, STANDARD_EADGBE) == [True]
+
+
+def test_cadence_identity_checks_the_held_final_note():
+    g7 = shape("G7")  # G2 B2 D3 G3 B3 F4
+    melody = [n(0, 1, 67), n(1, 1, 65), n(2, 2, 67)]  # G4, a passing F4, held G4
+    full = [n(0, 4, p) for p in (43, 47, 50, 55, 59, 65)]
+    assert m.cadence_identity(melody, full, [g7], STANDARD_EADGBE) is True
+    no_seventh = [n(0, 4, p) for p in (43, 47, 50, 55, 59)]
+    # H1 is satisfied by the passing F4, H2 is not: nothing supplies F under the held G4
+    assert m.essential_tone_coverage(melody, no_seventh, [g7], 1, TEMPO, STANDARD_EADGBE) == [True]
+    assert m.cadence_identity(melody, no_seventh, [g7], STANDARD_EADGBE) is False
+    held_f = [n(0, 2, 67), n(2, 2, 65)]  # the held final note is the seventh itself
+    assert m.cadence_identity(held_f, no_seventh, [g7], STANDARD_EADGBE) is True
+    assert m.cadence_identity([], full, [g7], STANDARD_EADGBE) is None
+
+
+def test_cadence_identity_accepts_re_struck_tones_with_articulation_gaps():
+    g7 = shape("G7")
+    melody = [n(0, 2, 67), n(2, 2, 67)]
+    base = [n(0, 4, p) for p in (43, 47, 50, 55, 59)]
+    restruck_f = [n(2, 0.95, 65), n(3, 0.95, 65)]  # 95% of the held note
+    assert m.cadence_identity(melody, base + restruck_f, [g7], STANDARD_EADGBE) is True
+    half_f = [n(2, 0.95, 65)]  # only the first half
+    assert m.cadence_identity(melody, base + half_f, [g7], STANDARD_EADGBE) is False
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1325,6 +1350,47 @@ def essential_tone_coverage(
     return out
 
 
+_CADENCE_COVER = 0.9  # tolerates the 5% articulation gaps between re-struck notes
+
+
+def _covered_fraction(notes: Sequence[Note], t0: float, t1: float) -> float:
+    """Fraction of [t0, t1) during which at least one of ``notes`` sounds."""
+    spans = sorted((max(n.start_s, t0), min(n.end_s, t1)) for n in notes)
+    covered, reach = 0.0, t0
+    for start, end in spans:
+        if end <= reach:
+            continue
+        covered += end - max(start, reach)
+        reach = end
+    return covered / (t1 - t0) if t1 > t0 else 0.0
+
+
+def cadence_identity(
+    melody: Sequence[Note],
+    accompaniment: Sequence[Note],
+    voicings: Sequence[VoicedChord],
+    tuning: Tuning,
+) -> bool | None:
+    """H2: whether every essential tone of the final chord's shape sounds
+    under the whole final melody note: as that note's own pitch class, or in
+    accompaniment notes of that pitch class covering >= 90% of it.
+    ``None`` without a melody.
+
+    Unlike H1's last bar, a tone heard only earlier in the bar does not count;
+    this is the harmony under the held cadence note."""
+    if not melody or not voicings:
+        return None
+    final = melody[-1]
+    shape = {p % 12 for p in _voicing_pitches(voicings[-1], tuning)}
+    for pc in essential_pcs(voicings[-1].chord) & shape:
+        if pc == final.pitch % 12:
+            continue
+        same = [a for a in accompaniment if a.pitch % 12 == pc]
+        if _covered_fraction(same, final.start_s, final.end_s) < _CADENCE_COVER:
+            return False
+    return True
+
+
 # ---- tab and voicings -----------------------------------------------------
 
 
@@ -1376,7 +1442,7 @@ def nearest_pitch_proximity(voicings: Sequence[VoicedChord], tuning: Tuning) -> 
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_harmony.py tests/unit/test_compose_metrics.py -q`. Expected: `55 passed` (31 + 24).
+Run: `pytest tests/unit/test_compose_harmony.py tests/unit/test_compose_metrics.py -q`. Expected: `57 passed` (31 + 26).
 Run: `ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: clean.
 
 - [ ] **Step 5: Commit**
@@ -1389,8 +1455,8 @@ git commit -m "feat(compose): harmony helpers and musicality metrics
 Stack-of-thirds chord-scale rule (an altered chord tone replaces the degree it
 occupies), essential tones, and pure metric functions: overlap-based
 accompaniment metrics, phrase-layout-aware motif/cadence metrics, chromatic
-clash, leading-tone resolution, essential-tone coverage, shape defects, tab
-hand shifts and a nearest-pitch proximity guard.
+clash, leading-tone resolution, essential-tone coverage, cadence identity,
+shape defects, tab hand shifts and a nearest-pitch proximity guard.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1510,7 +1576,7 @@ def test_case_metrics_cover_every_style():
     (case,) = ev.build_cases(ev.edge_inputs()[:1])
     row = ev.case_metrics(case)
     for style in ev.STYLES:
-        for prefix in ("A1", "A2", "A3", "A4", "H1", "H1final"):
+        for prefix in ("A1", "A2", "A3", "A4", "H1", "H2"):
             assert f"{prefix}.{style}" in row
     assert {"M1", "M7", "M11a", "M12", "M13", "T1", "T2", "V1", "S1.missing"} <= set(row)
 
@@ -2031,7 +2097,9 @@ def case_metrics(case: Case) -> dict[str, Value]:
         out[f"A3.{style}"] = metrics.exposed_semitone_clash_ratio(mel, acc, tempo)
         out[f"A4.{style}"] = metrics.final_chord_rings(acc, case.n_bars, tempo)
         out[f"H1.{style}"] = sum(coverage) / len(coverage)
-        out[f"H1final.{style}"] = coverage[-1]
+        out[f"H2.{style}"] = metrics.cadence_identity(
+            mel, acc, case.arrangement.voicings, STANDARD_EADGBE
+        )
     return out
 
 
@@ -2162,6 +2230,8 @@ Expected: a table and `wrote tests/fixtures/compose/musicality_baseline.json`. T
 | M15 pooled | 0.3846 (n 39) |
 | S1.foreign mean | 0.0063 |
 | S1.missing mean | 0.0 |
+| H2.arpeggio mean | 0.1475 |
+| H2.strum mean | 1.0 |
 
 - [ ] **Step 6: Run the tests and gates**
 
@@ -2930,7 +3000,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `harmony.essential_pcs` (Task 2), `generate_melody` (Task 4), `metrics` (tests).
 - Produces, in `music_decoder.compose.arrangement`:
   - `THIN_MARGIN_SEMITONES = 3`
-  - `_thin_below(pitches, essential, melody, t0, t1) -> list[int]`
+  - `_thin_below(pitches, essential, melody, t0, t1) -> list[int]`: register clearance uses every melody note overlapping the window; only the melody note sounding at the end of the window counts as supplying an essential tone
   - `_accompaniment_notes(voicings, bars_per_chord, tempo_bpm, style, tuning, melody=()) -> list[pretty_midi.Note]`
   - `build_midi(...)` (signature unchanged)
   - It keeps `_voiced_pitches`, `GUITAR_PROGRAM` and `Style`.
@@ -3110,6 +3180,31 @@ def test_d_major_cadence_keeps_its_third(style):
     acc = [_note(n.start, n.end, n.pitch) for n in notes]
     coverage = metrics.essential_tone_coverage(melody, acc, voicings, 1, 120.0, STANDARD_EADGBE)
     assert all(coverage)
+
+
+G7_SHAPE = [43, 47, 50, 55, 59, 65]  # G2 B2 D3 G3 B3 F4
+G7_ESSENTIAL = frozenset({11, 5})  # B and F
+
+
+def test_a_passing_melody_tone_does_not_stand_in_for_the_held_harmony():
+    # review r3: a brief F4 early in the final bar used to exempt the seventh
+    melody = [_note(6.0, 6.475, 67), _note(6.5, 6.975, 65), _note(7.0, 7.95, 67)]
+    assert 65 in _thin_below(G7_SHAPE, G7_ESSENTIAL, melody, 6.0, 8.0)
+
+
+def test_the_held_final_melody_note_may_supply_an_essential_tone():
+    melody = [_note(6.0, 6.475, 67), _note(6.5, 7.95, 65)]  # F4 held to the end
+    assert 65 not in _thin_below(G7_SHAPE, G7_ESSENTIAL, melody, 6.0, 8.0)
+
+
+@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+def test_final_stroke_keeps_the_seventh_under_the_cadence(style):
+    voicings = [voicings_for(ChordSymbol.parse(c), STANDARD_EADGBE)[0] for c in ("C", "G7")]
+    melody = [_note(2.0, 2.475, 67), _note(2.5, 2.975, 65), _note(3.0, 3.95, 67)]
+    notes = _accompaniment_notes(voicings, 1, 120.0, style, STANDARD_EADGBE, melody=melody)
+    acc = [_note(n.start, n.end, n.pitch) for n in notes]
+    assert metrics.cadence_identity(melody, acc, voicings, STANDARD_EADGBE) is True
+    assert metrics.final_chord_rings(acc, 2, 120.0)
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -3175,18 +3270,23 @@ def _thin_below(
 ) -> list[int]:
     """The (sorted) ``pitches`` to play in [t0, t1).
 
-    Pitches within a minor third of the lowest melody note sounding in the
-    window are dropped. The lowest pitch is always kept, and each
-    ``essential`` pitch class neither kept nor sounding in the melody is put
-    back at its lowest voicing pitch, so the harmony keeps its identity even
-    when that note has to sit near or above the tune.
+    Register: pitches within a minor third of the lowest melody note sounding
+    anywhere in the window are dropped, but the lowest pitch is always kept.
+    Identity: each ``essential`` pitch class is then put back at its lowest
+    voicing pitch unless a kept pitch has it or the melody note sounding at
+    the end of the window does. Only the note that lasts to the end counts as
+    supplying it: the accompaniment rings through the window, so a passing
+    melody note earlier in it must not stand in for the chord's third or
+    seventh under the held note that follows (for the final stroke, the
+    cadence note).
     """
-    sounding = [n.pitch for n in melody if n.start_s < t1 and n.end_s > t0]
-    if not sounding:
+    overlapping = [n for n in melody if n.start_s < t1 and n.end_s > t0]
+    if not overlapping:
         return list(pitches)
-    ceiling = min(sounding) - THIN_MARGIN_SEMITONES
+    ceiling = min(n.pitch for n in overlapping) - THIN_MARGIN_SEMITONES
     kept = [p for p in pitches if p <= ceiling] or list(pitches[:1])
-    heard = {p % 12 for p in kept} | {p % 12 for p in sounding}
+    last = max(overlapping, key=lambda n: (n.start_s, n.pitch))
+    heard = {p % 12 for p in kept} | {last.pitch % 12}
     for pc in sorted(essential):
         if pc not in heard:
             same = [p for p in pitches if p % 12 == pc]
@@ -3363,7 +3463,7 @@ with:
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_arrangement.py -q`. Expected: `23 passed`.
+Run: `pytest tests/unit/test_compose_arrangement.py -q`. Expected: `28 passed`.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: 0 failures, clean.
 
 - [ ] **Step 5: Commit**
@@ -3376,7 +3476,9 @@ git commit -m "feat(compose): on-grid accompaniment that keeps the tune on top a
 Arpeggio on straight eighths (was 11-tuplets), D-DU-UDU strum with string
 stagger, alternating-bass fingerstyle, a final ringing chord. Thinning drops
 voicing notes within a minor third of the melody but always keeps the bass and
-restores any third/seventh the melody is not sounding.
+restores any third/seventh unless the melody note still sounding at the end of
+the attack supplies it, so a passing melody tone never empties the held
+cadence chord.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -3877,6 +3979,25 @@ def test_every_chord_quality_on_every_root_composes(key, mode, home):
                 arr.melody, arr.accompaniment, arr.voicings, 1, 120.0, STANDARD_EADGBE
             )
             assert all(coverage), label
+
+
+@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize(
+    ("key", "mode", "labels", "seed"),
+    [
+        ("C", "major", ("C", "Am", "F", "G7"), 5),  # review r3: G7 ending lost its F
+        ("A", "major", ("A", "Dsus4"), 1),  # review r3: Dsus4 ending lost its G
+        ("A", "minor", ("Am", "Dsus4"), 1),
+        ("C", "major", ("C", "Fm", "C", "G7"), 1006),  # from the edge matrix
+        ("A", "major", ("A", "Dsus4"), 1002),
+    ],
+)
+def test_sustained_cadence_keeps_the_chord_identity(key, mode, labels, seed, style):
+    progression = _chords(*labels)
+    arr = arrange(Scale(key, mode), progression, tempo_bpm=120.0, style=style, seed=seed)
+    assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, STANDARD_EADGBE)
+    assert metrics.final_chord_rings(arr.accompaniment, len(labels), 120.0)
+    assert metrics.max_interval(arr.melody) <= MAX_INTERVAL
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -4153,7 +4274,7 @@ Then run `grep -rn "chord_tone_prob\|markov_max\|^composition:" src tests script
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_api.py -q`. Expected: `30 passed`.
+Run: `pytest tests/unit/test_compose_api.py -q`. Expected: `45 passed`.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: 0 failures (including `test_public_contract.py`, unchanged), clean.
 Run: `music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" --style fingerstyle --tempo 100 --seed 42 --out .compose-golden/smoke && music-decoder compose --scale A:major --progression "A Dsus4" --seed 0 --out .compose-golden/smoke`
 Expected: both exit 0. The first prints the `MIDI:` and `WAV:` paths, then `ASCII tab:`, a `Melody` block (`e|-12-10----12-|-8-10---------8-|…` on the first line) and a `Chords` block headed `Cmaj7  Am7  Dm7  G7`. The second is the review-r2 case, which must not error.
@@ -4306,7 +4427,7 @@ def test_hard_invariants(report, matrix):
         assert o[f"A1.{style}"]["min"] == 1.0  # baseline arpeggio 0.10
         assert o[f"A4.{style}"]["min"] == 1.0  # final chord rings
         assert o[f"H1.{style}"]["min"] == 1.0  # chord identity heard in every bar
-        assert o[f"H1final.{style}"]["min"] == 1.0
+        assert o[f"H2.{style}"]["min"] == 1.0  # full harmony under the held final note
 
 
 # ---- paired comparison with the baseline ----------------------------------
@@ -4344,6 +4465,8 @@ def test_guards_do_not_regress(report, baseline):
         # reported, unchanged: H1 is shape-relative and cannot hide new ones
         for key in ("S1.missing", "S1.foreign"):
             assert cand[key] == base[key]
+        for style in STYLES:  # cadence identity never below the old composer's
+            assert cand[f"H2.{style}"]["mean"] >= base[f"H2.{style}"]["mean"]
 
 
 def test_same_seed_same_music():
@@ -4375,6 +4498,7 @@ Apply each break below **on its own**, run the command, confirm the named test F
 | i | In `melody.py` `_candidates`, delete the two cadence-feasibility lines (`if target_pc is not None and not any(...):` / `return pitches`) | `pytest tests/unit/test_compose_melody.py tests/unit/test_compose_api.py -q` | `test_floor_yields_when_it_would_remove_the_cadence_target`, `test_review_reproductions_compose_within_the_invariants` |
 | j | In `melody.py` `_candidates`, change `if len(above) < MIN_FLOOR_CANDIDATES or not any(reachable(p) for p in above):` to `if len(above) < MIN_FLOOR_CANDIDATES:` | `pytest tests/unit/test_compose_melody.py -q` | `test_floor_yields_when_nothing_above_it_is_reachable` |
 | k | In `harmony.py` `_spelling`, change `starts = upper + lower` to `starts = lower + upper` | `pytest tests/unit/test_compose_harmony.py -q` | `test_ambiguous_chromatic_chord_uses_the_flat_side_spelling` |
+| l | In `arrangement.py` `_thin_below`, change `| {last.pitch % 12}` to `| {n.pitch % 12 for n in overlapping}` | `pytest tests/unit/test_compose_arrangement.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py -q` | `test_a_passing_melody_tone_does_not_stand_in_for_the_held_harmony`, `test_sustained_cadence_keeps_the_chord_identity`, `test_hard_invariants[edge]` |
 
 After restoring everything, run `git status --short`. Expected: no modified source files.
 
@@ -4536,12 +4660,18 @@ always uses the phrase planner.
   that attack are dropped. Two rules override this:
   - The bass is always kept.
   - Each **essential** tone (third, seventh, altered fifth or suspended
-    fourth, from `harmony.essential_pcs`) that neither the kept notes nor
-    the melody are sounding is put back at its lowest voicing pitch.
+    fourth, from `harmony.essential_pcs`) is put back at its lowest voicing
+    pitch unless a kept note has it, or the melody note still sounding at
+    the end of the attack's window does. A passing melody note earlier in
+    the window does not count, because the accompaniment rings on under the
+    notes that follow. For the final ringing chord that window is the whole
+    bar, so the harmony under the held cadence note is always complete.
 
   So the accompaniment never drops an identity tone that the chord's shape
-  provides. Combined with the melody floors in §5.2, the tune stayed on top of
-  every attack in the evaluation matrices. (A few canonical shapes are
+  provides. Combined with the melody floors in §5.2, the tune stays on top
+  of almost every attack. Where a floor has to yield, a restored identity
+  tone can briefly meet a passing melody note; identity takes priority over
+  clearance. (A few canonical shapes are
   themselves imperfect. The C#dim shape has no G and adds A#. These shape
   defects are reported separately as S1 and left for a future voicing
   change.)
@@ -4578,7 +4708,8 @@ typed metric functions:
   length, exposed chromatic clashes, leading-tone resolution
 - accompaniment: grid alignment, melody above the accompaniment and exposed
   semitone clashes (both judged over each melody note's whole sounding
-  interval), final-chord ring, essential-tone coverage per bar
+  interval), final-chord ring, essential-tone coverage per bar, and cadence
+  identity (the full harmony under the held final note)
 - tab: hand-position shifts
 - voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
   score) and shape defects (essential tones missing from, or foreign tones in,
@@ -4791,7 +4922,7 @@ pre-version-2 numbers for comparison.
 - [ ] **Step 7: Run every gate and the stale-text check**
 
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`
-Expected: 0 failures (dry run: 548 passed, 3 skipped), ruff clean, `Success: no issues found`.
+Expected: 0 failures (dry run: 570 passed, 3 skipped), ruff clean, `Success: no issues found`.
 Run: `grep -n "bar by bar\|greedy-assigns\|block chord on beats 1 and 3\|Markov interval cap\|11-tuplet" docs/*.md`
 Expected: no output.
 Run: `git status --short`. Expected: only the four files of this task, plus regenerated `*.synth_marker` files, which you must not stage. There must be no `.compose-golden/`.
@@ -4823,13 +4954,13 @@ Review: `docs/superpowers/reviews/2026-11-06-plan-review-r1.md` (GPT-6 Astra, ch
 | F1 | Forced final target bypasses the octave limit (Important) | Yes. Seed 283 ends `68, 64, 63, 76` (13 semitones); seed 5774 jumps 16. | **Fixed** | Spec §5.3 / Task 4: in the final bar, candidates more than 12 from the target are `-inf`, so the target is always reachable (it satisfies both constraints itself), with a deterministic nearest-pitch fallback. Tests: the review seeds, a 400-seed × 3-progression sweep, and an adversarial `score_pitch` case. Hard M4max ≤ 12 on both evaluation matrices. |
 | F2 | Chord-scale rule deletes the tonic; M13 too blunt (Important) | Yes. The pool over E7 in A minor was `{C, D, E, F, G#, B}`, with no A. | **Fixed** | New `harmony.chord_scale_pcs`: the altered tone replaces only the degree it alters, identified by its role in the chord, so E7 gives A harmonic minor and D7 keeps G. Tests cover E7, D7, C7, Fm, A, B♭ and C#maj7 in `test_compose_harmony.py`; melody tests show A over E7 and G over D7 are available. M13 is redefined as *exposed non-chord tones* a semitone from a foreign tone (chord tones and short passing notes excluded), with a target of ≤ 0.04 and ≤ 0.7 × baseline, not a hard zero. New M15 (leading-tone resolution), a +3.0 scorer term, and a pooled ≥ 0.75 target. D7's "harmonic minor" claim is now accurate. |
 | F3 | A2/A3 probe only the onset (Important) | Yes. The review's C4 / C#4 +8 ms example gave A2 = 1.0, A3 = 0.0. | **Fixed** | A2/A3 now use any overlap during the melody note (ε = 0.1 ms). New tests: the review's staggered case (A2 = 0, A3 = 1), a late entry, and before/after non-overlap controls. The baseline was re-measured with the same definitions (strum A2 0.821, A3 0.145), and the targets were reset on those numbers. |
-| F4 | Thinning can erase chord identity (Important) | Yes. D major `D G A D`, seed 9, ended on D3 A3 D4 under a D4 melody, with no F# and a unison doubling. | **Fixed** | `_thin_below` always keeps the bass and restores any essential tone (third, seventh, altered fifth, fourth) that neither the kept notes nor the melody supply; it no longer keeps the "lowest three". `arrange()` passes per-chord **melody floors** (a minor third above the shape's identity tones), so the restored tones sit under the tune; A2 = 1.0 in every style. New metric H1 (essential-tone coverage per bar) is asserted 1.0 everywhere, including the final bar. Tests: the D-major case in every style, minor and seventh examples, and "the melody supplies the third". No voicing change was needed. |
+| F4 | Thinning can erase chord identity (Important) | Yes. D major `D G A D`, seed 9, ended on D3 A3 D4 under a D4 melody, with no F# and a unison doubling. | **Fixed** | `_thin_below` always keeps the bass and restores any essential tone (third, seventh, altered fifth, fourth) that neither the kept notes nor the melody supply; it no longer keeps the "lowest three". `arrange()` passes per-chord **melody floors** (a minor third above the shape's identity tones), so the restored tones sit under the tune; A2 = 1.0 in every style *(revision 2; revision 4's cadence rule trades this for complete cadences on 8 edge endings, edge A2 0.987)*. New metric H1 (essential-tone coverage per bar) is asserted 1.0 everywhere *(revision 4 replaces the final-bar alias with H2, the harmony under the held final note; see round 3)*. Tests: the D-major case in every style, minor and seventh examples, and "the melody supplies the third". No voicing change was needed. |
 | F5 | Rendered ASCII tab can erase melody frets (Important) | Yes. The first E4 (G string, fret 9) was rendered as the C chord's `0`. | **Fixed** | New `compose/tabtext.py` renders a `Melody` block (one column per note; nothing can overwrite anything) and a `Chords` block. The shared `tabs/render.py` is untouched. Tests: a decode-the-rendered-tab round trip on the review's `C G Am F` seed 0 and a 16-bar piece with two-digit frets; an overwrite reproduction; label, wrapping and empty-bar tests. |
 | F6 | `arrange()` reads YAML / env configuration (Important) | Yes. `assign_tabs` → `_yaml_tab_params` → `load_hyperparameters` on every call, honouring `MUSIC_DECODER_HYPERPARAMETERS`. | **Fixed** | `_melody_tab` calls the lower-level `tabs.assigner.assign_tab` with `COMPOSE_TAB_WEIGHTS` / `COMPOSE_TAB_MAX_FRET`, pinned in `compose/api.py` (a test pins them equal to the analysis defaults). Tests: `load_hyperparameters` and `assign_tabs` are never called, and pointing `MUSIC_DECODER_HYPERPARAMETERS` at a different YAML leaves `arrange()` unchanged. The unread `composition:` YAML block is deleted (D15). |
 | F7 | Thresholds calibrated to the prototype, not shown against the baseline (Important) | Yes. Targets came from an uncommitted script on a different matrix and overlapping seeds. | **Fixed** | Task 3 records the **old composer's** metrics on committed matrices before any behaviour change: a behaviour-preserving `arrange()` checked against a golden run, the `evaluation/compose_musicality.py` matrices, a report script, and the baseline JSON. The validation matrix uses held-out seeds 1000–1004; the edge matrix covers 3/5/7/9 bars, a single chord, a secondary dominant, a borrowed chord and the review cases. The regression suite asserts musically justified absolute targets (spec §3.2 "Why"), improvement over the baseline in every subgroup (major, minor, 1 and 2 bars, edge), relative clash reductions and hard invariants. The one allowed regression (M4) is named and bounded. Ten deliberate breaks were each confirmed to turn the suite red; eight of them are Task 8 Step 3. Behavioural failing tests live in their implementation tasks. |
 | F8 | Phrase metrics ignore the planner's boundaries (Minor) | Yes. A 5-bar C-major piece scored M12 = 0 although its phrase ends were long. | **Fixed** | `rhythm.phrase_layout(n_bars)` is shared by `plan_bars` and the metrics. M12 uses the layout's cadence bars. M11 is split into coverage (M11a) and agreement (M11b), with undefined results kept as `None`. Tests: layouts for 1/3/4/5/7/8/9 bars, a 5-bar motif case, a 5-bar phrase-end case, and unequal echo bars (coverage 0, contour `None`). |
 | F9 | V1 is not a voice-leading measure (Minor) | Yes, by construction. | **Partly fixed, partly rebutted** | Renamed to `nearest_pitch_proximity`; the docstring and spec now say what it cannot show; a test pins the blind spot (a three-note shape collapsing onto one pitch scores 0); the "voice leading is already fine" claim is withdrawn. **Rebutted:** building a one-to-one voice-leading metric with birth/drop costs. Chord shapes are out of scope (§9), so the metric would only guard code this branch does not change (YAGNI). The thinned, sounding harmony is now guarded by H1 instead. |
-| F10 | Five-second budget not met (Minor) | Partly. The YAML parse was more than half of the A\* time (12.9 ms vs 5.7 ms per call). | **Fixed (measured); budget restated** | The YAML reads are gone (F6). A profile shows A\* in `tabs/` (out of scope) is about 85% of the remaining time. In the dry run, `evaluate()` for 480 cases took 2.3–3.0 s standalone, and the test module 2.3–4.7 s under pytest, depending on load. As the review advised, there is no wall-clock assertion; the expectation is recorded in the Global Constraints and spec §7. **Not done:** shrinking the matrix to hit a number, because coverage was the point of F7. |
+| F10 | Five-second budget not met (Minor) | Partly. The YAML parse was more than half of the A\* time (12.9 ms vs 5.7 ms per call). | **Fixed (measured); budget restated** | The YAML reads are gone (F6). A profile shows A\* in `tabs/` (out of scope) is about 85% of the remaining time. In the revision-2 dry run, `evaluate()` for 480 cases (400 + 80) took 2.3–3.0 s standalone, and the test module 2.3–4.7 s under pytest, depending on load. As the review advised, there is no wall-clock assertion; the expectation is recorded in the Global Constraints and spec §7. **Not done:** shrinking the matrix to hit a number, because coverage was the point of F7. |
 
 ## Review responses (round 2)
 
@@ -4848,3 +4979,12 @@ Review: `docs/superpowers/reviews/2026-11-06-plan-review-r2.md` (GPT-6 Astra, ch
 - F2 is now complete (r2-F3).
 - F4's shape-relative limitation is documented and measured (r2-F4).
 - F3, F5, F6, F7, F8, F9 and F10 are unchanged from round 1; the reviewer marked them addressed.
+
+## Review responses (round 3)
+
+Review: `docs/superpowers/reviews/2026-11-06-plan-review-r3.md` (GPT-6 Astra, changes requested; final plan round). Both findings were reproduced against the plan's code in the scratch build before anything changed. Each fix was built, its new tests were confirmed to fail when the fix is removed (Task 8 Step 3, row l), and all nine tasks were replayed in order on a fresh copy of the worktree with all four gates green after every task (ending at 570 passed, 3 skipped). Task 3 regenerated the committed baseline identically. Spec revision 4, §13, mirrors this table. The reviewer's `.review-r3-check/` directory was read-only input and is not committed.
+
+| # | Finding (severity) | Verified? | Outcome | What changed |
+|---|---|---|---|---|
+| r3-F1 | A brief melody tone removes an essential tone from the whole ringing final chord (Important) | Yes, exactly as reported. `C Am F G7`, seed 5: final-bar melody G4, F4 (6.5–6.975 s), held G4; the accompaniment was MIDI 43 47 50 55 59 in every style, so a G-major cadence under a G7 chord. `A Dsus4` and `Am Dsus4`, seed 1: D3 A3 D4 with no G under the held A4. | **Fixed** | Task 5 `_thin_below`: register clearance still uses every melody note overlapping the window, but only the melody note **still sounding at the end of the window** (`last`) counts as supplying an essential tone. For the final stroke that is the held cadence note, so G7 now rings with F4 and Dsus4 with G4. Arpeggio and strum attacks keep their per-attack windows, so ordinary coverage stays bar-level, as the review asked. Task 2 adds `metrics.cadence_identity` (H2): each shape-provided essential pitch class must be the held final note's own, or be covered by accompaniment notes of that pitch class for ≥ 90% of it, tolerating re-struck notes' articulation gaps. Task 3 replaces the old `H1final` alias with `H2.<style>`, measured on baseline and candidate with the same definition: baseline arpeggio 0.148, strum and fingerstyle 1.0; candidate 1.0 everywhere. Task 8 asserts H2 = 1 on both matrices and H2 ≥ baseline per style. New failing-first tests: the passing-F4 thinning case, the held-F4 counter-case and the final stroke in every style (Task 5); both reproductions, plus the edge-matrix endings `C Fm C G7` seed 1006 and `A Dsus4` seed 1002, through `arrange()` in every style, checking H2, A4 and the octave limit (Task 7); and hand-built H2 cases, including the H1-passes/H2-fails contrast and re-struck coverage (Task 2). A2 and A3 were re-run after the tones were restored. Validation is unchanged (A2 1.0, A3 0.062/0.087/0.067). On the edge matrix, A2 falls from 1.0 to 0.987 in every style, still above the baseline's 0.930–0.964, because a restored tone can briefly meet a passing melody note. A4's single ringing attack still holds. This is the documented precedence (spec D17/D20: identity before clearance). Round-1 F4 is closed. |
+| r3-F2 | §7 overstates which targets run on both matrices; D9 says 80 edge melodies (Minor) | Yes. The absolute means, M1/M9 floors and pooled M5/M15 checks run on validation only. The edge matrix has M9 min 1 (the one-note `D` piece) and only 14 M15 transitions. D9 said 80. | **Fixed (prose only)** | Spec §7 now lists exactly what each matrix receives. **Validation:** absolute means, the M1/M9 floors, pooled M5/M15 with sample-size minimums, per-subgroup paired improvement and the relative clash reduction. **Both matrices:** the hard invariants (M4max, M6, M7, M8, M12, M14, T1, a complete tab, and A1/A4/H1/H2 per style) and the guards (V1, M11a, S1, H2 ≥ baseline). **Edge:** overall paired improvement. D9 now reads 400 + 110. The revision-2 counts and timings (480 cases, the first runtime numbers) are labelled as historical in the spec and in this plan's round-1 table. No threshold or test was weakened, and single-note pieces are not held to multi-bar rhythm targets. |
