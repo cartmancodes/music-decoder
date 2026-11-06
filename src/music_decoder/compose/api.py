@@ -64,9 +64,7 @@ def _ascii_tab_for(
         seg = (span_end - span_start) / len(voicings) if span_end > span_start else 0.0
         for ci, vc in enumerate(voicings):
             t0 = span_start + ci * seg
-            anchor = Note(
-                start_s=t0, end_s=t0 + seg, pitch=0, velocity=0, confidence=1.0
-            )
+            anchor = Note(start_s=t0, end_s=t0 + seg, pitch=0, velocity=0, confidence=1.0)
             for pos in vc.positions:
                 if pos.fret < 0:  # muted string — not played
                     continue
