@@ -16,9 +16,9 @@
 
 **Execution method:** superpowers:subagent-driven-development (pre-approved by the pipeline: Opus implements, GPT-6 Astra reviews).
 
-**Spec:** `docs/superpowers/specs/2026-11-06-compose-improvements-design.md` (revision 2). Read §3 (paired baseline and targets), §4 (definitions), §5 (design), §10 (decisions) and §11 (review response).
+**Spec:** `docs/superpowers/specs/2026-11-06-compose-improvements-design.md` (revision 3). Read §3 (paired baseline and targets), §4 (definitions), §5 (design), §10 (decisions) and §11–§12 (review responses).
 
-**Dry run:** every code block below was built in a scratch copy of this repo, and the tasks were then replayed in order on a fresh copy. After every task all four gates were green, ending at `pytest -q tests/unit tests/integration` with 517 passed and 3 skipped. Task 3's baseline JSON regenerated identically on replay. If a step's result differs from its "Expected" line, stop and investigate; do not loosen a threshold to make it pass.
+**Dry run:** every code block below was built in a scratch copy of this repo, and the tasks were then replayed in order on a fresh copy. After every task all four gates were green, ending at `pytest -q tests/unit tests/integration` with 548 passed, 3 skipped. On replay, Task 3's baseline JSON had identical validation values to the previous revision; only the edge matrix and S1 keys were new. If a step's result differs from its "Expected" line, stop and investigate; do not loosen a threshold to make it pass.
 
 ## Global Constraints
 
@@ -31,15 +31,16 @@
 - **Never `git add -A`, `git add .` or `git commit -a`.** Test runs rewrite `tests/fixtures/synthetic/.*.synth_marker`; never commit those. Stage exactly the paths listed in each task.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Do not change `compose/voicings.py`, `chords/`, `tabs/` (including `tabs/render.py`), `synth/` or the analyze pipeline. The only config change is Task 7's deletion of the unread `composition:` block.
+- Write scratch output (golden checks, CLI smoke runs) only to an untracked `.compose-golden/` directory inside the worktree, and delete it afterwards. Never stage it.
 - Do not add wall-clock assertions. `tests/unit/test_compose_musicality.py` took 2.3–4.7 s in the dry run, depending on machine load.
 
 ## Review Focus
 
 1. **`bars_per_chord` ≤ 0.** It must raise `InvalidProgressionError`; it used to give an empty melody silently. Pinned by `test_bars_per_chord_below_one_raises` (Task 7).
-2. **Single-chord, single-bar progressions** (`--progression "D"`). They must still produce a melody that ends on the tonic, over a ringing chord. Pinned by `test_single_bar_progression` (Task 4), `test_single_bar_accompaniment_is_the_final_chord` (Task 5) and the edge matrix (Task 8).
+2. **Single-chord progressions and final suspended chords** (`--progression "D"`, `"A Dsus4"`). They must compose (no `ValueError`), end on the cadence pitch over a ringing chord, and stay within an octave. Pinned by `test_single_bar_progression` and `test_floor_yields_when_it_would_remove_the_cadence_target` (Task 4), `test_single_bar_accompaniment_is_the_final_chord` (Task 5), `test_review_reproductions_compose_within_the_invariants` and `test_every_chord_quality_on_every_root_composes` (Task 7), and the edge matrix (Task 8).
 3. **Non-standard tunings** (Drop D, DADGAD, D standard). Every melody note must be tabbed at a position that produces its pitch, with correct string labels. Pinned by `test_arrange_in_other_tunings_tabs_every_note` (Task 7) and `test_string_labels` (Task 6).
 4. **Extreme tempos** (40 and 220 BPM, the UI slider's limits). The grid and the total length must stay exact. Pinned by `test_extreme_tempos_keep_the_grid_and_the_length` (Task 4).
-5. **Altered chords in a major key** (secondary dominant D7, borrowed Fm, ♭VII). The melody adapts only the altered degree and keeps the target note. Pinned by `test_secondary_dominant_in_major_keeps_its_target` (Task 4), `test_borrowed_and_secondary_chords_in_c` (Task 2) and the edge matrix (Task 8).
+5. **Altered chords in a major key** (D7, B7→Em, F#7, borrowed Fm, ♭VII). The melody replaces exactly the degrees the chord alters and keeps the rest, including the resolution note. Pinned by `test_b7_in_c_major_raises_d_and_f_and_keeps_g` and `test_secondary_dominants_alter_exactly_the_right_degrees_in_every_key` (Task 2), `test_secondary_dominant_in_major_keeps_its_target` (Task 4) and the edge matrix (Task 8).
 
 ---
 
@@ -392,6 +393,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `tonic_pc(scale) -> int`, `leading_tone_pc(scale) -> int`
   - `scale_pcs(scale) -> tuple[int, ...]`, `chord_pcs(chord) -> tuple[int, ...]` (root first)
   - `essential_pcs(chord) -> frozenset[int]`
+  - `_spelling(scale, chord) -> list[tuple[int, int]]`: (chord pc, pc of the scale degree it occupies)
   - `chord_scale_pcs(scale, chord) -> frozenset[int]`
 - Produces, in `music_decoder.compose.metrics`. Melody and accompaniment arguments are `Sequence[Note]`, and ratios return `float | None`:
   - `chord_at`, `metric_position`, `intervals`
@@ -412,6 +414,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `essential_tone_coverage(melody, accompaniment, voicings, bars_per_chord, tempo_bpm, tuning) -> list[bool]`
   - `hand_shift_rate(frets)`
   - `nearest_pitch_proximity(voicings, tuning)`
+  - `shape_tone_mismatch(voicing, tuning) -> tuple[frozenset[int], frozenset[int]]`: (missing essential, foreign)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -428,7 +431,7 @@ from music_decoder.compose.harmony import (
     scale_pcs,
     tonic_pc,
 )
-from music_decoder.types import ChordSymbol, Scale
+from music_decoder.types import VALID_TONICS, ChordSymbol, Scale
 
 C = Scale("C", "major")
 A_MINOR = Scale("A", "minor")
@@ -484,10 +487,55 @@ def test_borrowed_and_secondary_chords_in_c(label, added, removed):
     assert len(pool) == 7
 
 
+def test_csharp_dim_in_c_alters_the_tonic_degree():
+    pool = chord_scale_pcs(C, ch("C#dim"))  # vii°/ii: C# E G
+    assert 1 in pool and 0 not in pool
+
+
 def test_bii_maj7_keeps_its_own_chord_tones():
     pool = chord_scale_pcs(C, ch("C#maj7"))  # C# F G# C
     assert {1, 5, 8, 0} <= pool
     assert 2 not in pool and 9 not in pool  # D and A are the lowered degrees
+
+
+def test_b7_in_c_major_raises_d_and_f_and_keeps_g():
+    pool = chord_scale_pcs(C, ch("B7"))  # B D# F# A, resolving to Em
+    assert {3, 6} <= pool  # D# and F#
+    assert 2 not in pool and 5 not in pool  # D and F replaced
+    assert {7, 0} <= pool  # G (third of Em) and the tonic C kept
+
+
+def test_f_sharp_7_in_c_major_raises_f_a_and_c_and_keeps_g():
+    pool = chord_scale_pcs(C, ch("F#7"))  # F# A# C# E
+    assert {6, 10, 1} <= pool
+    assert not {5, 9, 0} & pool
+    assert {7, 2, 4, 11} <= pool
+
+
+@pytest.mark.parametrize("key", VALID_TONICS)
+def test_secondary_dominants_alter_exactly_the_right_degrees_in_every_key(key):
+    t = VALID_TONICS.index(key)
+    scale = Scale(key, "major")
+    cases = {  # root offset -> {raised/lowered pc offset: replaced pc offset}
+        2: {6: 5},  # V7/V  (D7 in C): F -> F#
+        9: {1: 0},  # V7/ii (A7 in C): C -> C#
+        4: {8: 7},  # V7/vi (E7 in C): G -> G#
+        11: {3: 2, 6: 5},  # V7/iii (B7 in C): D -> D#, F -> F#
+        0: {10: 11},  # V7/IV (C7 in C): B -> Bb
+    }
+    for root_offset, swaps in cases.items():
+        pool = chord_scale_pcs(scale, ch(VALID_TONICS[(t + root_offset) % 12] + "7"))
+        expected = set(scale_pcs(scale))
+        for raised, replaced in swaps.items():
+            expected.discard((t + replaced) % 12)
+            expected.add((t + raised) % 12)
+        assert pool == frozenset(expected), (key, root_offset)
+
+
+def test_ambiguous_chromatic_chord_uses_the_flat_side_spelling():
+    # F# major in C: F#-A#-C# and Gb-Bb-Db alter 3 semitones each (a tie);
+    # the documented tie-break spells it Gb-Bb-Db, replacing G, B and D.
+    assert chord_scale_pcs(C, ch("F#")) == frozenset({0, 1, 4, 5, 6, 9, 10})
 ```
 
 Create `tests/unit/test_compose_metrics.py`. Each metric is checked on a hand-built example with a known answer. The file includes review round 1's counterexamples: staggered strum voices, a late entry, non-overlap controls, the 5-bar layout, unequal echo bars, and the proximity blind spot.
@@ -747,6 +795,16 @@ def test_nearest_pitch_proximity_is_not_a_voice_leading_score():
         (TabPosition(0, -1), TabPosition(1, -1), TabPosition(2, 2), *pos[3:]),
     )  # E3 only
     assert m.nearest_pitch_proximity([wide, collapsed], STANDARD_EADGBE) == 0.0
+
+
+def test_shape_tone_mismatch_reports_inherited_shape_defects():
+    assert m.shape_tone_mismatch(shape("C"), STANDARD_EADGBE) == (frozenset(), frozenset())
+    # The canonical C#dim shape (x x 2 3 2 x -> E A# C#) lacks the diminished
+    # fifth G and adds A#; H1 cannot see this because it is shape-relative.
+    missing, foreign = m.shape_tone_mismatch(shape("C#dim"), STANDARD_EADGBE)
+    assert missing == frozenset({7}) and foreign == frozenset({10})
+    acc = [n(0, 4, 52), n(0, 4, 58), n(0, 4, 61)]
+    assert m.essential_tone_coverage([], acc, [shape("C#dim")], 1, TEMPO, STANDARD_EADGBE) == [True]
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -796,12 +854,18 @@ ESSENTIAL_INTERVALS: dict[str, tuple[int, ...]] = {
     "aug": (4, 8),
 }
 
-# For a chord tone outside the scale, which neighbour is the scale degree it
-# chromatically alters, by the tone's interval above the chord root: a major
-# third or major seventh is a raised degree (G# in E7 replaces G), a minor
-# third / minor seventh / diminished fifth / fourth is a lowered one (Ab in Fm
-# replaces A in C major). Roots and perfect fifths are ambiguous: see below.
-_ALTERED_NEIGHBOUR: dict[int, int] = {4: -1, 11: -1, 8: -1, 3: 1, 10: 1, 6: 1, 5: 1}
+# Scale-degree steps of each chord member above the root: chords are stacks of
+# thirds (root, third, fifth, seventh); sus4 replaces the third with a fourth.
+_DEGREE_STEPS: dict[str, tuple[int, ...]] = {
+    "maj": (0, 2, 4),
+    "min": (0, 2, 4),
+    "dim": (0, 2, 4),
+    "aug": (0, 2, 4),
+    "maj7": (0, 2, 4, 6),
+    "min7": (0, 2, 4, 6),
+    "7": (0, 2, 4, 6),
+    "sus4": (0, 3, 4),
+}
 
 
 def tonic_pc(scale: Scale) -> int:
@@ -830,30 +894,55 @@ def essential_pcs(chord: ChordSymbol) -> frozenset[int]:
     return frozenset((i + _root_pc(chord)) % 12 for i in ESSENTIAL_INTERVALS[chord.quality])
 
 
-def chord_scale_pcs(scale: Scale, chord: ChordSymbol) -> frozenset[int]:
-    """The scale with each out-of-scale chord tone replacing the one scale
-    degree it alters; every other degree (including the tonic) is kept.
+def _spelling(scale: Scale, chord: ChordSymbol) -> list[tuple[int, int]]:
+    """Each chord tone paired with the pitch class of the scale degree it
+    occupies, spelling the chord as a stack of thirds over the scale.
 
-    E7 in A minor gives A harmonic minor (G -> G#, A kept); D7 in C major
-    keeps G and replaces F with F#. For a foreign root or perfect fifth the
-    altered degree is the neighbour in the scale; if both neighbours are,
-    the upper one (flat-side borrowing such as bII or bVI is the common case).
+    An in-scale root fixes the spelling. An out-of-scale root sits between two
+    scale degrees (B-flat between A and B in C major); the spelling that alters
+    the chord's tones by the fewest semitones in total wins, and a tie goes to
+    the upper degree (flat-side spelling, as in bVII, bVI, bII).
     """
-    tones = chord_pcs(chord)
-    chord_set = set(tones)
-    scale_set = set(scale_pcs(scale))
-    pool = set(scale_set)
+    degrees = scale_pcs(scale)
     root = _root_pc(chord)
-    for pc in tones:
+    if root in degrees:
+        starts = [degrees.index(root)]
+    else:
+        upper = [i for i, d in enumerate(degrees) if (d - root) % 12 == 1]
+        lower = [i for i, d in enumerate(degrees) if (root - d) % 12 == 1]
+        starts = upper + lower
+    steps = _DEGREE_STEPS[chord.quality]
+    best: tuple[int, int, list[tuple[int, int]]] | None = None
+    for rank, start in enumerate(starts):
+        pairs = [
+            (pc, degrees[(start + step) % len(degrees)])
+            for pc, step in zip(chord_pcs(chord), steps, strict=True)
+        ]
+        cost = sum(min((pc - d) % 12, (d - pc) % 12) for pc, d in pairs)
+        if best is None or (cost, rank) < best[:2]:
+            best = (cost, rank, pairs)
+    assert best is not None
+    return best[2]
+
+
+def chord_scale_pcs(scale: Scale, chord: ChordSymbol) -> frozenset[int]:
+    """The scale with each out-of-scale chord tone replacing the scale degree
+    it occupies in the chord's stack-of-thirds spelling (see ``_spelling``).
+
+    Every other degree is kept, including the tonic unless the chord itself
+    alters it. E7 in A minor gives A harmonic minor (G -> G#); D7 in C major
+    replaces F with F# and keeps G; B7 in C major replaces D and F with D# and
+    F# and keeps G (the third of Em, where it resolves); A major in C replaces
+    C with C#. Diatonic chords leave the scale unchanged.
+    """
+    scale_set = set(scale_pcs(scale))
+    chord_set = set(chord_pcs(chord))
+    pool = set(scale_set)
+    for pc, degree in _spelling(scale, chord):
         if pc in scale_set:
             continue
-        direction = _ALTERED_NEIGHBOUR.get((pc - root) % 12)
-        if direction is None:
-            upper = (pc + 1) % 12
-            direction = 1 if upper in scale_set and upper not in chord_set else -1
-        neighbour = (pc + direction) % 12
-        if neighbour not in chord_set:
-            pool.discard(neighbour)
+        if degree not in chord_set:
+            pool.discard(degree)
         pool.add(pc)
     return frozenset(pool)
 ```
@@ -1214,8 +1303,12 @@ def essential_tone_coverage(
     tuning: Tuning,
 ) -> list[bool]:
     """H1: per bar, whether every essential tone (third, seventh, altered
-    fifth, suspended fourth) that the chord's shape contains is heard during
-    the bar in the accompaniment or the melody."""
+    fifth, suspended fourth) that the chord's *shape* contains is heard during
+    the bar in the accompaniment or the melody.
+
+    This measures what the arrangement preserves, relative to the supplied
+    shape; a tone the shape itself lacks is reported by
+    :func:`shape_tone_mismatch`, not here."""
     bar_s = 4.0 * _beat_s(tempo_bpm)
     out: list[bool] = []
     for bar in range(len(voicings) * bars_per_chord):
@@ -1233,6 +1326,18 @@ def essential_tone_coverage(
 
 
 # ---- tab and voicings -----------------------------------------------------
+
+
+def shape_tone_mismatch(
+    voicing: VoicedChord, tuning: Tuning
+) -> tuple[frozenset[int], frozenset[int]]:
+    """S1: (essential tones of the chord missing from its shape, shape tones
+    that are not chord tones). Both empty for a faithful shape."""
+    shape = {p % 12 for p in _voicing_pitches(voicing, tuning)}
+    return (
+        frozenset(essential_pcs(voicing.chord) - shape),
+        frozenset(shape - set(chord_pcs(voicing.chord))),
+    )
 
 
 def hand_shift_rate(frets: Sequence[int]) -> float | None:
@@ -1271,7 +1376,7 @@ def nearest_pitch_proximity(voicings: Sequence[VoicedChord], tuning: Tuning) -> 
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_harmony.py tests/unit/test_compose_metrics.py -q`. Expected: `38 passed` (15 + 23).
+Run: `pytest tests/unit/test_compose_harmony.py tests/unit/test_compose_metrics.py -q`. Expected: `55 passed` (31 + 24).
 Run: `ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: clean.
 
 - [ ] **Step 5: Commit**
@@ -1281,11 +1386,11 @@ git add src/music_decoder/compose/harmony.py src/music_decoder/compose/metrics.p
   tests/unit/test_compose_harmony.py tests/unit/test_compose_metrics.py
 git commit -m "feat(compose): harmony helpers and musicality metrics
 
-Role-based chord-scale rule (an altered chord tone replaces only the degree it
-alters), essential tones, and pure metric functions: overlap-based
+Stack-of-thirds chord-scale rule (an altered chord tone replaces the degree it
+occupies), essential tones, and pure metric functions: overlap-based
 accompaniment metrics, phrase-layout-aware motif/cadence metrics, chromatic
-clash, leading-tone resolution, essential-tone coverage, tab hand shifts and
-a nearest-pitch proximity guard.
+clash, leading-tone resolution, essential-tone coverage, shape defects, tab
+hand shifts and a nearest-pitch proximity guard.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1315,27 +1420,50 @@ from the old melody, accompaniment and tab.
 - Produces, in `music_decoder.evaluation.compose_musicality`:
   - `STYLES`, `TEMPO_BPM`, `VALIDATION_SEEDS`, `EDGE_SEEDS`
   - `realize(scale, numeral) -> ChordSymbol`
-  - `validation_inputs()` (400 inputs) and `edge_inputs()` (80)
+  - `validation_inputs()` (400 inputs) and `edge_inputs()` (110)
   - `Case`, `build_cases(inputs) -> list[Case]`, `case_metrics(case) -> dict[str, Value]`
   - `summarize(cases) -> dict[group, dict[metric, dict[stat, float]]]`; the groups are overall, major, minor, bars1 and bars2
   - `evaluate() -> {"validation": ..., "edge": ...}`
 
 - [ ] **Step 1: Record the current `compose()` output (golden, not committed)**
 
+The check covers three cases (strum, arpeggio, fingerstyle). For each it records the ASCII tab, the complete melody note records, every note of both MIDI tracks, the MIDI file's SHA-1 and the metadata. WAV synthesis is mocked (`synth/` is unchanged). Everything is written inside the worktree under `.compose-golden/`, which is untracked; never stage it.
+
 ```bash
-python - > "$TMPDIR/compose_golden_before.txt" <<'EOF'
-import tempfile
+mkdir -p .compose-golden
+cat > .compose-golden/golden.py <<'EOF'
+import hashlib
+import shutil
+import sys
 from pathlib import Path
 from unittest import mock
+
+import pretty_midi
+
 from music_decoder import ChordSymbol, Scale, compose
-with mock.patch("music_decoder.compose.api.render_wav"):
-    r = compose(Scale("A", "minor"), [ChordSymbol.parse(c) for c in "Am Dm E7 Am".split()],
-                bars_per_chord=2, tempo_bpm=90.0, style="strum", seed=7,
-                out_dir=Path(tempfile.mkdtemp()))
-print(r.ascii_tab)
-print([(n.pitch, round(n.start_s, 6)) for n in r.melody_notes])
-print([v.positions for v in r.chord_voicings])
+
+work = Path(".compose-golden") / sys.argv[1]
+shutil.rmtree(work, ignore_errors=True)
+cases = [
+    ("A", "minor", "Am Dm E7 Am", 2, 90.0, "strum", 7),
+    ("C", "major", "Cmaj7 Am7 Dm7 G7", 1, 120.0, "arpeggio", 3),
+    ("D", "major", "D G A D", 1, 100.0, "fingerstyle", 11),
+]
+for i, (key, mode, chords, bars, tempo, style, seed) in enumerate(cases):
+    with mock.patch("music_decoder.compose.api.render_wav"):  # synthesis is unchanged
+        r = compose(Scale(key, mode), [ChordSymbol.parse(c) for c in chords.split()],
+                    bars_per_chord=bars, tempo_bpm=tempo, style=style, seed=seed,
+                    out_dir=work / str(i))
+    print(f"== case {i}")
+    print(r.ascii_tab)
+    print([(n.start_s, n.end_s, n.pitch, n.velocity) for n in r.melody_notes])
+    print([v.positions for v in r.chord_voicings])
+    for inst in pretty_midi.PrettyMIDI(str(r.midi_path)).instruments:
+        print(inst.name, [(n.start, n.end, n.pitch, n.velocity) for n in inst.notes])
+    print("midi sha1", hashlib.sha1(r.midi_path.read_bytes()).hexdigest())
+    print({k: v for k, v in r.metadata.items()})
 EOF
+python .compose-golden/golden.py before > .compose-golden/before.txt
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -1374,7 +1502,7 @@ def test_realize(key, mode, numeral, label):
 def test_matrices_have_the_documented_size_and_held_out_seeds():
     validation = ev.validation_inputs()
     assert len(validation) == 400
-    assert len(ev.edge_inputs()) == 80
+    assert len(ev.edge_inputs()) == 110
     assert min(seed for *_, seed in validation) >= 1000
 
 
@@ -1384,7 +1512,7 @@ def test_case_metrics_cover_every_style():
     for style in ev.STYLES:
         for prefix in ("A1", "A2", "A3", "A4", "H1", "H1final"):
             assert f"{prefix}.{style}" in row
-    assert {"M1", "M7", "M11a", "M12", "M13", "T1", "T2", "V1"} <= set(row)
+    assert {"M1", "M7", "M11a", "M12", "M13", "T1", "T2", "V1", "S1.missing"} <= set(row)
 
 
 def test_summarize_groups_and_pools_counts():
@@ -1686,9 +1814,10 @@ def compose(
     )
 ```
 
-Verify byte-identical behaviour by re-running the Step 1 snippet into `"$TMPDIR/compose_golden_after.txt"`, then:
-Run: `diff "$TMPDIR/compose_golden_before.txt" "$TMPDIR/compose_golden_after.txt" && echo IDENTICAL`
-Expected: `IDENTICAL`.
+Verify identical behaviour on everything Step 1 recorded:
+Run: `python .compose-golden/golden.py after > .compose-golden/after.txt && diff .compose-golden/before.txt .compose-golden/after.txt && echo IDENTICAL`
+Expected: `IDENTICAL`, including the three `midi sha1` lines.
+Run: `rm -rf .compose-golden`.
 
 - [ ] **Step 4: Add the evaluation module and the report script**
 
@@ -1740,8 +1869,8 @@ MINOR_PROGRESSIONS = (
     ("i", "VII", "VI", "V"),
     ("iidim", "V7", "i", "i"),
 )
-# Odd lengths (3/5/7/9 bars), a single chord, secondary dominants and a
-# borrowed chord; one bar per chord.
+# Odd lengths (3/5/7/9 bars), a single chord, secondary dominants (including
+# B7 -> Em in C), a borrowed chord and final suspended chords; one bar per chord.
 EDGE_PROGRESSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("C", "major", ("C", "F", "G")),
     ("G", "major", ("G", "C", "D", "Em", "G")),
@@ -1751,6 +1880,9 @@ EDGE_PROGRESSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("C", "major", ("C", "D7", "G", "C")),
     ("C", "major", ("C", "Fm", "C", "G7")),
     ("E", "minor", ("Em", "B7", "Em", "C", "B7", "Em")),
+    ("C", "major", ("C", "B7", "Em", "G7", "C")),
+    ("A", "major", ("A", "Dsus4")),
+    ("A", "minor", ("Am", "Dsus4")),
 )
 
 _MAJOR_DEGREES = {"I": 0, "ii": 2, "iii": 4, "IV": 5, "V": 7, "vi": 9, "vii": 11}
@@ -1884,6 +2016,11 @@ def case_metrics(case: Case) -> dict[str, Value]:
         "Tcount": len(frets) == len(mel),
         "V1": metrics.nearest_pitch_proximity(case.arrangement.voicings, STANDARD_EADGBE),
     }
+    mismatches = [
+        metrics.shape_tone_mismatch(v, STANDARD_EADGBE) for v in case.arrangement.voicings
+    ]
+    out["S1.missing"] = sum(bool(missing) for missing, _ in mismatches) / len(mismatches)
+    out["S1.foreign"] = sum(bool(foreign) for _, foreign in mismatches) / len(mismatches)
     for style, acc in case.accompaniment.items():
         coverage = metrics.essential_tone_coverage(
             mel, acc, case.arrangement.voicings, bars, tempo, STANDARD_EADGBE
@@ -2004,7 +2141,7 @@ if __name__ == "__main__":
 - [ ] **Step 5: Write the baseline (old composer) and check it**
 
 Run: `python scripts/compose_musicality_report.py --write tests/fixtures/compose/musicality_baseline.json`
-Expected: a table and `wrote tests/fixtures/compose/musicality_baseline.json`. The run is deterministic, so these validation-overall values must match **exactly**. If any differs, the refactor changed behaviour; stop.
+Expected: a table and `wrote tests/fixtures/compose/musicality_baseline.json`. The run is deterministic, so these validation-overall values must match **exactly**. For the edge matrix: M7 mean 0.1182, M13 mean 0.1104, M15 pooled 0.3333 (n 12). If any differs, the refactor changed behaviour; stop.
 
 | metric | value |
 |---|---|
@@ -2023,6 +2160,8 @@ Expected: a table and `wrote tests/fixtures/compose/musicality_baseline.json`. T
 | V1 mean | 1.621 |
 | M5 pooled | 0.0 (n 5) |
 | M15 pooled | 0.3846 (n 39) |
+| S1.foreign mean | 0.0063 |
+| S1.missing mean | 0.0 |
 
 - [ ] **Step 6: Run the tests and gates**
 
@@ -2039,7 +2178,7 @@ git commit -m "refactor(compose): pure arrange(); record the pre-change musicali
 
 arrange() is the filesystem-free core of compose() (output unchanged, checked
 against a golden run). evaluation/compose_musicality.py defines held-out
-validation (400) and edge (80) matrices; the committed baseline JSON is the
+validation (400) and edge (110) matrices; the committed baseline JSON is the
 current composer's summary on them.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -2059,7 +2198,8 @@ Rewrites `generate_melody` per spec §5.3 (D4). It removes `strong_beat_chord_to
 - Consumes: `harmony` (Task 2), `rhythm.plan_bars` (Task 1), `metrics` (tests).
 - Produces, in `music_decoder.compose.melody`:
   - `generate_melody(*, scale, progression, bars_per_chord=1, tempo_bpm=100.0, notes_per_bar: int | None = None, pitch_low=62, pitch_high=79, seed=None, velocity_strong=80, velocity_weak=70, tessitura_center=70, chord_floors: Sequence[int | None] | None = None) -> list[Note]`
-  - `MAX_INTERVAL = 12`
+  - `MAX_INTERVAL = 12`, `MIN_FLOOR_CANDIDATES = 5`
+  - `cadence_pc(scale, chord) -> int`: the tonic if the chord holds it, else its root
   - `final_target(scale, chord, candidates, reference) -> int`
   - `@dataclass(frozen=True) NoteContext(..., resolve_up: bool = False)`
   - `score_pitch(candidate, ctx, tessitura_center) -> float`
@@ -2334,6 +2474,50 @@ def test_extreme_tempos_keep_the_grid_and_the_length(tempo):
     assert metrics.onset_grid_ratio([n.start_s for n in notes], tempo, 2) == 1.0
     assert notes[-1].end_s <= 3 * bar_s + 1e-9
     assert notes[-1].pitch % 12 == 11  # B7 holds no E: ends on the B root
+
+
+def test_one_note_final_bar_stays_within_an_octave_when_a_floor_bites():
+    # Legacy grid with one note per bar: bar 2 is the forced target alone.
+    # The G7 floor (68) removes G4, so a low bar-1 note used to jump to G5.
+    low_starts = 0
+    for seed in range(200):
+        notes = _gen(
+            Scale("C", "major"),
+            ("C", "G7"),
+            seed=seed,
+            notes_per_bar=1,
+            tessitura_center=62,
+            chord_floors=[None, 68],
+        )
+        assert len(notes) == 2
+        assert abs(notes[1].pitch - notes[0].pitch) <= MAX_INTERVAL, seed
+        assert notes[1].pitch % 12 == 7, seed  # G7 has no C: ends on the root
+        low_starts += notes[0].pitch <= 66
+    assert low_starts > 0  # the adversarial situation really occurred
+
+
+def test_floor_yields_when_it_would_remove_the_cadence_target():
+    # Dsus4 (D G A) contains A, the tonic, but a floor of 70 leaves no A in 62-79
+    for seed in range(20):
+        notes = _gen(Scale("A", "major"), ("A", "Dsus4"), seed=seed, chord_floors=[None, 70])
+        assert notes[-1].pitch % 12 == 9, seed
+        assert metrics.max_interval(notes) <= MAX_INTERVAL
+
+
+def test_floor_yields_when_nothing_above_it_is_reachable():
+    # Only possible with a wide custom window: floor 80 leaves 80-91, all more
+    # than an octave above a low bar-1 note, so bar 2 must ignore the floor.
+    for seed in range(50):
+        notes = _gen(
+            Scale("C", "major"),
+            ("C", "F", "C"),
+            seed=seed,
+            notes_per_bar=1,
+            pitch_high=91,
+            tessitura_center=62,
+            chord_floors=[None, 80, None],
+        )
+        assert metrics.max_interval(notes) <= MAX_INTERVAL, seed
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -2418,13 +2602,18 @@ def _scale_pitches_in_range(pcs: Collection[int], low: int, high: int) -> list[i
     return [p for p in range(low, high + 1) if (p % 12) in pcs]
 
 
+def cadence_pc(scale: Scale, chord: ChordSymbol) -> int:
+    """Pitch class of the final note: the tonic if ``chord`` contains it, else its root."""
+    tones = chord_pcs(chord)
+    return tonic_pc(scale) if tonic_pc(scale) in tones else tones[0]
+
+
 def final_target(
     scale: Scale, chord: ChordSymbol, candidates: Sequence[int], reference: int
 ) -> int:
-    """Final pitch: the tonic if ``chord`` contains it, else the chord root;
-    the candidate of that pitch class nearest ``reference`` (ties -> lower)."""
-    tones = chord_pcs(chord)
-    target_pc = tonic_pc(scale) if tonic_pc(scale) in tones else tones[0]
+    """Final pitch: the candidate of :func:`cadence_pc` nearest ``reference``
+    (ties -> lower)."""
+    target_pc = cadence_pc(scale, chord)
     matches = [p for p in candidates if p % 12 == target_pc]
     if not matches:
         raise ValueError("No cadence target pitch in the requested range.")
@@ -2560,14 +2749,38 @@ def _grid_bars(
 
 
 def _candidates(
-    scale: Scale, chord: ChordSymbol, low: int, high: int, floor: int | None
+    scale: Scale,
+    chord: ChordSymbol,
+    low: int,
+    high: int,
+    floor: int | None,
+    prev: int | None,
+    target_pc: int | None,
 ) -> list[int]:
+    """Chord-scale pitches in [low, high], at or above ``floor`` when allowed.
+
+    Precedence: the octave limit and the cadence come before register
+    clearance. The floor is dropped for the bar if it would leave fewer than
+    ``MIN_FLOOR_CANDIDATES`` pitches, no pitch within ``MAX_INTERVAL`` of the
+    previous note, or (final bar, ``target_pc`` given) no cadence pitch within
+    ``MAX_INTERVAL`` of it. The unfloored window always has one: it spans an
+    octave or more, so every pitch class occurs within 12 semitones of any
+    pitch in it. Thinning in the accompaniment still keeps the chord's
+    identity tones when the melody dips below them.
+    """
     pitches = _scale_pitches_in_range(chord_scale_pcs(scale, chord), low, high)
-    if floor is not None:
-        above = [p for p in pitches if p >= floor]
-        if len(above) >= MIN_FLOOR_CANDIDATES:
-            return above
-    return pitches
+    if floor is None:
+        return pitches
+    above = [p for p in pitches if p >= floor]
+
+    def reachable(p: int) -> bool:
+        return prev is None or abs(p - prev) <= MAX_INTERVAL
+
+    if len(above) < MIN_FLOOR_CANDIDATES or not any(reachable(p) for p in above):
+        return pitches
+    if target_pc is not None and not any(p % 12 == target_pc and reachable(p) for p in above):
+        return pitches
+    return above
 
 
 def generate_melody(
@@ -2591,8 +2804,8 @@ def generate_melody(
     uses the legacy uniform grid of that many notes per bar.
     ``chord_floors`` (one entry per chord) is the lowest melody pitch allowed
     over that chord, so the melody can sit above the accompaniment's
-    defining tones; a floor leaving fewer than ``MIN_FLOOR_CANDIDATES``
-    pitches is ignored.
+    defining tones; it yields to the octave limit and the cadence (see
+    ``_candidates``).
     """
     rng = np.random.default_rng(seed)
     if not _scale_pitches_in_range(scale_pcs(scale), pitch_low, pitch_high):
@@ -2620,7 +2833,15 @@ def generate_melody(
         chord = progression[chord_idx]
         tones = frozenset(chord_pcs(chord))
         floor = chord_floors[chord_idx] if chord_floors is not None else None
-        candidates = _candidates(scale, chord, pitch_low, pitch_high, floor)
+        candidates = _candidates(
+            scale,
+            chord,
+            pitch_low,
+            pitch_high,
+            floor,
+            prev,
+            cadence_pc(scale, chord) if bar.final else None,
+        )
         if not candidates:
             raise ValueError("Scale has no pitches in the requested range.")
         target = (
@@ -2677,7 +2898,7 @@ def generate_melody(
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_melody.py -q`. Expected: `36 passed`.
+Run: `pytest tests/unit/test_compose_melody.py -q`. Expected: `39 passed`.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: 0 failures, clean. `test_compose_evaluation.py` still passes, because it reads the committed baseline.
 
 - [ ] **Step 5: Commit**
@@ -2688,10 +2909,10 @@ git commit -m "feat(compose): phrase-structured melody with scored pitch selecti
 
 Rhythm from the phrase planner; pitches sampled from a softmax over interval
 size, metric-weighted chord fit, leap recovery, leading-tone resolution, motif
-echo, register gravity and a cadence pull. The final bar stays within an
-octave of its target, the chord scale replaces only altered degrees, and
-optional per-chord floors keep the tune above the accompaniment's identity
-tones.
+echo, register gravity and a cadence pull. Every move, including the forced
+final note, stays within an octave; optional per-chord floors keep the tune
+above the accompaniment's identity tones but yield to reachability and to
+the cadence target.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -3414,12 +3635,13 @@ from music_decoder.compose.api import (
     arrange,
     compose,
 )
+from music_decoder.compose.melody import MAX_INTERVAL, generate_melody
 from music_decoder.compose.tabtext import render_melody_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.tabs import _DEFAULT_WEIGHTS
 from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE
-from music_decoder.types import ChordSymbol, Note, Scale
+from music_decoder.types import VALID_TONICS, ChordSymbol, Note, Scale
 
 
 def test_compose_returns_paths_and_data(tmp_path):
@@ -3597,6 +3819,64 @@ def test_rendered_tab_shows_every_melody_position(tmp_path, key, labels, bars, s
     assert melody_block == render_melody_tab(
         arr.melody_tab, n_bars=len(labels) * bars, tempo_bpm=120.0, tuning=STANDARD_EADGBE
     )
+
+
+@pytest.mark.parametrize(
+    ("key", "mode", "labels", "seed"),
+    [
+        ("C", "major", ("C", "Am", "F", "G7"), 16),  # review r2: 65 -> 79 jump
+        ("C", "major", ("C", "G", "Am", "G7"), 16),
+        ("A", "major", ("A", "Dsus4"), 0),  # review r2: no cadence target
+        ("A", "minor", ("Am", "Dsus4"), 0),
+        ("A", "major", ("Dsus4",), 0),
+    ],
+)
+def test_review_reproductions_compose_within_the_invariants(key, mode, labels, seed):
+    progression = _chords(*labels)
+    arr = arrange(Scale(key, mode), progression, tempo_bpm=120.0, seed=seed)
+    assert metrics.max_interval(arr.melody) <= MAX_INTERVAL
+    assert metrics.final_resolution(arr.melody, Scale(key, mode), progression)
+    assert all(
+        metrics.essential_tone_coverage(
+            arr.melody, arr.accompaniment, arr.voicings, 1, 120.0, STANDARD_EADGBE
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [("C", "Am", "F", "G7"), ("C", "G", "Am", "G7"), ("C", "F", "Csus4"), ("C", "F", "Dm7")],
+)
+def test_floor_coupled_sweep_keeps_the_octave_limit(labels):
+    # the generator with the floors arrange() would pass, without the A* cost
+    progression = _chords(*labels)
+    voicings = [voicings_for(c, STANDARD_EADGBE)[0] for c in progression]
+    floors = [_melody_floor(v, STANDARD_EADGBE) for v in voicings]
+    for seed in range(150):
+        notes = generate_melody(
+            scale=Scale("C", "major"), progression=progression, seed=seed, chord_floors=floors
+        )
+        assert metrics.max_interval(notes) <= MAX_INTERVAL, seed
+        assert metrics.final_resolution(notes, Scale("C", "major"), progression), seed
+
+
+_QUALITY_SUFFIXES = ("", "m", "7", "maj7", "m7", "dim", "sus4", "aug")
+
+
+@pytest.mark.parametrize(("key", "mode", "home"), [("C", "major", "C"), ("A", "minor", "Am")])
+def test_every_chord_quality_on_every_root_composes(key, mode, home):
+    scale = Scale(key, mode)
+    for root in VALID_TONICS:
+        for suffix in _QUALITY_SUFFIXES:
+            progression = _chords(home, root + suffix)
+            arr = arrange(scale, progression, tempo_bpm=120.0, seed=7)
+            label = root + suffix
+            assert metrics.max_interval(arr.melody) <= MAX_INTERVAL, label
+            assert metrics.final_resolution(arr.melody, scale, progression), label
+            coverage = metrics.essential_tone_coverage(
+                arr.melody, arr.accompaniment, arr.voicings, 1, 120.0, STANDARD_EADGBE
+            )
+            assert all(coverage), label
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -3873,10 +4153,11 @@ Then run `grep -rn "chord_tone_prob\|markov_max\|^composition:" src tests script
 
 - [ ] **Step 4: Run the tests and gates**
 
-Run: `pytest tests/unit/test_compose_api.py -q`. Expected: `19 passed`.
+Run: `pytest tests/unit/test_compose_api.py -q`. Expected: `30 passed`.
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`. Expected: 0 failures (including `test_public_contract.py`, unchanged), clean.
-Run: `music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" --style fingerstyle --tempo 100 --seed 42 --out "$TMPDIR/compose-smoke"`
-Expected: exit 0. The output shows the `MIDI:` and `WAV:` paths, then `ASCII tab:`, a `Melody` block (`e|-12-10----12-|-8-10---------8-|…` on the first line) and a `Chords` block headed `Cmaj7  Am7  Dm7  G7`.
+Run: `music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" --style fingerstyle --tempo 100 --seed 42 --out .compose-golden/smoke && music-decoder compose --scale A:major --progression "A Dsus4" --seed 0 --out .compose-golden/smoke`
+Expected: both exit 0. The first prints the `MIDI:` and `WAV:` paths, then `ASCII tab:`, a `Melody` block (`e|-12-10----12-|-8-10---------8-|…` on the first line) and a `Chords` block headed `Cmaj7  Am7  Dm7  G7`. The second is the review-r2 case, which must not error.
+Run: `rm -rf .compose-golden`.
 
 - [ ] **Step 5: Commit**
 
@@ -4059,6 +4340,10 @@ def test_guards_do_not_regress(report, baseline):
         cand, base = report[matrix]["overall"], baseline[matrix]["overall"]
         assert cand["V1"]["mean"] <= base["V1"]["mean"] + 1e-9  # shapes are unchanged
         assert cand["M11a"]["mean"] >= base["M11a"]["mean"] - 0.05
+        # inherited shape defects (e.g. the canonical C#dim/Ddim shapes) are
+        # reported, unchanged: H1 is shape-relative and cannot hide new ones
+        for key in ("S1.missing", "S1.foreign"):
+            assert cand[key] == base[key]
 
 
 def test_same_seed_same_music():
@@ -4087,6 +4372,9 @@ Apply each break below **on its own**, run the command, confirm the named test F
 | f | In `rhythm.py`, add `(2, 2, 2, 2),` to `CADENCE_RHYTHMS` | same | `test_hard_invariants[validation]` |
 | g | In `melody.py` `score_pitch`, delete the two-line final-target reachability check | `pytest tests/unit/test_compose_melody.py -q` | `test_no_interval_exceeds_an_octave_over_400_seeds` |
 | h | In `api.py` `arrange`, delete the `chord_floors=...` argument | `pytest tests/unit/test_compose_api.py -q` | `test_d_major_cadence_has_its_third_under_the_melody` |
+| i | In `melody.py` `_candidates`, delete the two cadence-feasibility lines (`if target_pc is not None and not any(...):` / `return pitches`) | `pytest tests/unit/test_compose_melody.py tests/unit/test_compose_api.py -q` | `test_floor_yields_when_it_would_remove_the_cadence_target`, `test_review_reproductions_compose_within_the_invariants` |
+| j | In `melody.py` `_candidates`, change `if len(above) < MIN_FLOOR_CANDIDATES or not any(reachable(p) for p in above):` to `if len(above) < MIN_FLOOR_CANDIDATES:` | `pytest tests/unit/test_compose_melody.py -q` | `test_floor_yields_when_nothing_above_it_is_reachable` |
+| k | In `harmony.py` `_spelling`, change `starts = upper + lower` to `starts = lower + upper` | `pytest tests/unit/test_compose_harmony.py -q` | `test_ambiguous_chromatic_chord_uses_the_flat_side_spelling` |
 
 After restoring everything, run `git status --short`. Expected: no modified source files.
 
@@ -4173,23 +4461,34 @@ chord scale) live in [compose/harmony.py](../src/music_decoder/compose/harmony.p
 
 **Pitches**, chosen one note at a time:
 
-1. **Chord-scale pool.** `chord_scale_pcs(scale, chord)` is the scale (major,
-   or natural minor) with each out-of-scale chord tone replacing the one
-   degree it chromatically alters. The tone's role in the chord identifies
-   that degree: a raised third replaces the degree below it, a lowered
-   third or seventh the degree above. So E7 in A minor gives A harmonic
-   minor (G→G#, the tonic A kept), and D7 in C major replaces F with F# and
-   keeps G. Over diatonic chords the pool is just the scale.
+1. **Chord-scale pool.** `chord_scale_pcs(scale, chord)` spells the chord
+   as a stack of thirds over the scale (root, third, fifth, seventh; a sus4
+   has a fourth in place of the third). Each out-of-scale chord tone then
+   replaces the scale degree it occupies. An out-of-scale root takes the
+   spelling that alters the fewest semitones, with ties going to the
+   flat-side spelling. Examples:
+   - E7 in A minor gives A harmonic minor (G→G#).
+   - D7 in C major replaces F with F# and keeps G.
+   - B7 in C major replaces D and F with D# and F# and keeps G, the third of
+     the Em it resolves to.
+   - A major in C replaces C with C#.
+
+   Every other degree is kept. Over diatonic chords the pool is just the
+   scale. The spelling is a heuristic for chromatic chords without a clear
+   function, not a claim of a uniquely correct scale.
 2. **Register.** Candidates are the pool's pitches in
    `[pitch_low=62, pitch_high=79]` (D4–G5). Over each chord they are also
    kept at or above `chord_floors[i]`, a minor third above the voicing's
-   highest identity tone (for an open D chord, F#4 + 3 = A4), unless that
-   would leave fewer than 5 candidates.
+   highest identity tone (for an open D chord, F#4 + 3 = A4). The floor
+   yields to musical necessity: it is dropped for a bar if it would leave
+   fewer than 5 candidates, no pitch within an octave of the previous note,
+   or, in the last bar, no reachable cadence note.
 3. **Final target.** In the last bar the final note is fixed in advance: the
    tonic if the final chord contains it, otherwise the chord root, nearest
-   the previous pitch. Every note of that bar must stay within an octave of
-   the target, so the move into the final note can never exceed 12
-   semitones.
+   the previous pitch. That is always within an octave, because the window
+   spans more than an octave and the floor yields when needed. Every note of
+   the bar must also stay within an octave of the target, so no move,
+   including the forced final one, exceeds 12 semitones.
 4. **Score** each candidate with `score_pitch` (weights are module constants):
    - interval size (steps preferred; repeats, wide leaps and the tritone
      penalised; more than an octave excluded)
@@ -4240,8 +4539,12 @@ always uses the phrase planner.
     fourth, from `harmony.essential_pcs`) that neither the kept notes nor
     the melody are sounding is put back at its lowest voicing pitch.
 
-  So the chord never loses its identity. Combined with the melody floors in
-  §5.2, the tune stays on top of every attack in the evaluation matrix.
+  So the accompaniment never drops an identity tone that the chord's shape
+  provides. Combined with the melody floors in §5.2, the tune stayed on top of
+  every attack in the evaluation matrices. (A few canonical shapes are
+  themselves imperfect. The C#dim shape has no G and adds A#. These shape
+  defects are reported separately as S1 and left for a future voicing
+  change.)
 
 Accompaniment pitches come from `_voiced_pitches(voicing, tuning) =
 sorted(open_pitches[s] + fret for fretted strings)`.
@@ -4278,7 +4581,8 @@ typed metric functions:
   interval), final-chord ring, essential-tone coverage per bar
 - tab: hand-position shifts
 - voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
-  score)
+  score) and shape defects (essential tones missing from, or foreign tones in,
+  each canonical shape)
 
 [evaluation/compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py)
 defines two held-out input matrices (seeds 1000+ were never used for
@@ -4286,8 +4590,8 @@ tuning):
 
 - a 400-melody validation matrix: 8 keys, both modes, 10 progressions, 1–2
   bars per chord, × 3 styles
-- an 80-melody edge matrix: 3/5/7/9 bars, a single chord, secondary
-  dominants, a borrowed chord
+- a 110-melody edge matrix: 3/5/7/9 bars, a single chord, secondary
+  dominants including B7→Em in C, a borrowed chord, final suspended chords
 
 It summarises every metric overall and per mode and bar length.
 `scripts/compose_musicality_report.py` prints that summary.
@@ -4375,8 +4679,8 @@ with:
    chord on every bar in your chosen pattern. The patterns are: a pop strum
    (down, down-up, up-down-up), an eighth-note arpeggio, or fingerstyle with
    an alternating bass. It leaves out chord notes that would crowd the
-   melody, but it never drops the notes that make the chord major, minor or
-   a seventh. It ends with one chord left ringing.
+   melody, but it never drops the notes in the chord shape that make it
+   major, minor or a seventh. It ends with one chord left ringing.
 ```
 
 (c) Replace step **5** (from `5. **Write the tab**.` through `what you might see in any guitar magazine.`) with:
@@ -4461,7 +4765,7 @@ search `analyze` uses; **Chords** shows each chord shape under its name
 
 In every style the accompaniment leaves out chord notes that would sit
 on or just under the melody (never the bass, and never the notes that
-make the chord major, minor or a seventh), and the piece ends on one
+make the chord's shape major, minor or a seventh), and the piece ends on one
 ringing chord. The melody is written in four-bar phrases with a
 repeated motif, resolves leading tones, follows altered chords (G# over
 E7 in A minor), and ends on a long tonic (or on the last chord's root
@@ -4487,10 +4791,10 @@ pre-version-2 numbers for comparison.
 - [ ] **Step 7: Run every gate and the stale-text check**
 
 Run: `pytest -q tests/unit tests/integration && ruff check src tests && ruff format --check src tests && mypy --strict src`
-Expected: 0 failures (dry run: 517 passed, 3 skipped), ruff clean, `Success: no issues found`.
+Expected: 0 failures (dry run: 548 passed, 3 skipped), ruff clean, `Success: no issues found`.
 Run: `grep -n "bar by bar\|greedy-assigns\|block chord on beats 1 and 3\|Markov interval cap\|11-tuplet" docs/*.md`
 Expected: no output.
-Run: `git status --short`. Expected: only the four files of this task, plus regenerated `*.synth_marker` files, which you must not stage.
+Run: `git status --short`. Expected: only the four files of this task, plus regenerated `*.synth_marker` files, which you must not stage. There must be no `.compose-golden/`.
 
 - [ ] **Step 8: Commit**
 
@@ -4526,3 +4830,21 @@ Review: `docs/superpowers/reviews/2026-11-06-plan-review-r1.md` (GPT-6 Astra, ch
 | F8 | Phrase metrics ignore the planner's boundaries (Minor) | Yes. A 5-bar C-major piece scored M12 = 0 although its phrase ends were long. | **Fixed** | `rhythm.phrase_layout(n_bars)` is shared by `plan_bars` and the metrics. M12 uses the layout's cadence bars. M11 is split into coverage (M11a) and agreement (M11b), with undefined results kept as `None`. Tests: layouts for 1/3/4/5/7/8/9 bars, a 5-bar motif case, a 5-bar phrase-end case, and unequal echo bars (coverage 0, contour `None`). |
 | F9 | V1 is not a voice-leading measure (Minor) | Yes, by construction. | **Partly fixed, partly rebutted** | Renamed to `nearest_pitch_proximity`; the docstring and spec now say what it cannot show; a test pins the blind spot (a three-note shape collapsing onto one pitch scores 0); the "voice leading is already fine" claim is withdrawn. **Rebutted:** building a one-to-one voice-leading metric with birth/drop costs. Chord shapes are out of scope (§9), so the metric would only guard code this branch does not change (YAGNI). The thinned, sounding harmony is now guarded by H1 instead. |
 | F10 | Five-second budget not met (Minor) | Partly. The YAML parse was more than half of the A\* time (12.9 ms vs 5.7 ms per call). | **Fixed (measured); budget restated** | The YAML reads are gone (F6). A profile shows A\* in `tabs/` (out of scope) is about 85% of the remaining time. In the dry run, `evaluate()` for 480 cases took 2.3–3.0 s standalone, and the test module 2.3–4.7 s under pytest, depending on load. As the review advised, there is no wall-clock assertion; the expectation is recorded in the Global Constraints and spec §7. **Not done:** shrinking the matrix to hit a number, because coverage was the point of F7. |
+
+## Review responses (round 2)
+
+Review: `docs/superpowers/reviews/2026-11-06-plan-review-r2.md` (GPT-6 Astra, changes requested). Each finding was reproduced against the plan's code in the scratch build before anything changed, and all five reproduce exactly as reported. Each fix was then built and its new tests confirmed to fail when that fix is removed (Task 8 Step 3, rows i–k). Finally, all nine tasks were replayed in order on a fresh copy of the worktree. All four gates were green after every task (ending at 548 passed, 3 skipped), and Task 3 regenerated the committed baseline identically. Spec revision 3, §12, mirrors this table.
+
+| # | Finding (severity) | Verified? | Outcome | What changed |
+|---|---|---|---|---|
+| r2-F1 | One-note final bar under a floor still leaps > 12 (Important) | Yes. `arrange(C major, C Am F G7, seed 16)` ended 65 → 79 (14), because the G7 floor of 68 removed G4; same for `C G Am G7`. | **Fixed** | `melody._candidates` (Task 4) now drops a bar's floor whenever no floored pitch is within 12 of the previous note, or (last bar) no `cadence_pc` pitch is. The target is therefore always chosen within reach of the previous note: if the floor is kept, the check guarantees it; if dropped, every pitch class occurs within 12 of any pitch in a window of an octave or more. The forced note, including a `(8,)` one-note final bar, never exceeds 12, and `_sample`'s fallback is now defensive only. New tests: a 200-seed one-note-final-bar adversarial sweep under a floor, which asserts the adversarial case really occurs (Task 4); a custom-window reachability test (Task 4); both reproductions through `arrange()` (Task 7); and a floor-coupled 150-seed sweep over final seventh and suspended chords (Task 7). The standalone-generator sweeps are kept. |
+| r2-F2 | A floor can remove every cadence target: `A Dsus4` raises `ValueError` (Important) | Yes. Dsus4's floor of 70 left `[71 … 79]` with no A; `Am Dsus4` failed the same way. | **Fixed** | The cadence-feasibility check above, with an explicit precedence (spec §5.3, D17): octave limit, then cadence, then register clearance, with identity always protected by thinning. When the melody dips below a floor, `_thin_below` still keeps or restores the shape's identity tones. New tests: A–Dsus4, Am–Dsus4 and Dsus4 alone through `arrange()`, asserting success, the octave limit, resolution and H1; and every chord quality on every root after C-major and A-minor tonic chords (192 arrangements), asserting the same invariants (Task 7). A–Dsus4 and Am–Dsus4 joined the edge matrix. The spec no longer claims the empty-pool case is impossible. `ValueError` remains only for a custom window lacking the cadence pitch class. |
+| r2-F3 | Interval-above-root guessing replaces the wrong degree for common secondary dominants (Important) | Yes. B7 in C gave `{0, 3, 4, 5, 6, 9, 11}`, deleting G and keeping F; F#7 likewise deleted G. | **Fixed** | `harmony.chord_scale_pcs` now spells the chord as a stack of thirds over the scale degrees (`_spelling`). Each foreign tone replaces the degree it occupies, and a foreign root takes the least-alteration spelling, with a flat-side tie-break. B7 in C now raises D and F and keeps G; F#7 raises F, A and C and keeps G. The policy is documented as a conservative heuristic for chords without a clear function, and the tonic-preservation claim is narrowed to "unless the chord alters the tonic degree" (A major and C#dim in C). New tests (Task 2): B7 and F#7 in C; C#dim; V7/V, V7/ii, V7/vi, V7/iii (multi-alteration) and V7/IV in all 12 major keys; and the F#-in-C tie-break. C–B7–Em–G7–C joined the edge matrix. The metric definitions are unchanged; candidate numbers were recomputed (validation unchanged, edge in spec §3.2). |
+| r2-F4 | H1 is shape-relative and cannot prove chord identity (Minor) | Yes. Canonical C#dim sounds E A# C# (no G, plus A#); H1 requires only E. Ddim and D#dim also add a foreign dim7 tone. | **Fixed by narrowing the claim and adding a metric; shape repair deferred** | H1's docstring, the spec (§3.2, §4, §5.4) and the docs now say "identity tones the shape provides". New `metrics.shape_tone_mismatch` and the evaluation's `S1.missing` / `S1.foreign`, reported in the baseline and guarded equal to it (Task 8). Task 2 adds the C#dim counterexample test, where H1 reports full coverage while S1 flags the missing G. **Not done:** repairing `chords/voicings.py`. The review allowed either option; that data is shared with `analyze` displays and belongs with a voicing review (spec D18, §9). |
+| r2-F5 | Golden check is not byte-for-byte and writes outside the worktree (Minor) | Yes. It compared only tab, rounded onsets and positions, and wrote to `$TMPDIR` and `tempfile.mkdtemp()`. | **Fixed** | Task 3 Steps 1 and 3 run a three-case script (strum, arpeggio, fingerstyle). It compares the ASCII tab, the complete melody note records, every note of both MIDI tracks, the MIDI SHA-1 and the metadata; WAV synthesis is mocked because `synth/` is unchanged. All output lives in an untracked `.compose-golden/` inside the worktree, deleted afterwards. Task 7's CLI smoke runs use the same directory (and now include `A Dsus4`). A Global Constraint forbids staging it. The spec's claim was narrowed to exactly what is compared (§3.1, D19). In the dry run, old and refactored outputs were `IDENTICAL`. |
+
+**Round-1 dispositions after this round:**
+- F1 is now closed (r2-F1).
+- F2 is now complete (r2-F3).
+- F4's shape-relative limitation is documented and measured (r2-F4).
+- F3, F5, F6, F7, F8, F9 and F10 are unchanged from round 1; the reviewer marked them addressed.

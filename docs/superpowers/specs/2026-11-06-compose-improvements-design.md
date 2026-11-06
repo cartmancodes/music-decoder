@@ -1,13 +1,13 @@
 # Compose improvements: a more musical, measurable composer
 
-**Date:** 2026-11-06 (revision 2, after review round 1)
+**Date:** 2026-11-06 (revision 3, after review rounds 1 and 2)
 **Branch:** `feat/compose-improve`
 **Status:** approved by the planner (Claude Opus 5.5) in an unattended Octet
 pipeline. The human partner pre-approved the workflow (Opus plans, GPT-6 Astra
 reviews, Opus implements). Every point where brainstorming would normally wait
 for the user is listed in §10 with the decision taken and the reason. Review
-round 1 (`docs/superpowers/reviews/2026-11-06-plan-review-r1.md`) is answered
-finding by finding in §11 and at the end of the plan.
+rounds 1 and 2 (`docs/superpowers/reviews/2026-11-06-plan-review-r1.md`, `-r2.md`)
+are answered finding by finding in §11–§12 and at the end of the plan.
 
 ## 1. Intent
 
@@ -81,8 +81,14 @@ The measurement is reproducible and committed:
   `--write`.
 - `tests/fixtures/compose/musicality_baseline.json` is that summary for the
   **pre-change composer**. Plan Task 3 writes it after a behaviour-preserving
-  refactor and before any generator change. The refactor's output is checked
-  byte for byte against the old `compose()`.
+  refactor and before any generator change. The refactor is checked against
+  the old `compose()` on three cases (strum, arpeggio, fingerstyle). The
+  check compares exactly the ASCII tab, the complete melody note records,
+  every note of both MIDI tracks, the MIDI file's SHA-1 and the metadata.
+  WAV synthesis (an unchanged module) is mocked out, and timestamps and paths
+  are excluded by construction. All scratch output goes to an untracked
+  `.compose-golden/` directory inside the worktree, which is deleted
+  afterwards (review r2 F5).
 
 The two matrices:
 
@@ -92,13 +98,14 @@ The two matrices:
   - minor keys A, E, C, F# × i–iv–V7–i, i–VI–III–VII, i–iv–v–i, i–VII–VI–V,
     ii°–V7–i–i
   - `bars_per_chord` ∈ {1, 2}, seeds 1000–1004, 120 BPM, EADGBE
-- **Edge matrix** (80 melodies × 3 styles): eight progressions × seeds
+- **Edge matrix** (110 melodies × 3 styles): eleven progressions × seeds
   1000–1009, one bar per chord:
   - 3, 5, 7 and 9 bars
   - a single chord
-  - the secondary dominant C–D7–G–C
+  - the secondary dominants C–D7–G–C and C–B7–Em–G7–C
   - the borrowed iv in C–Fm–C–G7
   - E minor with B7
+  - final suspended chords A–Dsus4 and Am–Dsus4 (review r2 F2)
 
 **Held-out seeds.** The generator's weights were tuned on seeds 0–19 of an
 exploratory 3000-melody sweep (15 keys, 10 progressions, 2 bar lengths). That
@@ -137,7 +144,8 @@ condition is checked as a per-composition min/max over **both** matrices.
 | A2 | Melody above overlapping accompaniment | arp 0.912 / strum **0.821** / fing 0.906 | 1.0 / 1.0 / 1.0 | **≥ 0.97 each** | The tune must not be masked. Judged over each note's whole sounding interval (review F3). |
 | A3 | Exposed semitone clashes vs overlapping accompaniment | arp 0.117 / strum **0.145** / fing 0.110 | 0.062 / 0.087 / 0.067 | **≤ 0.10 each and ≤ 0.7 × baseline** | Accented minor seconds against the chord should be the exception; some passing dissonance on long notes is idiomatic. |
 | A4 | Final chord rings, one attack | 0 | 1.0 | **1.0, hard** | A cadence needs a held final chord. |
-| H1 | Essential tones heard in every bar (each style) | 1.0 | 1.0 | **1.0 every bar, hard** | Thinning must never remove a chord's third or seventh (review F4). The baseline never thinned. |
+| H1 | Essential tones *of the shape* heard in every bar (each style) | 1.0 | 1.0 | **1.0 every bar, hard** | Thinning must never remove a third or seventh that the shape provides (review F4). The baseline never thinned. This is shape-relative; see S1. |
+| S1 | Shape defects: fraction of a piece's shapes missing an essential tone / containing a foreign tone | 0.0 / 0.006 | unchanged | **= baseline (guard, reported)** | Inherited from `chords/voicings.py` (C#dim lacks G and adds A#; Ddim and D#dim add a dim7 note). Shapes are out of scope (§9), so S1 is reported, not improved (review r2 F4). |
 | T1 | Melody tab max fret | mean 15.9, max **20** | mean 13.0, max 15 | **≤ 15, hard** | Playable without high-position acrobatics. |
 | T2 | Hand-position shifts per note | 0.171 | 0.124 | **≤ 0.14** | Fewer position shifts make the line easier to play. |
 | V1 | Nearest-pitch proximity of shapes | 1.621 | 1.621 | **≤ baseline (guard)** | The shapes are unchanged. This is a proximity statistic only, not a voice-leading score (review F9). |
@@ -149,14 +157,18 @@ in every style. Where a metric is undefined it is skipped; for example, M13
 has no altered chords to judge in the all-diatonic major group. Every one of
 these comparisons held in the scratch build.
 
-**Edge matrix highlights** (baseline → candidate):
+**Edge matrix highlights** (baseline → candidate, revision 3):
 
-- M7: 0.10 → 1.0
-- M15: 0.30 (n = 10) → 1.0 (n = 11)
-- M11b: 0.33 → 0.76
-- M13: 0.103 → 0.015
-- A2 strum: 0.92 → 1.0
+- M7: 0.118 → 1.0
+- M15: 0.333 (n = 12) → 1.0 (n = 14)
+- M11b: 0.333 → 0.774
+- M13: 0.110 → 0.020
+- A2 strum: 0.930 → 1.0
+- M4max: 9 → 12 (within the limit)
 - T1 max: 20 → 15
+
+The validation-matrix numbers above are unchanged by revision 3: the floor
+fallbacks and the new spelling rule do not trigger on its inputs.
 
 ### 3.3 What the baseline shows, in order of musical harm
 
@@ -219,7 +231,8 @@ Shared conventions:
 | A2 | Fraction of melody notes higher than every overlapping accompaniment pitch (true when none overlaps). |
 | A3 | Among exposed melody notes: the fraction overlapping an accompaniment pitch at pitch-class distance 1 or 11. |
 | A4 | Final-bar accompaniment notes all start within 60 ms of the bar start and end at or after the bar end minus 1 ms. |
-| H1 | Per bar: the essential pitch classes of the chord that its shape contains must all be heard (accompaniment or melody, overlapping the bar). Reported as the fraction of bars, plus the final bar alone. |
+| H1 | Per bar: the essential pitch classes of the chord that its shape contains must all be heard (accompaniment or melody, overlapping the bar). Reported as the fraction of bars, plus the final bar alone. Shape-relative: a tone missing from the shape itself is not required here; S1 reports it. |
+| S1 | Per piece: the fraction of its shapes whose sounding pitch classes miss an essential tone of the requested chord (`S1.missing`), and the fraction containing a non-chord tone (`S1.foreign`). |
 | T1 | Max fret of `Arrangement.melody_tab`. The rendered tab shows exactly these positions (review F5; enforced by a round-trip test). |
 | T2 | Walk the fretted (> 0) melody frets with a hand window of at most 4 frets. A note outside the window starts a new window and counts as a shift. Shifts ÷ (fretted notes − 1). |
 | V1 | For successive shapes with different chords: the mean, over the second shape's pitches, of the distance to the nearest pitch of the first. A **proximity guard only**: voices may share a nearest source, dropped voices cost nothing, and crossings are ignored (review F9). |
@@ -251,20 +264,29 @@ melody-aware and identity-preserving, rather than adding a voicing search (§9).
   - 7 / maj7 / min7: the third and the seventh
   - dim / aug: the third and the altered fifth
   - sus4: the fourth
-- `chord_scale_pcs(scale, chord)` replaces, for each out-of-scale chord tone,
-  **only the one scale degree it chromatically alters**. The tone's interval
-  above the chord root identifies that degree:
-  - a major third, major seventh or augmented fifth is raised, so it replaces
-    the degree below it
-  - a minor third, minor seventh, diminished fifth or fourth is lowered, so
-    it replaces the degree above it
-  - for a foreign root or perfect fifth, it replaces the neighbour that is in
-    the scale, preferring the upper one (flat-side borrowing)
+- `chord_scale_pcs(scale, chord)` spells the chord **as a stack of thirds
+  over the scale's degrees** (`_spelling`: root, third, fifth, seventh, with
+  sus4 taking the fourth in place of the third). Each out-of-scale chord tone
+  then replaces **the scale degree it occupies in that spelling**, and every
+  other degree is kept (review r2 F3).
+  - An in-scale root fixes the spelling.
+  - An out-of-scale root lies between two degrees. The spelling that alters
+    the chord's tones by the fewest semitones in total wins, and a tie goes
+    to the upper degree (flat side, as in ♭VII, ♭VI, ♭II).
 
-  Every other degree, including the tonic, is kept (review F2). Examples:
+  This is a conservative heuristic for chromatic chords with no clear local
+  function, not a claim that a unique correct scale exists. The tonic is kept
+  unless the chord itself alters the tonic degree (A major and C#dim in C
+  replace C with C#). Examples (all tested):
   - E7 in A minor gives A harmonic minor (G → G#, A kept).
-  - D7 in C major replaces F with F# and keeps G.
-  - C7 replaces B with B♭; Fm replaces A with A♭; A major replaces C with C#.
+  - D7 in C replaces F with F# and keeps G.
+  - **B7 in C replaces D and F with D# and F#, keeping G**, the third of the Em
+    it resolves to.
+  - F#7 in C replaces F, A and C with F#, A# and C#, keeping G.
+  - C7 replaces B with B♭; Fm replaces A with A♭; B♭ (♭VII) replaces B; C#maj7
+    (♭II) replaces D and A.
+  - V7/V, V7/ii, V7/vi, V7/iii and V7/IV alter exactly the expected degrees
+    in all 12 major keys.
   - Diatonic chords leave the scale unchanged.
 
 ### 5.2 Rhythm and phrase planner: new `compose/rhythm.py`
@@ -298,8 +320,7 @@ melody-aware and identity-preserving, rather than adding a voicing search (§9).
 - `pitch_low` / `pitch_high` defaults are 62 / 79 (D4–G5).
 - New keyword `tessitura_center = 70`.
 - New keyword `chord_floors: Sequence[int | None] | None`, one entry per
-  chord. A floor applies only if it leaves at least `MIN_FLOOR_CANDIDATES = 5`
-  pitches.
+  chord. A floor is a *preference that yields* (see step 1).
 - `strong_beat_chord_tone_prob`, `weak_beat_chord_tone_prob` and
   `markov_max_interval_semitones` are removed. Nothing passes them, and the
   dead `composition:` YAML block that mirrored them is deleted (D15).
@@ -307,16 +328,37 @@ melody-aware and identity-preserving, rather than adding a voicing search (§9).
 Per bar:
 
 1. **Candidates:** the chord-scale pitches (§5.1) in the window, at or above
-   the chord's floor.
-2. **Final target** (last bar only): the tonic if the final chord contains it,
-   otherwise its root, taking the candidate nearest the previous pitch.
+   the chord's floor. **Precedence** (review r2 F1/F2):
+   - the octave limit and the cadence come first
+   - register clearance comes second
+   - chord identity is always protected by the accompaniment's thinning
+
+   The floor is dropped for the bar if it would leave:
+   - fewer than `MIN_FLOOR_CANDIDATES = 5` pitches, or
+   - no pitch within 12 semitones of the previous note, or
+   - in the last bar, no cadence pitch (`cadence_pc`) within 12 semitones of
+     the previous note.
+2. **Final target** (last bar only): `cadence_pc` is the tonic if the final
+   chord contains it, otherwise its root. The target is the candidate of that
+   pitch class nearest the previous pitch. **It is always within an octave of
+   the previous pitch:**
+   - If the floor was kept, a reachable target exists by the rule above.
+   - If it was dropped, the window spans at least an octave, so every pitch
+     class occurs within 12 semitones of any pitch in the window.
+
+   A floor that would remove the only target octave (Dsus4's floor of 70 in
+   A major, where the target A sits at 69) is therefore dropped, not turned
+   into an error.
 3. **Score** each candidate (all weights are module constants). Exclusions:
    - interval > 12: `-inf`
    - final bar only: |c − target| > 12 is `-inf`. Every note of the final
-     bar stays within an octave of the target, so the forced final note can
-     never be more than an octave away (review F1). The target itself always
-     satisfies both constraints, so a path always exists. `_sample` still
-     falls back to the nearest pitch if every score is `-inf`.
+     bar stays within an octave of the target, so the forced final note never
+     leaps more than an octave, including when the final bar is a single
+     note (the `(8,)` cadence), because the target is chosen within reach of
+     the previous note (step 2).
+   - A finite candidate therefore always exists. The target is in the
+     candidates and is within 12 of both the previous note and itself, so
+     `_sample`'s nearest-pitch fallback is defensive only.
 
    Scored terms:
    - **interval:** {0: −0.8, 1: +0.8, 2: +0.8, 3: −0.2, 4: −0.6, 5: −1.2,
@@ -355,15 +397,17 @@ signatures; `build_midi` passes its `melody` through.
   4. Put back each essential pitch class that neither the kept notes nor the
      sounding melody supply, at its lowest voicing pitch.
 
-  The chord therefore never loses its third or seventh, and a doubled
-  melody unison is removed. The old "keep the lowest three" rule is gone
-  (it could keep D3 A3 D4 and drop F#).
+  The accompaniment therefore never drops a third or seventh **that the shape
+  provides**, and a doubled melody unison is removed. The old "keep the
+  lowest three" rule is gone (it could keep D3 A3 D4 and drop F#). Defects of
+  the shapes themselves are not repaired here; S1 reports them.
 - **Melody floors** (in `arrange()`, §5.6) are the other half of the policy.
   For each chord shape the melody stays a minor third above the highest of
   the shape's lowest essential tones (open D: F#4 + 3 = A4). So the restored
   identity tones still sit under the tune; A2 reached 1.0 in every style.
-  When a floor cannot apply (too few candidates), identity wins over
-  register, and A2 measures any such cases.
+  When a floor yields (step 1 of §5.3), identity still wins over register:
+  a restored identity tone may sit near or above the melody, and A2
+  measures any such cases (none occurred in either evaluation matrix).
 - **arpeggio:** 8 straight eighths: the bass on the downbeat, then seven notes
   cycling up and down the treble. A note is skipped when thinning would drop
   it.
@@ -452,8 +496,12 @@ compose(scale, progression, …)            # signature unchanged
   bars, with layouts for 1, 3, 4, 5, 7, 8 and 9 spelled out).
 - A single 1-bar chord gives one final cadence bar on the target, with a
   ringing final chord.
-- A chord floor that leaves fewer than 5 candidates is ignored. An empty pool
-  raises `ValueError` (impossible with the default 17-semitone window).
+- A chord floor yields when it would leave fewer than 5 candidates, no
+  reachable pitch, or no reachable cadence target. Inputs the old composer
+  accepted therefore still compose; this is tested for every quality on every
+  root in C major and A minor, and for the review's Dsus4 cases.
+  `ValueError` remains only for a custom pitch window that lacks the cadence
+  pitch class entirely.
 - Non-standard tunings: the melody window is in absolute MIDI pitch. A\*
   places notes on whatever strings exist, with a lowest-fret fallback, and a
   test checks every position's pitch for Drop D, DADGAD and D standard. T1 is
@@ -468,12 +516,16 @@ compose(scale, progression, …)            # signature unchanged
   that implements it:
   - `test_compose_rhythm.py`: templates, splitting, layout, plan follows
     layout, determinism
-  - `test_compose_harmony.py`: essential tones, the chord-scale rule, the
-    E7, D7, C7, Fm, A, B♭ and C#maj7 cases
+  - `test_compose_harmony.py`: essential tones, the spelling-based chord
+    scale, the E7, D7, B7, F#7, C7, Fm, A, B♭, C#dim and C#maj7 cases, five
+    applied dominants in all 12 major keys, and the flat-side tie-break on F#
+    in C
   - `test_compose_metrics.py`: every metric on hand-built examples,
     including the review's staggered-strum counterexample, non-overlap
     controls, 5-bar layout cases, unequal echo bars, the chord-tone-next-to-a-
-    foreign-tone case, and the V1 blind-spot counterexample
+    foreign-tone case, the V1 blind-spot counterexample, and S1 on the
+    canonical C#dim shape (H1 reports full coverage while S1 flags the
+    missing G)
   - `test_compose_evaluation.py`: numerals, matrix sizes, held-out seeds,
     summary shape, the committed baseline
   - `test_compose_melody.py`:
@@ -482,7 +534,10 @@ compose(scale, progression, …)            # signature unchanged
     - an adversarial final-target score
     - E7 and D7 keeping A and G
     - leading-tone resolution ≥ 0.8
-    - floors, and a floor ignored when it leaves too few pitches
+    - floors, and a floor yielding to too few pitches, to an unreachable
+      register (custom window) or to a missing cadence target
+    - a one-note final bar under a floor, as a 200-seed adversarial sweep
+      that checks the adversarial case really occurs
     - tempos 40 and 220
   - `test_compose_arrangement.py`:
     - thinning keeps the bass and restores missing thirds, but not ones the
@@ -496,6 +551,12 @@ compose(scale, progression, …)            # signature unchanged
     - no config reads, and the env var has no effect
     - pinned weights, fallback, `bars_per_chord` validation, three tunings
     - floor values and the D-major cadence
+    - the review's r2 reproductions (C–Am–F–G7 and C–G–Am–G7 at seed 16;
+      A–Dsus4, Am–Dsus4 and Dsus4 alone)
+    - a floor-coupled 150-seed sweep over final seventh and suspended chords
+    - every quality on every root, after C major and A minor tonic chords,
+      through `arrange()`: each composes, stays within the octave limit,
+      resolves and keeps H1
     - a rendered-tab round trip for the review's C–G–Am–F seed 0 and a
       16-bar piece
 - **Regression suite** `tests/unit/test_compose_musicality.py`:
@@ -518,6 +579,12 @@ compose(scale, progression, …)            # signature unchanged
   - no leading-tone term → M15
   - inverted motif term → M11b
   - a short cadence template → hard invariants
+  - (revision 3) floor reachability removed → the custom-window floor test
+  - (revision 3) cadence-target feasibility removed → the one-note-final-bar
+    sweep, the Dsus4 tests, the r2 reproductions, the floor-coupled sweep and
+    the every-quality test
+  - (revision 3) tie-break reversed in `_spelling` → the flat-side spelling
+    test
 - **Runtime:** in the scratch build, `evaluate()` takes 2.3–3.0 s
   standalone, and the regression module takes 2.3–4.7 s under pytest,
   depending on machine load (A\* is about 85% of it; removing the per-call
@@ -525,8 +592,9 @@ compose(scale, progression, …)            # signature unchanged
   assert wall-clock time (review F10). On a slower runner the module may take
   longer; reducing the matrix is preferred over weakening coverage only if it
   exceeds about 10 s there.
-- The plan was replayed task by task on a fresh copy: all four gates were
-  green after every task, and the Task 3 baseline regenerated identically.
+- The plan (revision 3) was replayed task by task on a fresh copy: all four
+  gates were green after every task (ending at 548 passed, 3 skipped), and
+  the Task 3 baseline regenerated identically.
 
 ## 8. Ranked improvements (impact against effort)
 
@@ -555,6 +623,12 @@ compose(scale, progression, …)            # signature unchanged
 - No humanised (random) timing or velocity beyond the deterministic strum
   stagger. No let-ring modelling for arpeggios; no phrase-level dynamics.
 - No corpus-trained or neural models; no new dependencies.
+- **No repair of inherited canonical-shape defects.** `chords/voicings.py`'s
+  C#dim (E A# C#) lacks the diminished fifth G and adds A#, and the Ddim and
+  D#dim shapes add a dim7 tone. Fixing shared shape data changes `analyze`'s
+  chord displays as well and belongs with a voicing review. S1 reports these
+  defects and is guarded at its baseline value, so no new defect can appear
+  unnoticed (review r2 F4).
 - No change to `compose/voicings.py`, `chords/`, `tabs/` (including the shared
   ASCII renderer), `synth/` or the analyze pipeline. The only config change is
   deleting the unread `composition:` block (D15).
@@ -570,8 +644,8 @@ compose(scale, progression, …)            # signature unchanged
 | D3 | May a seed's melody change? | **Yes**, with `metadata["composer_version"] = 2` | Required to improve the music; determinism within a version is tested. |
 | D4 | `generate_melody` back-compat | Keep the function; `notes_per_bar` becomes optional; new window defaults; remove the three dead knobs; add `tessitura_center` and `chord_floors` | Internal API with no external callers. |
 | D5 | Melody register | **62–79, centre 70**, with per-chord floors | T1 max falls from 20 to 15. The floors keep identity tones under the tune. |
-| D6 | Masking vs chord identity | **Thin above melody − 3, always keep the bass, restore missing essential tones; floors keep the restored tones under the melody** | Review F4. Identity is never traded away, and register clearance is achieved by moving the melody, not by deleting the third. |
-| D7 | Melody over an altered chord tone | **Replace only the altered degree (role-based)**, keep the tonic, add leading-tone resolution | Review F2. This is harmonic minor over V7 and the correct local scale for secondary dominants and borrowed chords. |
+| D6 | Masking vs chord identity | **Thin above melody − 3, always keep the bass, restore missing essential tones; floors keep the restored tones under the melody** | Review F4. Identity tones the shape provides are never traded away, and register clearance is achieved by moving the melody, not by deleting the third. |
+| D7 | Melody over an altered chord tone | **Spell the chord as a stack of thirds over the scale and replace the degree each foreign tone occupies** (least-alteration spelling for foreign roots, flat-side on ties), plus leading-tone resolution | Reviews F2 and r2 F3. Interval-above-root rules guessed wrong for foreign fifths (B7, F#7 in C). Degree spelling gives harmonic minor over V7 and the correct local scale for the tested applied dominants and borrowed chords. It is described as a heuristic for chords without a clear function. |
 | D8 | Where metrics live | `compose/metrics.py` (+ `compose/harmony.py` helpers) | Reusable, type-checked, one definition shared by baseline and candidate. |
 | D9 | Evaluation matrices | **400 validation + 80 edge melodies, held-out seeds ≥ 1000, committed baseline JSON, paired comparisons per subgroup** | Review F7. The comparison is on identical inputs, with no assertions on tuning seeds. |
 | D10 | Voicing improvements | **Deferred** (§9) | Best impact for the effort is in melody, rhythm and accompaniment behaviour. |
@@ -581,13 +655,16 @@ compose(scale, progression, …)            # signature unchanged
 | D14 | Melody-tab A\* parameters | **Pinned in `compose/api.py` and passed to `tabs.assigner.assign_tab`** | Review F6. Compose output depends only on its inputs, seed and version, and A\* time halves. |
 | D15 | The unread `composition:` YAML block | **Delete it** | It documents removed knobs and suggests a configurability that does not exist. Nothing reads it (verified by grep and by the loader, which does not model it). |
 | D16 | Regression-test runtime | **Document the measured 2–5 s; no wall-clock assertion** | Review F10. Runtime varies with load; A\* in `tabs/` is out of scope to optimise. |
+| D17 | When register clearance conflicts with reachability or the cadence | **The floor yields** (octave limit > cadence > register clearance; identity always protected by thinning) | Review r2 F1/F2. Never reject an input the old composer accepted, and never break the octave invariant to keep a register preference. |
+| D18 | Inherited canonical-shape defects (C#dim, Ddim, D#dim) | **Report as S1 and guard at the baseline; do not repair shared shape data here** | Review r2 F4 offered either option. A shape fix also changes `analyze` displays and deserves its own review; the metric keeps the limitation visible. |
+| D19 | Refactor verification | **Compare tab, melody records, every MIDI note, the MIDI SHA-1 and metadata on three cases; scratch files only in an untracked `.compose-golden/` in the worktree, deleted afterwards** | Review r2 F5. The claim now matches exactly what is compared, and nothing is written outside the worktree. |
 
 ## 11. Review round 1: what changed
 
 | Finding | Response |
 |---|---|
-| F1: the forced final note could leap > 12 | **Fixed.** Final-bar candidates must lie within 12 of the target (§5.3). The review seeds are tested, plus a 400-seed sweep and an adversarial score test. |
-| F2: the chord scale deleted the tonic; M13 too blunt | **Fixed.** A role-based altered-degree rule (§5.1). M13 was redefined around exposed non-chord tones and is no longer a hard zero. M15 (leading-tone resolution) was added and the scorer resolves the leading tone. The D7 text was corrected. |
+| F1: the forced final note could leap > 12 | **Fixed.** Final-bar candidates must lie within 12 of the target (§5.3). The review seeds are tested, plus a 400-seed sweep and an adversarial score test. *Reopened in round 2 (one-note final bar under a floor) and closed there (§12).* |
+| F2: the chord scale deleted the tonic; M13 too blunt | **Fixed.** An altered-degree rule (§5.1; refined in round 2 to stack-of-thirds spelling). M13 was redefined around exposed non-chord tones and is no longer a hard zero. M15 (leading-tone resolution) was added and the scorer resolves the leading tone. The D7 text was corrected. |
 | F3: A2/A3 probed only the onset | **Fixed.** Overlap over the whole note; staggered and late-entry counterexamples plus controls; the baseline was re-measured with the same definitions. |
 | F4: thinning could erase chord identity | **Fixed.** The bass and identity tones are kept, the melody floors keep them under the tune, and H1 coverage is asserted every bar. The review's D-major case is tested. |
 | F5: chord frets overwrote melody frets | **Fixed.** A collision-free two-block renderer, with round-trip tests on the review's case and a 16-bar piece. |
@@ -596,3 +673,14 @@ compose(scale, progression, …)            # signature unchanged
 | F8: phrase metrics ignored the planner's layout | **Fixed.** A shared `phrase_layout`; coverage reported separately from agreement; 5/7/9-bar cases. |
 | F9: V1 is not voice leading | **Fixed by renaming and documenting** (`nearest_pitch_proximity`, with a blind-spot test). **Not done:** a new one-to-one voice-leading metric, because shapes are out of scope (YAGNI). |
 | F10: the 5 s budget was not met | **Addressed.** YAML reads removed and the evaluation profiled; the expectation is documented without a wall-clock assertion. **Not done:** cutting coverage to hit a number. |
+
+## 12. Review round 2: what changed
+
+| Finding | Response |
+|---|---|
+| r2 F1: a one-note final bar could still leap > 12 under a floor (C–Am–F–G7, seed 16: 65 → 79) | **Fixed.** The floor yields if no pitch, or (last bar) no cadence pitch, is reachable within 12 of the previous note, so the target is always within reach (§5.3). Tests: both reproductions through `arrange()`, a 200-seed one-note-final-bar adversarial sweep under a floor (asserting the adversarial case occurs), a custom-window reachability test, and a floor-coupled 150-seed sweep over final seventh and suspended chords. F1 is now closed. |
+| r2 F2: a floor could remove every cadence target (A–Dsus4 raised `ValueError`) | **Fixed.** The cadence-feasibility check above makes the floor yield, with an explicit precedence (D17). Tests: A–Dsus4, Am–Dsus4, Dsus4 alone, and every chord quality on every root after C-major and A-minor tonics, each composing within the invariants. Two Dsus4 progressions joined the edge matrix. |
+| r2 F3: the interval-above-root rule replaced the wrong degree (B7 and F#7 in C deleted G and kept F) | **Fixed.** Stack-of-thirds degree spelling (§5.1, D7). Tests: B7 and F#7 in C, C#dim, five applied dominants in all 12 major keys (including the multi-alteration V7/iii), and the tie-break for a genuinely ambiguous chord (F# in C). B7–Em joined the edge matrix. The tonic-preservation claim was narrowed to "unless the chord alters the tonic degree". The metric definitions are unchanged; candidate numbers were recomputed (validation unchanged, edge updated in §3.2). |
+| r2 F4: H1 cannot see tones missing from the shape itself | **Fixed by narrowing the claim and adding S1.** H1 is documented as shape-relative. S1 reports missing and foreign shape tones, with the canonical C#dim counterexample in a test, and is guarded at its baseline. The inherited shape defects are deferred (D18, §9). |
+| r2 F5: the golden check was not byte-for-byte and wrote outside the worktree | **Fixed.** The check now compares exactly what is listed in §3.1, including MIDI bytes by SHA-1, on three cases. Scratch output lives in an untracked `.compose-golden/` inside the worktree and is deleted afterwards. The plan's CLI smoke test also writes there (D19). |
+
