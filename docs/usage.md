@@ -702,7 +702,7 @@ same conventions:
     "style": "fingerstyle",
     "seed": 42,
     "tuning": "EADGBE",
-    "composer_version": 2
+    "composer_version": 3
   }
 }
 ```
@@ -1022,16 +1022,25 @@ guarantee its random streams across releases). Useful for:
   music-decoder compose --seed $s ...; done`.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `2`). Version 2 (November
+in `metadata.composer_version` (currently `3`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
-(more musical) take. Compose output does not depend on
-`config/hyperparameters.yaml` or `MUSIC_DECODER_HYPERPARAMETERS`.
+(more musical) take. Version 3 (November 2026) plays a faithful,
+root-position chord shape that needs at most four fingers in every
+tuning, and its melodies never leap by a tritone or a seventh (a leap
+wider than a fifth is rare, arpeggiates one chord and steps back), so
+a seed saved from version 2 also gives a different take. Compose
+output does not depend on `config/hyperparameters.yaml` or
+`MUSIC_DECODER_HYPERPARAMETERS`.
 
 To measure the composer, run `python scripts/compose_musicality_report.py`.
 It prints every musicality metric over the fixed evaluation matrices;
 `tests/fixtures/compose/musicality_baseline.json` holds the
-pre-version-2 numbers for comparison (measured at commit `69c2fa7`).
+pre-version-2 numbers for comparison (measured at commit `69c2fa7`), and
+`tests/fixtures/compose/musicality_v2.json` holds the version-2 numbers
+(measured at commit `b41e74f`, with `--matrices all`). The default run
+builds the development matrices only; `--matrices acceptance` builds the
+held-out acceptance matrix.
 
 Without `--seed`, the random number generator is seeded from
 NumPy's default entropy source, so every run differs.

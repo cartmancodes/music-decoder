@@ -35,7 +35,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 2
+COMPOSER_VERSION = 3
 
 # A* fingering parameters for the melody tab. Pinned here (values as tuned on
 # GuitarSet dev for analyze(), 2026-10) rather than read from

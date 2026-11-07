@@ -4,10 +4,14 @@ import pytest
 
 from music_decoder.compose import metrics
 from music_decoder.compose.melody import (
+    CHORD_CHANGE_STEP_BONUS,
     MAX_INTERVAL,
     NoteContext,
+    admissible,
+    feasible_sets,
     final_target,
     generate_melody,
+    ranked_scores,
     score_pitch,
 )
 from music_decoder.types import ChordSymbol, Scale
@@ -264,10 +268,9 @@ def test_extreme_tempos_keep_the_grid_and_the_length(tempo):
     assert notes[-1].pitch % 12 == 11  # B7 holds no E: ends on the B root
 
 
-def test_one_note_final_bar_stays_within_an_octave_when_a_floor_bites():
+def test_one_note_final_bar_is_approached_within_a_fifth():
     # Legacy grid with one note per bar: bar 2 is the forced target alone.
-    # The G7 floor (68) removes G4, so a low bar-1 note used to jump to G5.
-    low_starts = 0
+    # The G7 floor (68) removes G4, so bar 1 is steered toward the final G.
     for seed in range(200):
         notes = _gen(
             Scale("C", "major"),
@@ -278,10 +281,9 @@ def test_one_note_final_bar_stays_within_an_octave_when_a_floor_bites():
             chord_floors=[None, 68],
         )
         assert len(notes) == 2
-        assert abs(notes[1].pitch - notes[0].pitch) <= MAX_INTERVAL, seed
+        move = abs(notes[1].pitch - notes[0].pitch)
+        assert move <= 7 and move != 6, seed
         assert notes[1].pitch % 12 == 7, seed  # G7 has no C: ends on the root
-        low_starts += notes[0].pitch <= 66
-    assert low_starts > 0  # the adversarial situation really occurred
 
 
 def test_floor_yields_when_it_would_remove_the_cadence_target():
@@ -306,3 +308,118 @@ def test_floor_yields_when_nothing_above_it_is_reachable():
             chord_floors=[None, 80, None],
         )
         assert metrics.max_interval(notes) <= MAX_INTERVAL, seed
+
+
+# ---- singable leaps (composer v3) ------------------------------------------
+
+
+def test_admissible_forbids_tritones_sevenths_and_wide_leaps():
+    for c in (78, 82, 83, 85, 66, 62, 61):  # +6 +10 +11 +13, -6 -10 -11 from 72
+        assert not admissible(c, _ctx())
+    assert admissible(79, _ctx()) and admissible(65, _ctx())  # fifths up and down
+
+
+def test_admissible_large_leap_needs_arpeggiation_and_a_recovery():
+    ok = dict(prev_chord_tone=True, recovery_pool=frozenset({74, 76, 77}))
+    assert not admissible(80, _ctx(prev_pitch=72, **ok))  # G# is not a C chord tone
+    assert admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=frozenset({77})))
+    assert not admissible(79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=None))
+    assert not admissible(
+        79, _ctx(prev_pitch=67, prev_chord_tone=True, recovery_pool=frozenset({76}))
+    )
+    assert not admissible(
+        79, _ctx(prev_pitch=67, prev_chord_tone=False, recovery_pool=frozenset({77}))
+    )
+    assert not admissible(
+        79,
+        _ctx(prev_pitch=67, prev_chord_tone=True, chord_change=True, recovery_pool=frozenset({77})),
+    )
+    assert not admissible(
+        79,
+        _ctx(prev_pitch=67, prev_chord_tone=True, prev_interval=5, recovery_pool=frozenset({77})),
+    )  # no chained leaps
+    assert not admissible(
+        79, _ctx(prev_pitch=67, prev_chord_tone=True, target=79, recovery_pool=frozenset({77}))
+    )  # never in the final bar
+
+
+def test_admissible_forces_recovery_after_a_large_leap():
+    after = _ctx(prev_pitch=76, prev_interval=9)
+    assert admissible(74, after) and admissible(75, after)
+    assert not admissible(77, after) and not admissible(72, after) and not admissible(76, after)
+
+
+def test_admissible_respects_the_feasibility_set():
+    assert admissible(74, _ctx(allowed=frozenset({74})))
+    assert not admissible(71, _ctx(allowed=frozenset({74})))
+
+
+def test_feasible_sets_walk_back_from_the_goal():
+    # review r1 F1: floored final bar of C -> D#m; target D#5 (75), prev E4 (64)
+    floored = [69, 70, 72, 74, 75, 77, 78]
+    (first,) = feasible_sets(floored, 1, {75})
+    assert first == {70, 72, 74, 75, 77, 78}  # 69 is a tritone from 75
+    assert not any(abs(c - 64) <= 7 and abs(c - 64) != 6 for c in first)  # dead end: repair
+    assert feasible_sets(floored, 0, {75}) == []
+
+
+def test_ranked_scores_ladder_keeps_r1_and_r2_before_giving_up():
+    ctx = _ctx(prev_pitch=64, allowed=frozenset())  # nothing is admissible
+    scores, level = ranked_scores([66, 75], ctx, 70)
+    assert level == 1 and math.isfinite(scores[0]) and scores[1] == -math.inf  # +11 forbidden
+    scores, level = ranked_scores([75], _ctx(prev_pitch=64, allowed=frozenset()), 70)
+    assert level == 2 and math.isfinite(scores[0])  # only a forbidden move exists
+    assert ranked_scores([66], _ctx(prev_pitch=64), 70)[1] == 0
+
+
+def test_chord_change_step_bonus():
+    step = score_pitch(74, _ctx(chord_change=True), 72) - score_pitch(74, _ctx(), 72)
+    assert step == pytest.approx(CHORD_CHANGE_STEP_BONUS)
+    assert score_pitch(72, _ctx(chord_change=True), 72) == score_pitch(72, _ctx(), 72)
+
+
+def _leap_invariants(notes, labels, bars=1, tempo=120.0):
+    p = [ChordSymbol.parse(c) for c in labels]
+    assert metrics.forbidden_interval_count(notes) == 0
+    assert metrics.unjustified_large_leap_count(notes, p, bars, tempo) == 0
+    leaps, recovered = metrics.large_leap_recovery_counts(notes)
+    assert recovered == leaps
+    assert max(metrics.chord_change_moves(notes, p, bars, tempo), default=0) <= 7
+    if len(notes) > 1:
+        assert abs(notes[-1].pitch - notes[-2].pitch) <= 7
+
+
+@pytest.mark.parametrize(
+    ("key", "mode", "labels"),
+    [
+        ("C", "major", ("C", "Am", "F", "G")),
+        ("A", "minor", ("Am", "Dm", "E7", "Am")),
+        ("C", "major", ("Cmaj7", "Am7", "Dm7", "G7")),
+        ("C", "major", ("C", "B7", "Em", "G7", "C")),
+    ],
+)
+def test_generated_melodies_obey_the_leap_rules(key, mode, labels):
+    for seed in range(100):
+        notes = _gen(Scale(key, mode), labels, seed=seed, chord_floors=[None] * len(labels))
+        _leap_invariants(notes, labels)
+
+
+def test_legacy_grid_and_no_floors_obey_the_leap_rules():  # Review Focus 3
+    for seed in range(100):
+        for npb in (1, 4):
+            labels = ("C", "F", "G7", "C")
+            _leap_invariants(
+                _gen(Scale("C", "major"), labels, seed=seed, notes_per_bar=npb), labels
+            )
+
+
+def test_short_pieces_obey_the_leap_rules():  # Review Focus 4
+    for seed in range(100):
+        for labels in (("D",), ("C", "G7"), ("A", "Dsus4")):
+            floors = [None, 68][: len(labels)]
+            notes = _gen(Scale(labels[0][0], "major"), labels, seed=seed, chord_floors=floors)
+            _leap_invariants(notes, labels)
+
+
+def test_legacy_grid_over_no_bars_is_empty():  # v2 accepted this; v3 must not raise
+    assert _gen(Scale("C", "major"), (), notes_per_bar=2) == []

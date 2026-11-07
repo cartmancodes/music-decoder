@@ -254,14 +254,20 @@ def test_nearest_pitch_proximity_is_not_a_voice_leading_score():
     assert m.nearest_pitch_proximity([wide, collapsed], STANDARD_EADGBE) == 0.0
 
 
-def test_shape_tone_mismatch_reports_inherited_shape_defects():
+def test_shape_tone_mismatch_reports_shape_defects():
     assert m.shape_tone_mismatch(shape("C"), STANDARD_EADGBE) == (frozenset(), frozenset())
-    # The canonical C#dim shape (x x 2 3 2 x -> E A# C#) lacks the diminished
-    # fifth G and adds A#; H1 cannot see this because it is shape-relative.
-    missing, foreign = m.shape_tone_mismatch(shape("C#dim"), STANDARD_EADGBE)
+    # The old C#dim shape (x x 2 3 2 x -> E A# C#) lacked the diminished fifth G
+    # and added A#; H1 cannot see this because it is shape-relative.
+    old = VoicedChord(
+        chord=ChordSymbol.parse("C#dim"),
+        positions=tuple(TabPosition(string=s, fret=f) for s, f in enumerate((-1, -1, 2, 3, 2, -1))),
+    )
+    missing, foreign = m.shape_tone_mismatch(old, STANDARD_EADGBE)
     assert missing == frozenset({7}) and foreign == frozenset({10})
     acc = [n(0, 4, 52), n(0, 4, 58), n(0, 4, 61)]
-    assert m.essential_tone_coverage([], acc, [shape("C#dim")], 1, TEMPO, STANDARD_EADGBE) == [True]
+    assert m.essential_tone_coverage([], acc, [old], 1, TEMPO, STANDARD_EADGBE) == [True]
+    # the repaired library shape has neither defect
+    assert m.shape_tone_mismatch(shape("C#dim"), STANDARD_EADGBE) == (frozenset(), frozenset())
 
 
 def test_cadence_identity_checks_the_held_final_note():
@@ -317,3 +323,45 @@ def test_cadence_identity_ignores_accompaniment_after_the_final_note():
     assert m.cadence_identity(melody, under, [c_major], STANDARD_EADGBE) is True
     later = [*under, _sec(2.0, 3.0, 52)]  # an E3 attack after the note has ended
     assert m.cadence_identity(melody, later, [c_major], STANDARD_EADGBE) is True
+
+
+def test_forbidden_interval_count():
+    mel = [n(0, 1, 60), n(1, 1, 66), n(2, 1, 76), n(3, 1, 65), n(4, 1, 78), n(5, 1, 60)]
+    # +6 tritone, +10 m7, -11 M7, +13 (> octave), -18 (> octave)
+    assert m.forbidden_interval_count(mel) == 5
+    assert m.forbidden_interval_count([n(0, 1, 60), n(1, 1, 67), n(2, 1, 72), n(3, 1, 64)]) == 0
+
+
+def test_large_leap_recovery_counts():
+    up_back = [n(0, 1, 60), n(1, 1, 68), n(2, 1, 67)]  # +8 then -1: recovered
+    up_on = [n(0, 1, 60), n(1, 1, 69), n(2, 1, 71)]  # +9 then +2: not
+    fifth = [n(0, 1, 60), n(1, 1, 67), n(2, 1, 69)]  # +7 is not "large"
+    assert m.large_leap_recovery_counts(up_back) == (1, 1)
+    assert m.large_leap_recovery_counts(up_on) == (1, 0)
+    assert m.large_leap_recovery_counts(fifth) == (0, 0)
+    assert m.large_leap_recovery_counts([n(0, 1, 60), n(1, 3, 72)]) == (0, 0)  # last
+
+
+def test_unjustified_large_leap_count():
+    p = prog("C", "G")
+    arpeggio = [n(0, 1, 64), n(1, 1, 72), n(2, 1, 71), n(3, 1, 67), n(4, 4, 67)]  # E4->C5 in C
+    assert m.unjustified_large_leap_count(arpeggio, p, 1, TEMPO) == 0
+    non_chord = [n(0, 1, 62), n(1, 1, 71), n(2, 1, 72), n(4, 4, 67)]  # D4 is not in C
+    assert m.unjustified_large_leap_count(non_chord, p, 1, TEMPO) == 1
+    across = [n(0, 4, 60), n(4, 1, 71), n(5, 3, 67)]  # C4 (C) -> B4 (G), +11 across the change
+    assert m.unjustified_large_leap_count(across, p, 1, TEMPO) == 1
+    into_final = [n(0, 1, 60), n(1, 1, 64), n(4, 1, 67), n(5, 3, 79)]  # +12 onto the last note
+    assert m.unjustified_large_leap_count(into_final, p, 1, TEMPO) == 1
+
+
+def test_chord_change_moves_and_bass_is_root():
+    p = prog("C", "G")
+    mel = [n(0, 2, 64), n(2, 2, 67), n(4, 2, 74), n(6, 2, 71)]
+    assert m.chord_change_moves(mel, p, 1, TEMPO) == [7]
+    assert m.chord_change_moves(mel, prog("C"), 1, TEMPO) == []
+    assert m.bass_is_root(shape("C"), STANDARD_EADGBE)
+    old_fmaj7 = VoicedChord(
+        ChordSymbol.parse("Fmaj7"),
+        tuple(TabPosition(s, f) for s, f in enumerate((-1, 3, 3, 2, 1, 0))),
+    )  # C3 F3 A3 C4 E4
+    assert not m.bass_is_root(old_fmaj7, STANDARD_EADGBE)
