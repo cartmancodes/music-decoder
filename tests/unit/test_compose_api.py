@@ -15,10 +15,10 @@ from music_decoder.compose.api import (
 )
 from music_decoder.compose.melody import MAX_INTERVAL, generate_melody
 from music_decoder.compose.tabtext import render_melody_tab
-from music_decoder.compose.voicings import voicings_for
+from music_decoder.compose.voicings import shape_faults, voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.tabs import _DEFAULT_WEIGHTS
-from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE
+from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE, get_preset
 from music_decoder.types import VALID_TONICS, ChordSymbol, Note, Scale
 
 
@@ -274,3 +274,27 @@ def test_sustained_cadence_keeps_the_chord_identity(key, mode, labels, seed, sty
     assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, STANDARD_EADGBE)
     assert metrics.final_chord_rings(arr.accompaniment, len(labels), 120.0)
     assert metrics.max_interval(arr.melody) <= MAX_INTERVAL
+
+
+@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize(
+    ("tuning_name", "labels"),
+    [
+        ("Drop_C", ("C", "G", "Am", "G7", "Gmaj7", "C")),
+        ("Drop_D", ("C", "G7", "C")),
+        ("DADGAD", ("D", "A#", "D#dim", "A#sus4", "Bmaj7", "D")),
+        ("Eb", ("C", "C7", "F", "B7", "C")),
+    ],
+)
+def test_searched_voicings_compose_with_their_identity_heard(tuning_name, labels, style):
+    tuning = get_preset(tuning_name)
+    arr = arrange(Scale(labels[0], "major"), _chords(*labels), style=style, tuning=tuning, seed=3)
+    assert all(
+        shape_faults([p.fret for p in v.positions], tuning, v.chord) == () for v in arr.voicings
+    )
+    assert all(
+        metrics.essential_tone_coverage(
+            arr.melody, arr.accompaniment, arr.voicings, 1, 100.0, tuning
+        )
+    )
+    assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, tuning)

@@ -92,21 +92,7 @@ def _shapes(out: dict[str, Any]) -> list[tuple[ChordSymbol, list[int]]]:
     ]
 
 
-VOICING_XFAIL = {
-    "major-08-Ab": "Eb7 collapses in Eb tuning (Task 5)",
-    "major-09-Eb": "Bb7 bass is the open D in D standard (Task 5)",
-}
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(k, marks=pytest.mark.xfail(strict=True, reason=VOICING_XFAIL[k]))
-        if k in VOICING_XFAIL
-        else k
-        for k in SAMPLES
-    ],
-)
+@pytest.mark.parametrize("name", list(SAMPLES))
 def test_sample_voicings_are_faithful(name: str, tmp_path: Path) -> None:
     args = SAMPLES[name]
     out = _run(args, tmp_path)

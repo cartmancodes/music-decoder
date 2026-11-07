@@ -956,6 +956,10 @@ git add src/music_decoder/compose/voicings.py tests/unit/test_compose_voicings.p
 git commit -m "fix(compose): faithful, four-finger chord voicings in every tuning (retune, gates, shape search)"
 ```
 
+Deviation: `search_voicing` is decorated with `@functools.cache`, which is
+`lru_cache(maxsize=None)` itself; ruff's UP033 rejects the long spelling, so
+the gate requires the short one. Behaviour is identical.
+
 ---
 
 ### Task 6: Singable melodic leaps
