@@ -1163,7 +1163,20 @@ fired. Levels 1 and 2 are reached only by the unit test that calls
 
 ### 13.4 Gate, samples and timing
 
-Final gate, after the documentation changes:
+Final gate, re-run by the controller on `8424d7a` (after the final-review
+fixes), together with a fresh run of `scripts/compose_musicality_report.py`
+(development) and `--matrices acceptance`, whose values match §13.1:
+
+```
+pytest -q tests/unit tests/integration   690 passed, 3 skipped, 41 warnings in 39.54s
+ruff check src tests                     All checks passed!
+ruff format --check src tests            160 files already formatted
+mypy --strict src                        Success: no issues found in 80 source files
+```
+
+The branch baseline was 582 passed, 3 skipped, so 108 tests were added.
+
+Gate after the Task 8 documentation changes (before the final review):
 
 ```
 pytest -q tests/unit tests/integration   685 passed, 3 skipped, 41 warnings in 43.63s
