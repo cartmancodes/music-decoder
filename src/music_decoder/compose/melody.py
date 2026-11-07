@@ -184,9 +184,9 @@ def admissible(candidate: int, ctx: NoteContext) -> bool:
 
     R1 no tritone, seventh or leap over an octave; R2 a leap larger than a
     fifth is followed by a contrary step; R3 such a leap is an arpeggiation
-    inside one chord (not at a chord change, not in the final bar, from a
-    step or repeat) with a recovery pitch available next; R4 in a constrained
-    bar the candidate is in the feasibility set.
+    inside one chord (not at a chord change, not in the final or approach
+    bar, from a step or repeat) with a recovery pitch available next; R4 in a
+    constrained bar the candidate is in the feasibility set.
     """
     if ctx.allowed is not None and candidate not in ctx.allowed:
         return False

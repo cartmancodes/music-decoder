@@ -1051,8 +1051,8 @@ development data, so their thresholds are regression locks.
 - **Maxima.** M4max ≤ 12, L4max ≤ 7 and L5 ≤ 7 everywhere.
 - **L4.** It is above v2 on all four matrices, and above the locks of 0.87
   (validation) and 0.83 (edge). On the holdout it rose from 0.7962 to 0.8750.
-  That is strictly above v2, so the ledger's `≥` versus `>` ruling for the
-  holdout made no difference.
+  That is strictly above v2, so the `≥` versus `>` ruling for the holdout
+  (§13.5) made no difference.
 - **§6.2 voicings.** S1 and S2 are 0 everywhere, and H1, H2 and A4 are 1.0
   everywhere. V1 rose by +0.0265 on validation (limit +0.1), is unchanged on
   edge, and fell from 2.40 to 1.60 on tunings: no more one-note chords.
@@ -1201,11 +1201,12 @@ was 3.3–7.4.
 | `d67c6ce` (Task 5) | `search_voicing` uses `functools.cache` instead of `functools.lru_cache(maxsize=None)`, the same object, because ruff UP033 rejects the long spelling. The plan carries a "Deviation:" line for it. |
 | `f84a697` (Task 6) | An empty-bars guard: v2 returned `[]` for a legacy grid over zero bars, while v3's `bars[-1]` lookup would have raised `IndexError` (§8: nothing raises that v2 accepted). It comes with `test_legacy_grid_over_no_bars_is_empty`. No plan step changed. |
 | `db949d0` (Task 7) | Sabotage checks: sabotage 3's example (Eb D#7 `0-7-6-7-5-4`) is stale after the D#7 library repair (`b69a932`), because Eb D#7 is `0-7-9-7-9-7` either way, and the 576-voicing audit still fails the sabotage through other shapes. Sabotage 2 (repair only the floored option) is caught only by the five explicit regression cases (review r1 F1), not by the bounded sweep or the holdout. Sabotage 4 (span 5) is caught by the 576-shape audit. Two trailing comments were moved for E501. |
-| Ledger ruling (Task 7) | The holdout uses L4 `≥ v2` (§6.4), where §6.1 says `>`. The measured 0.7962 → 0.8750 satisfies both. |
+| Holdout L4 ruling (Task 7) | The controller ruled that the holdout uses L4 `≥ v2` (§6.4), where §6.1 says `>`. The measured 0.7962 → 0.8750 satisfies both. |
 | `d47c262` (Task 8) | Documentation only. `docs/architecture-technical.md` §5.4.1 was also updated, beyond the brief's list: the leap and shape metrics, the tunings, holdout and reserve matrices, and `musicality_v2.json`. `compose/metrics.py` already names both specs, so it is unchanged. |
-| this commit (final review) | `_retune` un-mutes in two passes (§5.2 item 3, §13.6). The plan's Task 5 carries a "Deviation:" line, and its test's Drop D D is now `(0, 0, 0, 2, 3, 2)`. |
+| `de1b0c8` (final review) | `_retune` un-mutes in two passes (§5.2 item 3, §13.6). The plan's Task 5 carries a "Deviation:" line, and its test's Drop D D is now `(0, 0, 0, 2, 3, 2)`. |
+| this commit (final review) | `voicings_for` normalises a list-valued `Tuning` to a tuple before the cached search (it raised `TypeError: unhashable`, which v2 never did). The no-regression test skips a metric only when v2 lacks it (only validation/major M13, which v3 lacks too) and fails if the candidate lacks it. Documentation wording fixes. |
 
-### 13.6 Post-review change: the two-pass un-mute
+### 13.6 Post-review change: the two-pass un-mute (`de1b0c8`)
 
 The final whole-branch review found that the first un-mute rule measured the
 lowest pitch before any un-muting. So an open chord-tone string between the

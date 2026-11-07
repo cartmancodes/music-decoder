@@ -162,3 +162,10 @@ def test_unvoiceable_chord_falls_back_without_raising():  # Review Focus 2
     assert search_voicing(ChordSymbol.parse("D"), all_c) is None
     v = voicings_for(ChordSymbol.parse("D"), all_c)[0]
     assert {all_c.open_pitches[p.string] + p.fret for p in v.positions if p.fret >= 0} == {38}
+
+
+def test_list_valued_tuning_reaches_the_cached_search():  # final review: v2 never raised here
+    eb_list = Tuning("Eb", list(EB_HALF_STEP_DOWN.open_pitches))  # type: ignore[arg-type]
+    assert _frets("C7", eb_list) == _frets("C7", EB_HALF_STEP_DOWN) == (-1, 4, 3, 1, 0, 1)
+    std_list = Tuning("EADGBE", list(STANDARD_EADGBE.open_pitches))  # type: ignore[arg-type]
+    assert _frets("Edim", std_list) == VOICINGS["Edim"]  # the EADGBE early return still applies

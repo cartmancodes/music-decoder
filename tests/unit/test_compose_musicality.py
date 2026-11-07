@@ -241,8 +241,9 @@ def test_tunings_matrix_keeps_every_v2_hard_invariant(report):
 def test_no_regression_against_v2(all_reports, v2, matrix, group):
     cand, ref = all_reports[matrix][group], v2[matrix][group]
     for metric in (*IMPROVE_UP, *IMPROVE_DOWN):
-        if metric not in cand or metric not in ref:
+        if metric not in ref:  # e.g. M13 is undefined on validation/major in both
             continue
+        assert metric in cand, f"{matrix}/{group} {metric}: missing from the candidate"
         c, r = cand[metric]["mean"], ref[metric]["mean"]
         if metric in IMPROVE_UP:
             assert c >= r - TOL_MEAN, f"{matrix}/{group} {metric}: {r} -> {c}"

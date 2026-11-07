@@ -186,6 +186,9 @@ def voicings_for(chord: ChordSymbol, tuning: Tuning) -> list[VoicedChord]:
     if not canonicals:
         raise InvalidProgressionError(f"No canonical voicing for {chord.to_label()}")
 
+    # A Tuning built with a list must still hash for the cached search and
+    # compare equal to EADGBE in _retune.
+    tuning = Tuning(tuning.name, tuple(tuning.open_pitches))
     for c in canonicals:
         frets = _retune([p.fret for p in c.positions], tuning, chord)
         if frets is not None and _is_playable(frets) and not shape_faults(frets, tuning, chord):

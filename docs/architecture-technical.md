@@ -850,8 +850,8 @@ chord scale) live in [compose/harmony.py](../src/music_decoder/compose/harmony.p
    - **R2** after a leap larger than a fifth, the next note steps 1–2
      semitones the opposite way
    - **R3** a leap larger than a fifth is allowed only as an arpeggiation
-     inside one chord: not at a chord change, not in the last bar, both
-     notes chord tones, approached by a step or a repeat, and with a
+     inside one chord: not at a chord change, not in the last bar or the
+     approach bar, both notes chord tones, approached by a step or a repeat, and with a
      recovery pitch among the next note's candidates in the same bar. So
      every chord change moves by at most a fifth.
    - **R4** in a constrained bar, the candidate is in its slot's
@@ -1410,12 +1410,13 @@ and composition output folders).
   check) and `_DEGREE_STEPS` (scale-degree steps used to spell the chord for
   the chord-scale rule). `test_every_chord_quality_has_a_row_in_each_compose_table`
   fails until every table has the row. Then extend `_QUALITY_SUFFIXES` in
-  `tests/unit/test_compose_api.py` and run
-  `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py`.
-  The new library shapes must also pass
-  `test_every_library_shape_is_faithful_and_playable` and the
-  every-chord, every-tuning audit in `tests/unit/test_compose_voicings.py`;
-  the composer voices them in every tuning through `harmony.chord_pcs`.
+  `tests/unit/test_compose_api.py`. The new library shapes must also pass
+  two shape audits: `test_every_library_shape_is_faithful_and_playable` in
+  `tests/unit/test_chord_detection_voicings.py` (the EADGBE table) and
+  `test_every_chord_in_every_preset_tuning_is_faithful_and_playable` in
+  `tests/unit/test_compose_voicings.py` (every chord in every preset
+  tuning); the composer voices them through `harmony.chord_pcs`. Run
+  `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py tests/unit/test_chord_detection_voicings.py tests/unit/test_compose_voicings.py`.
 - **Tweak A* weights**: edit `tab_assignment.weights` in
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
   with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in
