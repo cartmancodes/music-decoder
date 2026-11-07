@@ -1,13 +1,13 @@
 # Compose fix: faithful chord voicings and singable melodic leaps
 
-**Date:** 2026-11-07 (revision 2, after plan review round 1)
+**Date:** 2026-11-07 (revision 3, after plan review rounds 1 and 2)
 **Branch:** `fix/compose-voicings-leaps` (cut from `master` at `59d2d68`, composer v2)
 **Status:** approved by the planner (Claude Opus 5.5) in an unattended Octet
 pipeline. The human partner pre-approved the workflow (Opus plans, GPT-6 Astra
 reviews, Opus implements). Every point where brainstorming would normally wait
 for the user is listed in §10 with the decision taken and the reason. Review
-round 1 (`docs/superpowers/reviews/2026-11-07-voicings-leaps-plan-review-r1.md`)
-is answered in §12.
+rounds 1 and 2 (`docs/superpowers/reviews/2026-11-07-voicings-leaps-plan-review-r1.md`,
+`-r2.md`) are answered in §12.
 **Plan:** `docs/superpowers/plans/2026-11-07-compose-voicings-leaps.md`.
 
 ## 1. Intent
@@ -562,6 +562,43 @@ reference gains this document.
     bounds of §6.4 are **frozen in this revision, before the holdout is
     ever evaluated**. Its v2 numbers are captured in the v2 snapshot,
     before any composer change.
+  - **Reserve acceptance matrix (revision 3, review r2 F1).** It is used
+    only if the holdout is consumed by a correction (§6.4). Seeds
+    4000–4004, EADGBE, one bar per chord, and ten progressions:
+    - A major `A C#m F#m7 Dmaj7 E7 A`
+    - E major `E G#m7 C#m Asus4 B7 E`
+    - A# major `A# Gm D# Cm7 F7 A#`
+    - C# major `C# A#m F#maj7 G#7 C#`
+    - G major `G Bm7 Em Cmaj7 Am7 D7 G`
+    - F minor `Fm A#m C7 Fm`
+    - A minor `Am Fmaj7 Dm7 Bdim E7 Am`
+    - E minor `Em Am7 D Gmaj7 B7 Em`
+    - G# minor `G#m C#m D#7 G#m`
+    - F# minor `F#m Bm C#7 F#m D C#7 F#m`
+
+    It is frozen now, with the same bounds as the holdout. Its v2 numbers go
+    into the v2 snapshot, which is the only time v2 code can produce them.
+- **Matrix selection (revision 3, review r2 F2).**
+  - `evaluate(matrices: Sequence[str] = DEVELOPMENT_MATRICES)`. The
+    constants are:
+    - `DEVELOPMENT_MATRICES = ("validation", "edge", "tunings")`
+    - `ACCEPTANCE_MATRICES = ("holdout",)`
+    - `RESERVE_MATRICES = ("reserve",)`
+    - `ALL_MATRICES`, the concatenation of the three
+  - Only the requested matrices are built, so the default development path
+    never builds holdout or reserve cases.
+  - `format_report(report) -> str` prints every row with its matrix name, so
+    filtered output stays labelled.
+  - The report script gains `--matrices development|acceptance|reserve|all`,
+    with `development` as the default:
+    - the v2 snapshot is written with `all`
+    - acceptance is evaluated only in the acceptance task, with
+      `acceptance`
+  - The musicality test module's `report` fixture uses the default
+    (development). A separate `acceptance_report` fixture, added only in
+    the acceptance task, evaluates the holdout. So the gates of every
+    earlier task never compute it.
+  - The compose API and CLI are untouched.
 - **New fixture `tests/fixtures/compose/musicality_v2.json`.** The script
   writes it from the **unchanged v2 composer** with the new metric code, as
   a committed plan task before any composer change. It covers all four
@@ -747,10 +784,26 @@ bound is fixed here, independently of any measurement:
 - **Not applied to the holdout:** v2's absolute statistical targets (such
   as M1 ≥ 0.95). They were set on v2's validation data, and v2 itself was
   never checked against them on these inputs.
-- **If a holdout check fails,** the implementer reports it with the
-  numbers. The fix must come from a defect reproduced on development data,
-  or from a stated musical rule, with this spec updated. Thresholds are
-  never retuned to the holdout.
+- **If a holdout check fails (revision 3, review r2 F1),** the
+  acceptance tests stay **active**. They are never marked `xfail`, skipped
+  or loosened, and the stage cannot end green with a failed acceptance
+  check. There are exactly two ways forward:
+  1. **Stop.** Do not commit the failing state as complete. Record the
+     failing metrics and compositions in
+     `docs/superpowers/reviews/2026-11-07-voicings-leaps-acceptance-failure.md`,
+     commit only that report (and any finished, green earlier work), and
+     report the stage **BLOCKED / changes requested**.
+  2. **Correct, then re-accept on fresh data.** This is allowed only if the
+     defect is reproduced on development data (a development matrix, the
+     bounded sweep or a new development-only regression case), or follows
+     from a musical rule stated in this spec before the change.
+     - The fix lands with a test on that development case.
+     - Because the holdout's failure informed the change, the holdout is
+       **relabelled development data**. Its checks stay as regression locks.
+     - Acceptance is re-run on the frozen **reserve** matrix with the same
+       bounds.
+     - The reserve is used at most once. If it also fails, take path 1.
+- Thresholds are never retuned to an acceptance matrix.
 
 **Bounded sweep.** It runs every root × quality (96 chords) after a home
 chord, through `arrange()` with real floors and default settings:
@@ -862,6 +915,8 @@ compose e2e tests) it gave 285 passed and 3 failed, all of them expected:
 | D16 | Playability standard | **Fretted span ≤ 3 and ≤ 4 fingers under the straight-barre model (§3.1), applied to the library, the retune gate and the search** | Review r1 F2: span alone accepted five-finger grips, including the flagged sample's Eb7. A full difficulty model is unnecessary. |
 | D17 | Development versus holdout data | **Relabel validation, edge and tunings as v3 development matrices (their thresholds are regression locks); add a frozen 50-melody holdout with bounds fixed in §6.4** | Review r1 F5: the bonus and the tolerances were chosen on those matrices. |
 | D18 | How tolerances are justified | **In each metric's own units (§6.3)** | Review r1 F5. |
+| D20 | What a failed acceptance check means | **The stage stays incomplete: either stop and report BLOCKED, or correct via a development reproduction and re-accept once on a frozen reserve matrix. Never `xfail`, skip or loosen an acceptance test.** | Review r2 F1: a strict xfail turns a failed acceptance check into a green gate. The user's no-regression constraint has to stay blocking. |
+| D21 | Keeping acceptance data unseen during development | **`evaluate()` takes a matrix selection whose default is development-only; the report script and the test fixtures default to it; holdout and reserve are built only by the snapshot task and the acceptance task** | Review r2 F2: the earlier plan printed v3 holdout rows during development and computed them in every gate. |
 | D19 | Large-leap frequency | **New pooled L0; M4 kept and described as a mean of per-piece rates** | Review r1 F6. |
 | D15 | Tab fret cap in other tunings | **T1 ≤ 15 + (64 − top-string open pitch), per tuning, on the tunings matrix only** | The builder check showed a flat 15 cannot hold once a tuning's top string is lower. v2 measured exactly these maxima, and the tab is out of scope. |
 
@@ -888,3 +943,11 @@ The finding-by-finding responses are in the plan, section "Review responses
 | F4: Task 2 committed a failing test; snapshot cleanliness | **Fixed in the plan** (two commits; markers restored). | §5.5, plan Task 2 |
 | F5: held-out data used for tuning | **Fixed.** Matrices relabelled, a frozen holdout added, tolerances justified in units, and "match the prototype within 0.005" dropped. | §5.5, §6, §6.4, D17–D18 |
 | F6: M4's bound described as a frequency | **Fixed.** Pooled L0 added; M4 described correctly. | §4.3, §6.1, D19 |
+
+### 12.2 Review round 2
+
+| Finding | Outcome | Where |
+|---|---|---|
+| r2 F1: the acceptance-failure path allowed `xfail`, giving a green gate | **Fixed.** No xfail, skip or loosening of acceptance tests. Either stop with a recorded failure (BLOCKED), or correct via a development reproduction, relabel the holdout and re-accept once on a frozen reserve matrix. | §5.5, §6.4, D20 |
+| r2 F2: the development report printed holdout rows, and the gates computed the holdout | **Fixed.** Matrix selection in `evaluate()`, a development default for the script and fixtures, labelled `format_report` output, and a test that the development path never builds acceptance inputs. | §5.5, D21 |
+| r2 F3: the Eb sample's voicing xfail fails on C7's five-finger grip before reaching D#7 | **Fixed in the plan.** The named sample defect is asserted first; the all-shapes faithfulness and finger audit runs after it. | plan Task 3 |

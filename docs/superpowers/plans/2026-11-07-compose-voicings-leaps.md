@@ -61,10 +61,14 @@ Read it first. Its section numbers (§) are cited throughout.
   from `git describe --dirty`:
   - Restore those markers with `git checkout -- tests/fixtures/synthetic/`.
   - Check that `git status --porcelain --untracked-files=no` is empty.
-- **Development versus holdout.** The validation, edge and tunings matrices
-  are development data for v3 (spec §6). Never tune rules, weights or
-  thresholds to the holdout matrix. A failed holdout check is reported with
-  its numbers (spec §6.4).
+- **Development versus acceptance** (spec §6.4, D20, D21):
+  - The validation, edge and tunings matrices are development data for v3.
+  - The holdout (and, only if needed, the reserve) is acceptance data.
+    - It is built only by Task 2's snapshot (v2 numbers) and by Task 7.
+    - Tasks 3–6 use the development-only default of `evaluate()` and the
+      report script.
+  - Never tune rules, weights or thresholds to acceptance data. Never
+    `xfail`, skip or loosen an acceptance test.
 - `music_decoder.compose` as an *attribute* is the re-exported function, not
   the package. To patch module objects, use dotted strings in `mock.patch`
   or `importlib.import_module("music_decoder.compose.api")`.
@@ -114,7 +118,7 @@ named.
 | `src/music_decoder/compose/metrics.py` | New leap and shape metrics | 1 |
 | `src/music_decoder/compose/voicings.py` | `shape_faults` and `fingers_needed` (Task 1); retune, gates, search, fallback (Task 5) | 1, 5 |
 | `src/music_decoder/evaluation/compose_musicality.py` | `Case.tuning`, tunings and holdout matrices, new keys, L0 pooling, per-tuning groups | 2 |
-| `scripts/compose_musicality_report.py` | Docstring only | 2 |
+| `scripts/compose_musicality_report.py` | `--matrices development\|acceptance\|reserve\|all` (default `development`); prints via `format_report` | 2 |
 | `tests/fixtures/compose/musicality_v2.json` | New v2 snapshot (generated) | 2 |
 | `tests/unit/test_compose_samples.py` | New CLI regression tests for the three samples | 3, 4, 5, 6 |
 | `src/music_decoder/chords/voicings.py` | Seven repaired shapes and the invariant docstring | 4 |
@@ -296,8 +300,13 @@ Review r1 F4: this task makes **two commits**, each with a green full gate.
 
 **Files:**
 - Modify: `src/music_decoder/evaluation/compose_musicality.py`
-- Modify: `scripts/compose_musicality_report.py`. Docstring only: it also
-  writes `musicality_v2.json`, and covers the four matrices.
+- Modify: `scripts/compose_musicality_report.py`:
+  - add `--matrices {development,acceptance,reserve,all}`, default
+    `development`, mapped to the constants below and passed to
+    `evaluate(...)`
+  - print with `format_report`
+  - update the docstring: it also writes `musicality_v2.json`, with
+    `--matrices all`
 - Create (generated): `tests/fixtures/compose/musicality_v2.json`
 - Test: `tests/unit/test_compose_evaluation.py`
 
@@ -317,6 +326,18 @@ Review r1 F4: this task makes **two commits**, each with a green full gate.
     and `("C#", "minor", ("C#m","F#m","G#7","C#m","A","G#7","C#m"))`.
   - `holdout_inputs() -> list[Inputs]`: 50 entries, one bar per chord,
     EADGBE.
+  - `RESERVE_SEEDS = tuple(range(4000, 4005))`, `RESERVE_PROGRESSIONS`
+    (spec §5.5, verbatim and in order) and `reserve_inputs() -> list[Inputs]`
+    (50 entries).
+  - Matrix-name constants:
+    - `DEVELOPMENT_MATRICES = ("validation", "edge", "tunings")`
+    - `ACCEPTANCE_MATRICES = ("holdout",)`
+    - `RESERVE_MATRICES = ("reserve",)`
+    - `ALL_MATRICES = DEVELOPMENT_MATRICES + ACCEPTANCE_MATRICES + RESERVE_MATRICES`
+  - `format_report(report: Mapping[str, Mapping[str, Mapping[str, Mapping[str, float]]]]) -> str`:
+    one line per `overall` metric, each prefixed with its matrix name
+    (`"validation  M1  mean=0.977 min=… max=…"`), so grep output stays
+    labelled.
   - `build_cases(inputs, tuning: Tuning = STANDARD_EADGBE) -> list[Case]`.
     `Case` gains a `tuning: Tuning` field. `case_metrics` uses
     `case.tuning` everywhere it now uses `STANDARD_EADGBE` (accompany, S1,
@@ -338,10 +359,16 @@ Review r1 F4: this task makes **two commits**, each with a green full gate.
     - Average `"L0.any"` normally.
   - `summarize` adds a group `f"tuning.{name}"` for each distinct
     `case.tuning.name` when the cases span more than one tuning.
-  - `evaluate()` returns `{"validation", "edge", "tunings", "holdout"}`:
+  - `evaluate(matrices: Sequence[str] = DEVELOPMENT_MATRICES)` builds
+    **only** the requested matrices and returns them keyed by name. It
+    raises `ValueError` for an unknown name.
     - tunings: `[c for t in PRESETS.values() for c in build_cases(tunings_inputs(), t)]`,
       90 cases
     - holdout: `build_cases(holdout_inputs())`, 50 cases
+    - reserve: `build_cases(reserve_inputs())`, 50 cases
+
+    The existing `report` fixture in `test_compose_musicality.py` keeps
+    calling `evaluate()`, so it now gets the development matrices only.
   - Module docstring: the validation and edge matrices are v2-held-out but
     v3 development data; the holdout is v3's acceptance data (spec §6).
 
@@ -395,11 +422,47 @@ def test_l0_pools_intervals_while_m4_averages_pieces():  # review r1 F6
 keys are absent from the rows. Today it would raise `KeyError` on rows
 without `M5.*`. This keeps the hand-built rows minimal.
 
+Also append (review r2 F2):
+
+```python
+def test_development_evaluation_never_builds_acceptance_inputs(monkeypatch):
+    def forbidden():
+        raise AssertionError("acceptance inputs built on the development path")
+
+    monkeypatch.setattr(ev, "holdout_inputs", forbidden)
+    monkeypatch.setattr(ev, "reserve_inputs", forbidden)
+    report = ev.evaluate(("edge",))  # fast: 110 cases; must not touch acceptance inputs
+    assert set(report) == {"edge"}
+    assert ev.DEVELOPMENT_MATRICES == ("validation", "edge", "tunings")
+    assert set(ev.ALL_MATRICES) == {"validation", "edge", "tunings", "holdout", "reserve"}
+    with pytest.raises(ValueError):
+        ev.evaluate(("nope",))
+
+
+def test_reserve_matrix_is_frozen_and_disjoint():
+    reserve = ev.reserve_inputs()
+    assert len(reserve) == 50 and {seed for *_, seed in reserve} == set(range(4000, 4005))
+    progressions = {tuple(c.to_label() for c in prog) for _, prog, _, _ in reserve}
+    assert not progressions & {tuple(c.to_label() for c in prog) for _, prog, _, _ in ev.holdout_inputs()}
+
+
+def test_format_report_labels_every_row_with_its_matrix():
+    text = ev.format_report({"edge": {"overall": {"M1": {"mean": 0.98, "min": 0.9, "max": 1.0}}}})
+    assert text.splitlines() == ["edge  M1  mean=0.98 min=0.9 max=1"]
+```
+
+`evaluate` must look up `holdout_inputs` and `reserve_inputs` as module
+globals at call time, so the monkeypatch is effective. The default
+development path is covered by the same rule: `evaluate()` builds only
+`DEVELOPMENT_MATRICES`. The `format_report` field format (`{v:g}`, two
+spaces between fields) is the contract.
+
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pytest -q tests/unit/test_compose_evaluation.py`
 
-Expected: FAIL with `AttributeError: tunings_inputs` / `holdout_inputs`.
+Expected: FAIL with `AttributeError: tunings_inputs` / `holdout_inputs` /
+`format_report`.
 
 - [ ] **Step 3: Implement the interfaces above** in `compose_musicality.py`
   and update the script docstring.
@@ -415,7 +478,7 @@ edge, which are unchanged.
 
 ```bash
 git add src/music_decoder/evaluation/compose_musicality.py scripts/compose_musicality_report.py tests/unit/test_compose_evaluation.py
-git commit -m "feat(eval): tunings and holdout matrices, leap/shape metric keys, pooled L0"
+git commit -m "feat(eval): tunings, holdout and reserve matrices; dev-only default; leap/shape keys; pooled L0"
 ```
 
 - [ ] **Step 6: Restore a clean tracked tree, then write the v2 snapshot**
@@ -423,13 +486,16 @@ git commit -m "feat(eval): tunings and holdout matrices, leap/shape metric keys,
 ```bash
 git checkout -- tests/fixtures/synthetic/
 test -z "$(git status --porcelain --untracked-files=no)" || { echo "tracked tree not clean"; exit 1; }
-python scripts/compose_musicality_report.py --write tests/fixtures/compose/musicality_v2.json
+python scripts/compose_musicality_report.py --matrices all --write tests/fixtures/compose/musicality_v2.json > /dev/null
 ```
 
 Expected:
 - `"source"` is Commit 1's short hash, with no `-dirty`.
-- These v2 values were measured in the spec. Holdout values are new and
-  unknown.
+- The console output is discarded. Check only the development values,
+  with `python -c` on the JSON (the `validation`, `edge` and `tunings`
+  keys). The holdout and reserve entries are v2's numbers. They say
+  nothing about v3, but leave them unread anyway.
+- These v2 development values were measured in the spec:
   - validation: `L1.max == 1`, `L4max.max == 12`, `L0.pooled ≈ 0.0044`,
     `M4.mean ≈ 0.004`, `L4.mean ≈ 0.852`
   - edge: `L4.mean ≈ 0.806`
@@ -445,7 +511,7 @@ V2 = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
 
 def test_committed_v2_snapshot_has_every_matrix_and_the_new_metrics():
     snap = json.loads(V2.read_text())
-    assert {"source", "validation", "edge", "tunings", "holdout"} <= set(snap)
+    assert {"source", "validation", "edge", "tunings", "holdout", "reserve"} <= set(snap)
     assert not snap["source"].endswith("-dirty")
     v = snap["validation"]["overall"]
     assert v["L1"]["max"] == 1 and v["L4max"]["max"] == 12  # v2's measured defects
@@ -520,18 +586,22 @@ VOICING_XFAIL = {
 def test_sample_voicings_are_faithful(name, tmp_path):
     out = _run(SAMPLES[name], tmp_path)
     tuning = ...  # as above
-    sounding = {}
-    for v in out["chord_voicings"]:
-        chord, frets = ChordSymbol(**v["chord"]), [p["fret"] for p in v["positions"]]
-        assert shape_faults(frets, tuning, chord) == (), chord
-        assert fingers_needed(frets) <= 4, chord
-        sounding[chord.to_label()] = sorted(tuning.open_pitches[s] + f for s, f in enumerate(frets) if f >= 0)
+    shapes = [(ChordSymbol(**v["chord"]), [p["fret"] for p in v["positions"]]) for v in out["chord_voicings"]]
+    sounding = {
+        chord.to_label(): sorted(tuning.open_pitches[s] + f for s, f in enumerate(frets) if f >= 0)
+        for chord, frets in shapes
+    }
+    # 1. The reported defect first (review r2 F3), so it is what fails on v2.
     if name == "minor-10-B":
-        assert {p % 12 for p in sounding["C#dim"]} == {1, 4, 7}
+        assert {p % 12 for p in sounding["C#dim"]} == {1, 4, 7}, "named: C#dim"
     if name == "major-08-Ab":
-        assert len(sounding["D#7"]) >= 4 and {7, 1} <= {p % 12 for p in sounding["D#7"]}
+        assert len(sounding["D#7"]) >= 4 and {7, 1} <= {p % 12 for p in sounding["D#7"]}, "named: D#7"
     if name == "major-09-Eb":
-        assert sounding["A#7"][0] % 12 == 10
+        assert sounding["A#7"][0] % 12 == 10, "named: A#7 bass"
+    # 2. Then every shape: faithful and playable (on v2, Eb-tuned C7 x43421 needs 5 fingers).
+    for chord, frets in shapes:
+        assert shape_faults(frets, tuning, chord) == (), f"audit faults: {chord.to_label()}"
+        assert fingers_needed(frets) <= 4, f"audit fingers: {chord.to_label()}"
 
 
 @pytest.mark.parametrize("name", [
@@ -571,10 +641,12 @@ and read each failure:
   - `L3` for minor-10-B (G5→B4)
   - `L1` for major-08-Ab (G4→F5, +10)
   - `L3` for major-09-Eb (G#4→F5 at Cm→Fm7)
-- **Voicing tests:**
-  - minor-10-B fails on `shape_faults` for C#dim
-  - major-08-Ab on `shape_faults` for D#7 (a single note)
-  - major-09-Eb on `shape_faults` for A#7 (`root not in bass`)
+- **Voicing tests:** the message must be
+  - `named: C#dim` for minor-10-B
+  - `named: D#7` for major-08-Ab: a single note. Not
+    `audit fingers: C7`, which the earlier ordering hit first (review
+    r2 F3).
+  - `named: A#7 bass` for major-09-Eb
 
 Any other failure, such as an error in the test code or a different
 assertion, must be fixed before committing. Record the six messages in the
@@ -1137,7 +1209,9 @@ Expected:
 
 - [ ] **Step 5: Measure and report (no prototype-matching gate)**
 
-Run: `python scripts/compose_musicality_report.py | grep -E "^ *(M1|M2|M4|M4max|L0|L1|L3|L4|L4max|L5) "`
+Run: `python scripts/compose_musicality_report.py | grep -E "^(validation|edge|tunings)  (M1|M2|M4|M4max|L0|L1|L3|L4|L4max|L5) "`.
+The default `--matrices development` never builds the holdout, and every
+line is labelled with its matrix.
 
 For reference, the spec's prototype values on the development matrices
 (validation / edge) are:
@@ -1150,7 +1224,7 @@ For reference, the spec's prototype values on the development matrices
 A difference is not a failure in itself. Acceptance comes from the targets
 in Task 7 and spec §6. Still, explain any mean that differs by more than
 0.005 (a wiring difference, or a deliberate correction) in the commit body.
-**Do not look at or tune to the holdout numbers** in this task.
+The holdout is not built in this task (spec D21).
 
 - [ ] **Step 6: Run the full gate, then commit**
 
@@ -1180,6 +1254,25 @@ git commit -m "fix(compose): singable melodies - no tritones/sevenths, justified
 
 - [ ] **Step 1: Write the tests**
 
+Add the acceptance fixtures (review r2 F2). Only this task builds the
+holdout:
+
+```python
+@pytest.fixture(scope="module")
+def acceptance_report():
+    return evaluate(ACCEPTANCE_MATRICES)
+
+
+@pytest.fixture(scope="module")
+def all_reports(report, acceptance_report):
+    return {**report, **acceptance_report}
+```
+
+Below, every test that can index `"holdout"` already takes `all_reports`;
+the development-only tests keep `report`. The module needs these imports:
+`ACCEPTANCE_MATRICES` (and `RESERVE_MATRICES`, only on path 2 below) from
+`evaluation.compose_musicality`, and `PRESETS` from `tabs.tuning`.
+
 ```python
 MATRICES = ("validation", "edge", "tunings", "holdout")
 TOL_MEAN, TOL_POOLED = 0.02, 0.05  # spec §6.3: under half a note per piece; about one pooled event
@@ -1195,14 +1288,14 @@ def test_leap_regression_locks_on_development_matrices(report, v2):
 
 
 @pytest.mark.parametrize("matrix", MATRICES)
-def test_chord_changes_are_smoother_than_v2(report, v2, matrix):
-    assert report[matrix]["overall"]["L4"]["mean"] >= v2[matrix]["overall"]["L4"]["mean"]
+def test_chord_changes_are_smoother_than_v2(all_reports, v2, matrix):
+    assert all_reports[matrix]["overall"]["L4"]["mean"] >= v2[matrix]["overall"]["L4"]["mean"]
     if matrix != "holdout":  # strict on development data (measured); spec §6.4 asks >= on the holdout
-        assert report[matrix]["overall"]["L4"]["mean"] > v2[matrix]["overall"]["L4"]["mean"]
+        assert all_reports[matrix]["overall"]["L4"]["mean"] > v2[matrix]["overall"]["L4"]["mean"]
 
 
-def test_holdout_acceptance(report, v2):  # spec §6.4, frozen before evaluation
-    o, ref = report["holdout"]["overall"], v2["holdout"]["overall"]
+def test_holdout_acceptance(all_reports, v2):  # spec §6.4, frozen before evaluation
+    o, ref = all_reports["holdout"]["overall"], v2["holdout"]["overall"]
     assert o["L0"]["pooled"] <= min(0.002, ref["L0"]["pooled"]) or o["L0"]["pooled"] == 0.0
     assert o["M4max"]["max"] <= 12 and o["M6"]["max"] <= 17 and o["T1"]["max"] <= 15
     assert o["M7"]["min"] == 1.0 and o["M8"]["min"] >= 1.5
@@ -1213,8 +1306,8 @@ def test_holdout_acceptance(report, v2):  # spec §6.4, frozen before evaluation
 
 
 @pytest.mark.parametrize("matrix", MATRICES)
-def test_leap_and_shape_invariants(report, matrix):
-    o = report[matrix]["overall"]
+def test_leap_and_shape_invariants(all_reports, matrix):
+    o = all_reports[matrix]["overall"]
     assert o["L1"]["max"] == 0  # no tritones, sevenths or leaps over an octave
     assert o["L3"]["max"] == 0  # every leap > a fifth is arpeggiation inside one chord
     assert o["L2"]["n"] == 0 or o["L2"]["pooled"] == 1.0  # ...and is recovered by a step
@@ -1239,8 +1332,8 @@ def test_tunings_matrix_keeps_every_v2_hard_invariant(report):
     ("matrix", "group"),
     [*(("validation", g) for g in GROUPS), ("edge", "overall"), ("holdout", "overall")],
 )
-def test_no_regression_against_v2(report, v2, matrix, group):
-    cand, ref = report[matrix][group], v2[matrix][group]
+def test_no_regression_against_v2(all_reports, v2, matrix, group):
+    cand, ref = all_reports[matrix][group], v2[matrix][group]
     for metric in (*IMPROVE_UP, *IMPROVE_DOWN):
         if metric not in cand or metric not in ref:
             continue
@@ -1291,11 +1384,31 @@ Then run `pytest -q --durations=5 tests/unit/test_compose_musicality.py`.
 Expected: the module takes about 6 s or less, of which `evaluate()` is
 about 4–4.5 s. Record the figure for Task 8.
 
-**If the holdout acceptance fails:** do not change thresholds or rules to
-make it pass. Report the failing numbers in the commit body and in Task 8's
-Results, and mark the test with `pytest.mark.xfail(strict=True, reason=...)`
-that names the metric. A correction must come from a defect reproduced on
-development data, with the spec updated (spec §6.4).
+**If any acceptance check fails** (spec §6.4, D20; review r2 F1):
+- Do **not** mark it `xfail`, skip it or loosen it, and do not change
+  rules or thresholds to make it pass.
+- Take exactly one of these paths:
+  1. **Stop.**
+     - Do not commit Task 7.
+     - Write `docs/superpowers/reviews/2026-11-07-voicings-leaps-acceptance-failure.md`
+       with the failing tests, metrics, v2 and v3 values and the affected
+       compositions (key, progression, seed).
+     - Commit only that file (`git add` it explicitly).
+     - Report the task **BLOCKED**. The pipeline stage is not complete.
+  2. **Correct and re-accept once.** Only when the failure's mechanism is
+     reproduced on development data (a development matrix, the bounded
+     sweep, or a new development-only regression case written first as a
+     failing test), or follows from a musical rule already stated in the
+     spec:
+     - Fix it, with that test, as its own commit.
+     - Update the spec: relabel `holdout` as development data, and add a
+       short note of the mechanism.
+     - Move the holdout tests to regression locks (same bounds).
+     - Re-run acceptance on `RESERVE_MATRICES` with the same bounds, by
+       adding `reserve` to the acceptance fixture.
+     - If the reserve also fails, take path 1. The reserve is used at most
+       once.
+- Task 8 starts only after a green gate with every acceptance test active.
 
 - [ ] **Step 4: Commit**
 
@@ -1341,7 +1454,9 @@ git commit -m "test(compose): v3 musicality targets - leaps, shapes, tunings and
 
 - [ ] **Step 1: Refresh the measurements**
 
-Run: `python scripts/compose_musicality_report.py > /tmp/v3_report.txt`.
+Run: `python scripts/compose_musicality_report.py --matrices acceptance > /tmp/v3_acceptance.txt`
+and `python scripts/compose_musicality_report.py > /tmp/v3_development.txt`.
+Use `--matrices reserve` as well only if Task 7 took path 2.
 Do **not** pass `--write`: both committed fixtures stay as they are.
 
 Compare against `musicality_v2.json`, spec §6 (targets) and the prototype
@@ -1409,3 +1524,18 @@ the same changes.
 | F4 (Important) | Task 2 commits a test for a fixture that does not exist yet; the snapshot's cleanliness check is incomplete | Confirmed: `-k "not v2_snapshot"` does not make the full gate green. `git status --short src` misses tracked `.synth_marker` changes that make `git describe --dirty` report dirty. | **Fixed.** Task 2 now makes two commits, each with a green full gate: (1) code and runnable tests; (2) snapshot plus snapshot test. Before writing the snapshot it restores the markers (`git checkout -- tests/fixtures/synthetic/`) and requires `git status --porcelain --untracked-files=no` to be empty. The snapshot test asserts `source` is not `-dirty`. The same rule is in Global Constraints. |
 | F5 (Important) | "Held-out" matrices were used to choose the bonus and the tolerances | Confirmed: the step bonus (0.5 / 1.0 / 1.5), the L4 thresholds and the 0.02 tolerance were all set after measuring the validation and edge matrices. | **Fixed.** Spec §6 relabels validation, edge and tunings as v3 development data; their thresholds are regression locks. A new 50-melody **holdout** matrix (ten unused progressions across major and minor, all chord qualities, seeds 3000–3004, real floors) gets acceptance bounds frozen in spec §6.4 before it is ever evaluated: hard invariants, L0 ≤ min(v2, 0.002), L4 ≥ v2, and the no-regression tolerances. v2's holdout numbers enter the snapshot before any composer change. The tolerances are now justified in their own units (spec §6.3: under half a note per piece; about one pooled event). "Match the prototype within 0.005" is replaced by reporting and explaining deviations. A failed holdout check is reported, never tuned away (Task 7). |
 | F6 (Minor) | `M4 ≤ 0.001` is described as a per-interval frequency but is a mean of per-piece rates | Confirmed in `_aggregate`. | **Fixed.** New pooled `L0` (large / intervals, `n = intervals`, plus `L0.any` for affected pieces) with target pooled ≤ 0.001 on validation and edge. M4 is kept and described correctly. Task 2 adds an unequal-length aggregation test (rows of 1,000 and 10 intervals). |
+
+---
+
+## Review responses (round 2)
+
+Review: `docs/superpowers/reviews/2026-11-07-voicings-leaps-plan-review-r2.md`
+(GPT-6 Astra, CHANGES_REQUESTED). All three findings were checked against
+the code and confirmed; all are fixed and none is rebutted. The spec is now
+revision 3 (§5.5, §6.4, D20, D21 and §12.2).
+
+| # | Finding | Verification | Outcome |
+|---|---|---|---|
+| r2 F1 (Important) | A failed acceptance check could be turned into a green gate with `xfail(strict=True)` | Confirmed: Task 7 told the implementer to mark a failing holdout test as a strict xfail. Strict only fails on an *unexpected pass*, so the violated bound would never block. Unlike Task 3's xfails, nothing required its removal. | **Fixed.** The escape hatch is gone. Acceptance tests are never `xfail`ed, skipped or loosened (Global Constraints, Task 7, spec §6.4 and D20). A failure leaves exactly two paths. **(1) Stop:** record the failure in `docs/superpowers/reviews/2026-11-07-voicings-leaps-acceptance-failure.md`, commit only that report, and report BLOCKED. **(2) Correct and re-accept once:** only via a mechanism reproduced on development data (written first as a failing development test) or a musical rule already in the spec. The holdout is then relabelled development data, and acceptance is re-run on a new **reserve** matrix (ten further progressions, seeds 4000–4004). The reserve is frozen in spec §5.5 now, and its v2 numbers are captured in the Task 2 snapshot, the only time v2 code can produce them. If the reserve also fails, take path 1. Task 8 starts only after a green gate with every acceptance test active. |
+| r2 F2 (Important) | Task 6 printed holdout rows while saying not to look; the gates of Tasks 4–6 computed the holdout | Confirmed: `scripts/compose_musicality_report.py::main` prints every matrix `evaluate()` returns. The grep dropped the `== matrix` headings, so holdout rows came out unlabelled. The module-scoped `report` fixture calls `evaluate()`, so every full gate would build the holdout. | **Fixed.** `evaluate(matrices=DEVELOPMENT_MATRICES)` builds only the requested matrices, with constants `DEVELOPMENT_MATRICES`, `ACCEPTANCE_MATRICES`, `RESERVE_MATRICES` and `ALL_MATRICES`. The report script gains `--matrices development\|acceptance\|reserve\|all` (default `development`) and prints via `format_report`, which labels every row with its matrix. The existing `report` fixture therefore builds development matrices only. Task 7 adds `acceptance_report` / `all_reports`, the only place v3 holdout numbers are computed. Task 2 writes the snapshot with `--matrices all` and discards the console output. New tests: the development path never calls `holdout_inputs`/`reserve_inputs` (monkeypatched to raise), unknown names raise, the reserve is disjoint from the holdout, and the labelled output format. The file map and Task 2's file list no longer say "docstring only". The public compose API and CLI are unchanged. |
+| r2 F3 (Minor) | The Eb sample's voicing xfail fails on C7's five-finger grip before the named D#7 defect | Reproduced on v2: in Eb tuning `major-08-Ab` plays C7 `(-1, 4, 3, 4, 2, 1)` (5 fingers) before D#7 `(0, -1, -1, -1, -1, -1)`. The other two samples have no earlier failing chord: every chord before minor-10-B's C#dim and major-09-Eb's A#7 is faithful and needs at most 4 fingers. | **Fixed.** `test_sample_voicings_are_faithful` builds all the shape data first, asserts the named defect first (`named: C#dim`, `named: D#7`, `named: A#7 bass`), then runs the all-shapes audit (`audit faults: …`, `audit fingers: …`). The C7 fingering check is kept. Task 3's `--runxfail` check now expects the three `named:` messages. Both Eb defects (D#7 collapse, C7 five fingers) are fixed in Task 5, where that xfail is removed, so the removal schedule is unchanged. |
