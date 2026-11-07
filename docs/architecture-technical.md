@@ -686,9 +686,11 @@ Composition(midi_path, wav_path, ascii_tab, melody_notes, chord_voicings, metada
 `compose()` is fully synchronous. Determinism: the only source of randomness
 is `numpy.random.default_rng(seed)` inside the melody generator. It drives
 both the rhythm plan and the pitch choices, so the same seed gives the same
-music. `metadata["composer_version"]` (currently `2`) is bumped whenever the
+music. `metadata["composer_version"]` (currently `3`) is bumped whenever the
 composer changes what a given seed produces. Seeds from before version 2
-(the uniform quarter-note generator) give different melodies now. The melody
+(the uniform quarter-note generator) give different melodies now, and so do
+version-2 seeds: version 3 changed the chord shapes in every tuning and the
+melody's leap rules. The melody
 tab's A\* weights are pinned in `compose/api.py` (`COMPOSE_TAB_WEIGHTS`), so
 editing `config/hyperparameters.yaml` or setting
 `MUSIC_DECODER_HYPERPARAMETERS` changes `analyze()` but never compose
@@ -704,21 +706,53 @@ output. The output directory layout is content-addressed (`{timestamp}-{first
    hand-curated table of 96 entries (12 roots × 8 qualities) plus `N`.
    Each entry is a 6-tuple `(E, A, D, G, B, e)` with `-1` = muted, `0` = open,
    positive ints = fret numbers.
-2. **Retune** to the requested tuning by `_retune`:
-   - For each fretted string: `new_fret = canonical_fret +
-     (eadgbe_open_pitch - target_open_pitch)`. If a fret would go
-     negative the candidate is filtered out by `_is_playable`.
-   - For muted strings: if the new tuning's open string happens to be a
-     chord tone (e.g. low D in Drop D for a D chord), un-mute it as an
-     open-string addition.
-3. **Playability gate** `_is_playable`: at least one fretted note,
-   `min(fret) ≥ 0`, `max(fret) ≤ 22`, `max - min ≤ 5`.
-4. **Fallback**: if every retuned candidate is unplayable, fabricate a
-   sparse voicing of the chord's root pitch class on the lowest 1-3
-   strings in the target tuning.
-5. **Sort** by `(max(fret), sum(frets))` — prefer lower position, then
-   tighter packing.
-6. Return the top 3 candidates.
+   Every entry is **faithful** (at least three sounding strings, no tone
+   outside the chord, the root as the lowest sounding note, every chord
+   tone present except that a four-note chord may omit its fifth) and
+   **playable** (rules in step 3). `test_every_library_shape_is_faithful_and_playable`
+   audits the table. Chord tones come from `harmony.chord_pcs`, the single
+   source shared with the melody.
+2. **Retune** to the requested tuning by `_retune` (EADGBE returns the
+   library shape unchanged):
+   - Each fretted string moves so it sounds the same pitch:
+     `new_fret = canonical_fret + (eadgbe_open_pitch - target_open_pitch)`.
+     If a fret would go below 0 (a custom tuning above standard), the
+     retune fails and the shape search takes over.
+   - **Un-mute rule.** A muted string whose open note is a chord tone is
+     un-muted only if it is the root, or it sounds above the shifted
+     shape's lowest pitch (taken before any un-muting). An added open
+     string therefore never puts a non-root tone in the bass: in Drop D
+     a D chord gains its low D2 but keeps the A2 muted.
+3. **Playability gate** `_is_playable`: at least one sounding string,
+   every fret ≤ 22, a **fretted span** (frets > 0; open strings need no
+   finger) of at most `MAX_FRETTED_SPAN = 3`, and **at most
+   `MAX_FINGERS = 4` fretting fingers** by `fingers_needed`. That uses a
+   straight-barre model: at each fret, every maximal run of adjacent
+   strings fretted at that fret or higher costs one finger if it holds a
+   note at exactly that fret, and a barre never crosses an open or muted
+   string. So `x32310` needs 4 fingers and `0-7-6-7-5-4` needs 5.
+4. **Faithfulness gate** `shape_faults(frets, tuning, chord)` returns the
+   defects of step 1 (`"too few strings"`, `"foreign tone"`,
+   `"root not in bass"`, `"missing tone"`); empty means faithful. The
+   retuned shape is used only if it is playable **and** faithful.
+5. **Shape search** `search_voicing(chord, tuning)` (cached per chord and
+   tuning) when the retuned shape fails a gate. For each base fret 0–9 the
+   hand covers the open strings plus frets `base … base+3`. The root is the
+   bass on one of the three lowest strings, strings below it are muted, and
+   every string from the bass up to the highest sounding one plays a chord
+   tone (at least 4 sounding strings, no muted string in between). A shape
+   must pass both gates. The smallest key wins: (omitted chord tones,
+   lowest fretted fret, minus the number of sounding strings, the fret
+   tuple), so the choice is deterministic. In the six preset tunings, 29
+   of the 576 chord × tuning voicings come from the search (19 of them in
+   DADGAD); the rest are the retuned library shape.
+6. **Last-resort fallback.** If the search finds nothing (only possible
+   with an exotic custom `Tuning`, such as six strings all tuned to C2),
+   play v2's root fallback: the root pitch class on every string that
+   reaches it at frets 0–12. It never raises where version 2 did not. A
+   chord missing from the library still raises `InvalidProgressionError`.
+
+`voicings_for` returns one element, the shape the composer plays.
 
 ### 5.2 Melody generator
 
@@ -766,15 +800,36 @@ chord scale) live in [compose/harmony.py](../src/music_decoder/compose/harmony.p
    yields to musical necessity: it is dropped for a bar if it would leave
    fewer than 5 candidates, no pitch within an octave of the previous note,
    or, in the last bar, no reachable cadence note.
+
+   **Repair order.** Each bar is planned once, deterministically, before
+   its notes are sampled (`_plan_bar`). The options are the floored
+   candidates, then the unfloored ones if they differ. The first option
+   that can be **entered** smoothly from the previous note wins. A *smooth*
+   move is at most a fifth (`SMOOTH_LIMIT = 7`) and not a tritone. If no
+   option works, the bar keeps the floored candidates without constraints
+   and the ladder (step 5) covers each note.
 3. **Final target.** In the last bar the final note is fixed in advance: the
    tonic if the final chord contains it, otherwise the chord root, nearest
    the previous pitch. That is always within an octave, because the window
    spans more than an octave and the floor yields when needed. Every note of
    the bar must also stay within an octave of the target, so no move,
    including the forced final one, exceeds 12 semitones.
+
+   **Feasibility sets.** The last bar and, when the last bar has only one
+   note, the bar before it (the *approach bar*) are **constrained**.
+   `feasible_sets(candidates, n_free, goal)` works backward over the bar's
+   free slots and gives, per slot, the pitches from which the goal can
+   still be reached by smooth moves. In the last bar the goal is the
+   target. In the approach bar it is the final chord's cadence pitches,
+   kept at or above the final chord's floor unless none remain. The repair
+   order tries the cadence pitches nearest the previous note first (so
+   version 2's target wins whenever the bar can be entered from it), then
+   farther ones, then the unfloored option.
 4. **Score** each candidate with `score_pitch` (weights are module constants):
    - interval size (steps preferred; repeats, wide leaps and the tritone
      penalised; more than an octave excluded)
+   - a **step bonus** (`CHORD_CHANGE_STEP_BONUS = 1.0`) for a move of 1–2
+     semitones into a new chord, so chord changes favour stepwise motion
    - chord fit by metric weight (chord tones strongly preferred on beats 1
      and 3 and on long notes; quarter-or-longer notes a semitone off a chord
      tone discouraged)
@@ -786,7 +841,29 @@ chord scale) live in [compose/harmony.py](../src/music_decoder/compose/harmony.p
    - register gravity toward `tessitura_center=70`
    - a pull toward the final target in the last bar
    - a penalty on non-chord tones that end a phrase
-5. **Sample** from the softmax of the scores with the seeded generator.
+5. **Admissibility, then sample.** `admissible(candidate, ctx)` applies
+   four hard rules:
+   - **R1** no tritone, minor or major seventh (`FORBIDDEN_INTERVALS =
+     {6, 10, 11}`) and no move over an octave
+   - **R2** after a leap larger than a fifth, the next note steps 1–2
+     semitones the opposite way
+   - **R3** a leap larger than a fifth is allowed only as an arpeggiation
+     inside one chord: not at a chord change, not in the last bar, both
+     notes chord tones, approached by a step or a repeat, and with a
+     recovery pitch among the next note's candidates in the same bar. So
+     every chord change moves by at most a fifth.
+   - **R4** in a constrained bar, the candidate is in its slot's
+     feasibility set
+
+   `ranked_scores` then applies a **ladder**: level 0 keeps the admissible
+   candidates; if none is left, level 1 keeps only R1 and R2; level 2 is
+   the plain score. The lowest level with any finite score is used. Only
+   level 2 can emit a forbidden interval, and only with a custom pitch
+   window too narrow to avoid one; no evaluation matrix, sweep or sample
+   command has needed level 1 or 2. The note is sampled from the softmax
+   of those scores with the seeded generator, one draw per note as in
+   version 2, so the rhythm plan, and with it the rhythm metrics, is
+   identical to version 2 for a given seed.
 
 Velocity: 80 on beat 1, 75 on beat 3, 70 elsewhere, and 80 on the final note.
 Each note sounds for 95% of its slot.
@@ -834,10 +911,10 @@ always uses the phrase planner.
   provides. Combined with the melody floors in §5.2, the tune stays on top
   of almost every attack. Where a floor has to yield, a restored identity
   tone can briefly meet a passing melody note; identity takes priority over
-  clearance. (A few canonical shapes are
-  themselves imperfect. The C#dim shape has no G and adds A#. These shape
-  defects are reported separately as S1 and left for a future voicing
-  change.)
+  clearance. (Composer version 3 repaired the canonical shapes that were
+  imperfect, such as C#dim, which had no G and added A#. Every shape the
+  composer plays is now faithful in every tuning, and the musicality tests
+  assert S1 and S2 are 0.)
 
 Accompaniment pitches come from `_voiced_pitches(voicing, tuning) =
 sorted(open_pitches[s] + fret for fretted strings)`.
@@ -875,8 +952,12 @@ typed metric functions:
   identity (the full harmony under the held final note)
 - tab: hand-position shifts
 - voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
-  score) and shape defects (essential tones missing from, or foreign tones in,
-  each canonical shape)
+  score), shape defects (essential tones missing from, or foreign tones in,
+  each shape played) and non-root bass (S2)
+- leaps (composer version 3): forbidden intervals (L1), recovery of leaps
+  larger than a fifth (L2), unjustified large leaps (L3), the pooled
+  large-leap frequency (L0), chord-change smoothness (L4, L4max) and the
+  final approach (L5)
 
 [evaluation/compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py)
 defines two held-out input matrices (seeds 1000+ were never used for
@@ -892,6 +973,15 @@ It summarises every metric overall and per mode and bar length.
 `scripts/compose_musicality_report.py` prints that summary.
 `tests/fixtures/compose/musicality_baseline.json` is the same summary for
 the pre-change composer, measured on identical inputs.
+
+Composer version 3 adds three matrices: a 90-melody **tunings** matrix (the
+three human-flagged progressions in all six preset tunings), a 50-melody
+**holdout** and a 50-melody **reserve**. For version 3, validation, edge and
+tunings are development data; the holdout is the acceptance data. `evaluate()`
+and the report script build the development matrices by default
+(`--matrices acceptance|reserve|all` for the others).
+`tests/fixtures/compose/musicality_v2.json` is the version-2 summary of all
+five, the paired reference for the version-3 targets.
 [tests/unit/test_compose_musicality.py](../tests/unit/test_compose_musicality.py)
 asserts two things:
 
@@ -899,7 +989,9 @@ asserts two things:
 - that every subgroup improves on that baseline
 
 The definitions, numbers and reasons are in
-[the design spec](superpowers/specs/2026-11-06-compose-improvements-design.md).
+[the design spec](superpowers/specs/2026-11-06-compose-improvements-design.md),
+and for version 3 in
+[the voicings and leaps spec](superpowers/specs/2026-11-07-compose-voicings-leaps-design.md).
 
 ### 5.5 Synthesis
 
@@ -1308,9 +1400,7 @@ and composition output folders).
   `_QUALITY_PATTERNS` and `_QUALITY_TO_LABEL` in
   [types.py](../src/music_decoder/types.py), update
   `_QUALITY_MAP` in
-  [chords/labels.py](../src/music_decoder/chords/labels.py), and update
-  the `_CHORD_PCS` table in
-  [compose/voicings.py](../src/music_decoder/compose/voicings.py), and add
+  [chords/labels.py](../src/music_decoder/chords/labels.py), and add
   the quality to all three tables in
   [compose/harmony.py](../src/music_decoder/compose/harmony.py):
   `CHORD_INTERVALS` (intervals above the root, used for pitch choice),
@@ -1320,6 +1410,10 @@ and composition output folders).
   fails until every table has the row. Then extend `_QUALITY_SUFFIXES` in
   `tests/unit/test_compose_api.py` and run
   `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py`.
+  The new library shapes must also pass
+  `test_every_library_shape_is_faithful_and_playable` and the
+  every-chord, every-tuning audit in `tests/unit/test_compose_voicings.py`;
+  the composer voices them in every tuning through `harmony.chord_pcs`.
 - **Tweak A* weights**: edit `tab_assignment.weights` in
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
   with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in

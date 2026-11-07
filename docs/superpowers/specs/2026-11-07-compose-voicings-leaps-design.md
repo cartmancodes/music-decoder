@@ -951,3 +951,244 @@ The finding-by-finding responses are in the plan, section "Review responses
 | r2 F1: the acceptance-failure path allowed `xfail`, giving a green gate | **Fixed.** No xfail, skip or loosening of acceptance tests. Either stop with a recorded failure (BLOCKED), or correct via a development reproduction, relabel the holdout and re-accept once on a frozen reserve matrix. | §5.5, §6.4, D20 |
 | r2 F2: the development report printed holdout rows, and the gates computed the holdout | **Fixed.** Matrix selection in `evaluate()`, a development default for the script and fixtures, labelled `format_report` output, and a test that the development path never builds acceptance inputs. | §5.5, D21 |
 | r2 F3: the Eb sample's voicing xfail fails on C7's five-finger grip before reaching D#7 | **Fixed in the plan.** The named sample defect is asserted first; the all-shapes faithfulness and finger audit runs after it. | plan Task 3 |
+
+## 13. Results (implementation, 2026-11-07)
+
+Measured on `db949d0`, the last code commit (Task 7). The commits since then
+change only documentation. Composer version **3**.
+
+**How it was measured.** Throwaway scripts in `/tmp/compose-task8/` were used,
+and nothing was written into the repository.
+- The "v2" column is read from `tests/fixtures/compose/musicality_v2.json`
+  (`source: b41e74f`).
+- The "v3" column comes from `evaluate((matrix,))`, one matrix at a time.
+  Every overall value equals the output of
+  `python scripts/compose_musicality_report.py` and of `--matrices acceptance`,
+  which were also run (output in `/tmp`, no `--write`); the 200 lines were
+  checked value by value.
+  Both committed fixtures are unchanged.
+- Totals marked "(total)" or "(count)" are the per-piece mean × the number of
+  pieces.
+- v2 sweep numbers come from running the v2 source (`git archive 59d2d68 src`,
+  extracted under `/tmp`) through the same script with `PYTHONPATH` pointing at
+  it.
+
+### 13.1 Before (v2) → after (v3)
+
+Holdout is the **acceptance data**. Its acceptance check ran in Task 7 and
+passed on that first evaluation. The holdout numbers here are only re-measured
+for this report. Paths 1 and 2 of §6.4 were not needed, and the reserve matrix
+was never built for v3. Validation, edge and tunings are
+development data, so their thresholds are regression locks.
+
+| § | Metric | Validation (400) | Edge (110) | Tunings (90) | **Holdout (50), acceptance** |
+|---|---|---|---|---|---|
+| §6.1 | L1 forbidden intervals (total) | 4 → 0 | 3 → 0 | 3 → 0 | 2 → 0 |
+| §6.1 | L1 per piece (max) | 1 → 0 | 1 → 0 | 1 → 0 | 1 → 0 |
+| §6.1 | L3 unjustified large leaps (total) | 30 → 0 | 8 → 0 | 9 → 0 | 10 → 0 |
+| §6.1 | L3 per piece (max) | 2 → 0 | 1 → 0 | 1 → 0 | 2 → 0 |
+| §6.1 | L2 large-leap recovery (pooled) | 0.5833 (n = 24) → 1.0000 (n = 3) | 0.8000 (n = 5) → n = 0 | n = 0 → n = 0 | 0.3529 (n = 17) → 1.0000 (n = 1) |
+| §6.1 | L0 leaps > 5th / intervals (pooled) | 0.0044 (n = 9040) → 0.0003 (n = 9040) | 0.0052 (n = 1718) → 0.0000 (n = 1718) | 0.0040 (n = 2238) → 0.0000 (n = 2238) | 0.0168 (n = 1074) → 0.0009 (n = 1074) |
+| §6.1 | L0.any pieces with a leap > 5th (count) | 39 → 3 | 9 → 0 | 9 → 0 | 15 → 1 |
+| §6.1 | M4 (mean of per-piece shares) | 0.0040 → 0.0002 | 0.0064 → 0 | 0.0050 → 0 | 0.0194 → 0.0009 |
+| §6.1 | M4max (max) | 12 → 8 | 12 → 7 | 9 → 7 | 12 → 8 |
+| §6.1 | L4 chord change ≤ a third (mean) | 0.8521 → 0.8842 | 0.8055 → 0.8480 | 0.9025 → 0.9238 | 0.7962 → 0.8750 |
+| §6.1 | L4max (max) | 12 → 7 | 12 → 7 | 7 → 5 | 12 → 7 |
+| §6.1 | L5 final approach (max) | 9 → 7 | 10 → 7 | 9 → 7 | 10 → 7 |
+| §6.2 | S1.missing (mean) | 0 → 0 | 0 → 0 | 0.0880 → 0 | 0.0200 → 0 |
+| §6.2 | S1.missing (max) | 0 → 0 | 0 → 0 | 0.5 → 0 | 0.2 → 0 |
+| §6.2 | S1.foreign (mean) | 0.0063 → 0 | 0 → 0 | 0.0417 → 0 | 0.0200 → 0 |
+| §6.2 | S1.foreign (max) | 0.25 → 0 | 0 → 0 | 0.125 → 0 | 0.2 → 0 |
+| §6.2 | S2 non-root bass (mean) | 0 → 0 | 0 → 0 | 0.1065 → 0 | 0.0200 → 0 |
+| §6.2 | S2 (max) | 0 → 0 | 0 → 0 | 0.375 → 0 | 0.2 → 0 |
+| §6.2 | V1 (mean) | 1.6210 → 1.6475 | 1.6198 → 1.6198 | 2.3977 → 1.6140 | 1.4893 → 1.5048 |
+| §6.2 | H1.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | H2.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | A4.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | H1.strum (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | H2.strum (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | A4.strum (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | H1.fingerstyle (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | H2.fingerstyle (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.2 | A4.fingerstyle (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.3 | M1 (mean) | 0.9802 → 0.9771 | 0.9909 → 0.9843 | 0.9720 → 0.9553 | 0.9815 → 0.9787 |
+| §6.3 | M2 (mean) | 0.5543 → 0.5685 | 0.5621 → 0.5728 | 0.5857 → 0.5957 | 0.5295 → 0.5487 |
+| §6.3 | M3 (mean) | 0.0948 → 0.0935 | 0.0996 → 0.1005 | 0.0760 → 0.0805 | 0.0950 → 0.1073 |
+| §6.3 | M5 (pooled) | 0.7613 (n = 771) → 0.7620 (n = 668) | 0.7176 (n = 170) → 0.7192 (n = 146) | 0.7043 (n = 186) → 0.7232 (n = 177) | 0.5472 (n = 106) → 0.7326 (n = 86) |
+| §6.3 | M11b (mean) | 0.6946 → 0.7041 | 0.7738 → 0.7677 | 0.7286 → 0.7035 | 0.7224 → 0.7346 |
+| §6.3 | M13 (mean) | 0.0238 → 0.0256 | 0.0196 → 0.0206 | 0 → 0 | 0.0167 → 0.0067 |
+| §6.3 | M15 (pooled) | 0.8250 (n = 40) → 0.8485 (n = 33) | 1.0000 (n = 14) → 1.0000 (n = 14) | 1.0000 (n = 15) → 1.0000 (n = 26) | 0.9286 (n = 14) → 0.8889 (n = 9) |
+| §6.3 | T2 (mean) | 0.1236 → 0.1222 | 0.0970 → 0.0996 | 0.1446 → 0.1483 | 0.1239 → 0.1141 |
+| §6.3 | A2.arpeggio (mean) | 1 → 1 | 0.9873 → 0.9879 | 1 → 1 | 1 → 1 |
+| §6.3 | A2.strum (mean) | 1 → 1 | 0.9873 → 0.9879 | 1 → 1 | 1 → 1 |
+| §6.3 | A2.fingerstyle (mean) | 1 → 1 | 0.9873 → 0.9879 | 1 → 1 | 1 → 1 |
+| §6.3 | A3.arpeggio (mean) | 0.0616 → 0.0577 | 0.0374 → 0.0367 | 0.0425 → 0.0388 | 0.0441 → 0.0476 |
+| §6.3 | A3.strum (mean) | 0.0869 → 0.0843 | 0.0577 → 0.0579 | 0.0552 → 0.0523 | 0.0684 → 0.0696 |
+| §6.3 | A3.fingerstyle (mean) | 0.0689 → 0.0664 | 0.0560 → 0.0559 | 0.0446 → 0.0387 | 0.0490 → 0.0522 |
+| §6.3 | M8 (mean) | 2.2800 → 2.2800 | 2.4355 → 2.4355 | 1.9000 → 1.9000 | 3.0400 → 3.0400 |
+| §6.3 | M9 (mean) | 4.1000 → 4.1000 | 3.7364 → 3.7364 | 4.2000 → 4.2000 | 4.2000 → 4.2000 |
+| §6.3 | M10 (mean) | 1.4695 → 1.4695 | 1.2724 → 1.2724 | 1.5527 → 1.5527 | 1.5888 → 1.5888 |
+| §6.3 | M12 (mean) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.3 | M14 (mean) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.3 | A1.arpeggio (mean) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.3 | A1.strum (mean) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+| §6.3 | A1.fingerstyle (mean) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
+
+**Every target is met:**
+- **§6.1 leaps.** L1 = L3 = 0 on every matrix. L2 is 1.0 wherever n > 0.
+- **L0 and M4.** Both are ≤ 0.001 and below v2 on validation and edge.
+- **Maxima.** M4max ≤ 12, L4max ≤ 7 and L5 ≤ 7 everywhere.
+- **L4.** It is above v2 on all four matrices, and above the locks of 0.87
+  (validation) and 0.83 (edge). On the holdout it rose from 0.7962 to 0.8750.
+  That is strictly above v2, so the ledger's `≥` versus `>` ruling for the
+  holdout made no difference.
+- **§6.2 voicings.** S1 and S2 are 0 everywhere, and H1, H2 and A4 are 1.0
+  everywhere. V1 rose by +0.0265 on validation (limit +0.1), is unchanged on
+  edge, and fell from 2.40 to 1.61 on tunings: no more one-note chords.
+
+**§6.3 paired comparison.** M8, M9, M10, M12, M14, A1, A4, H1 and H2 are
+identical to v2 in every group of every matrix (every stat compared, not just
+the mean). The worst move against v2 within each group checked by the tests:
+
+| Matrix | Worst deltas against v2 (tolerance 0.02 for means, 0.05 pooled) |
+|---|---|
+| Validation | M5 pooled, major: 0.7849 → 0.7726 (−0.0123); M1 bars1: −0.0065; M13 bars1: +0.0042 |
+| Edge | M1 −0.0066; M11b −0.0061; T2 +0.0026 |
+| Holdout (acceptance) | M15 pooled 0.9286 (n = 14) → 0.8889 (n = 9), −0.0397, about one resolution event; M3 +0.0123 |
+
+**Tunings matrix (information only).** §6.3's tolerances do not apply to
+this matrix: it carries hard invariants only (D7). Its largest moves:
+- M11b falls from 0.7286 to 0.7035 (−0.0251). That would sit just outside
+  the 0.02 note-share allowance if it applied. The drop is in the two
+  major-key progressions (0.7058 → 0.6690). The minor one is unchanged
+  (0.7742 → 0.7725).
+- M1 falls from 0.9720 to 0.9553 (−0.0167).
+
+The tunings matrix changes the voicings, and with them the melody floors,
+as well as the melody rules. Its pieces are also only 15 progression × seed
+inputs repeated across six tunings, so these means rest on few distinct
+melodies. This is reported as measured. Nothing was tuned in response.
+
+**Against the prototype column (§6).** Every development-matrix value that
+§6 gives for the prototype is reproduced within 0.005:
+- **Validation:**
+  - M1 0.9771 (prototype 0.977), M2 0.5685 (0.569), M3 0.0935 (0.094)
+  - M5 0.7620 with n = 668 (0.762, n = 668); M11b 0.7041 (0.704);
+    M13 0.0256 (0.026)
+  - M15 0.8485 with n = 33 (0.849, n = 33); T2 0.1222 (0.122)
+  - A3 0.0577 / 0.0843 / 0.0664 (0.058 / 0.084 / 0.066)
+  - L0 0.0003; M4 0.0002; L4 0.8842 (0.884); V1 1.6475 (1.648)
+  - L0.any 3 / 400; L2 3 / 3
+- **Edge:**
+  - L0 0, M4 0, L4 0.8480 (0.848), V1 1.6198 (1.620)
+  - A2 0.9879 (0.988), M13 0.0206 (0.0206), M11b 0.7677 (0.768),
+    M1 0.9843 (0.984)
+- **Tunings:** L4 0.9238 (0.924).
+- **Maxima:** M4max 8 / 7, L4max 7 / 7 / 5 and L5 7 / 7 / 7, as in the
+  prototype.
+
+So no deviation needs explaining. The holdout has no prototype column. The
+pooled-over-changes L4 (0.878) is not a key in the report and was not
+re-measured.
+
+### 13.2 Voicing audit (96 chords × 6 preset tunings = 576)
+
+Measured with v3's `shape_faults` and `fingers_needed` on both versions'
+`voicings_for` output:
+
+| | v2 (as emitted) | v3 |
+|---|---|---|
+| Faulty voicings (§3.1) | **98 / 576** (EADGBE 5, Drop D 17, Eb 22, D standard 18, Drop C 19, DADGAD 17) | **0 / 576** |
+| Need more than four fingers | 25 / 576 (revision 1's design: 22, §3.3) | **0 / 576** |
+| Fretted span > 3 | 24 / 576 | **0 / 576** |
+| Library (EADGBE table, 96) | 5 faulty + C#7, D#7 five-finger = 7 | **0 / 96** |
+| Voicings from the shape search | — | 29 (Drop D 1, Eb 2, D standard 2, Drop C 5, DADGAD 19), exactly the §3.4 list |
+| Voicings that differ from v2 | — | 143 / 576 (EADGBE 7, the repaired shapes; Drop D 26, Eb 25, D standard 23, Drop C 26, DADGAD 36) |
+
+### 13.3 Sweeps and the ladder
+
+**Bounded sweep** (§6.4: 1,920 compositions):
+
+| Pieces with | v2 | v3 |
+|---|---|---|
+| A forbidden interval | 59 | **0** |
+| A leap larger than a fifth | 218 (286 of 17,088 intervals) | **0** |
+| A final move larger than a fifth | 78 | **0** |
+
+The v3 unit test asserts L1 = 0, L3 = 0, every large leap recovered,
+L4max ≤ 7 and L5 ≤ 7. It took 4.06 s under `--durations` and 3.7 s in the
+standalone script.
+
+**Sample sweeps** (each §2.1 command, seeds 0–299, through `arrange()`):
+
+| Sample | Pieces with a forbidden interval: v2 → v3 (prototype) | Pieces with a leap > a fifth: v2 → v3 (prototype) |
+|---|---|---|
+| `minor-10-B` | 22 → **0** (0) | 73 → **19** (20) |
+| `major-08-Ab` | 15 → **0** (0) | 58 → **20** (22) |
+| `major-09-Eb` | 9 → **0** (0) | 79 → **27** (28) |
+
+The v2 numbers were re-measured, and they equal §2 and §4.1. On the v3
+sweeps:
+- L3 = 0, so every leap larger than a fifth is an arpeggiation inside one
+  chord.
+- Every such leap is recovered by a contrary step (L2 19 / 19, 20 / 20 and
+  28 / 28).
+- L4max and L5 are at most 7.
+
+**Ladder and repair order.** `ranked_scores` and `_plan_bar` were wrapped by
+a throwaway script, with no source change, to count which level and option
+each note and bar used:
+
+| Run | Sampled notes by ladder level | Bars by option |
+|---|---|---|
+| Validation / edge / tunings | level 0: 9,040 / 1,718 / 2,238 | floored: 2,400 / 480 / 600 |
+| **Holdout** | level 0: 1,074 | floored: 300 |
+| Bounded sweep + sample sweeps (2,820 pieces) | level 0: 40,012 | floored: 10,800 |
+| Task 6: wide sweep, seeds 0–29 (11,520 pieces) | level 0: 96,960 | floored: 28,765; unfloored: 35 |
+
+No note anywhere used ladder level 1 or 2, and the bar-level fallback never
+fired. Levels 1 and 2 are reached only by the unit test that calls
+`ranked_scores` directly.
+
+### 13.4 Gate, samples and timing
+
+Final gate, after the documentation changes:
+
+```
+pytest -q tests/unit tests/integration   685 passed, 3 skipped, 41 warnings in 43.63s
+ruff check src tests                     All checks passed!
+ruff format --check src tests            160 files already formatted
+mypy --strict src                        Success: no issues found in 80 source files
+```
+
+The branch baseline was 582 passed, 3 skipped, so 103 tests were added. No
+test is marked xfail or skipped by this work. The three skips are the
+pre-existing GuitarSet and tab-ground-truth skips.
+
+**The three §2.1 commands, run literally** with `--out /tmp/compose-samples
+--format json` (WAV rendered):
+
+| Command | Exit | `composer_version` | Melody | The flagged chord now |
+|---|---|---|---|---|
+| `minor-10-B` | 0 | 3 | 40 notes, largest interval 7, no forbidden interval | C#dim `x-4-5-6-5-x` |
+| `major-08-Ab` | 0 | 3 | 21 notes, largest interval 5 | Eb7 (`D#7`) `0-7-9-7-9-7`; C7 searched `x-4-3-1-0-1` |
+| `major-09-Eb` | 0 | 3 | 16 notes, largest interval 7 | Bb7 (`A#7`) `x-3-5-3-5-3`, root in the bass |
+
+**Timing.** `pytest -q --durations=5 tests/unit/test_compose_musicality.py`
+gave 48 passed in 6.25 s, and 7.10 s on a re-run. The machine's load average
+was 3.3–7.4.
+- The development `evaluate()` fixture setup took 5.7–6.4 s.
+- The holdout build took 0.19–0.25 s.
+- Task 7 measured about 9 s under heavier load; this is the re-measurement
+  it asked for.
+
+### 13.5 Deviations from the plan
+
+| Commit | Deviation |
+|---|---|
+| `b41e74f`, `dc919ea` (Task 2) | The two commits carry a `Co-Authored-By: Claude Sonnet 5.5` trailer instead of the mandated Opus 5.5 trailer, because the subagent used its own harness attribution. History is not rewritten. |
+| `d67c6ce` (Task 5) | `search_voicing` uses `functools.cache` instead of `functools.lru_cache(maxsize=None)`, the same object, because ruff UP033 rejects the long spelling. The plan carries a "Deviation:" line for it. |
+| `f84a697` (Task 6) | An empty-bars guard: v2 returned `[]` for a legacy grid over zero bars, while v3's `bars[-1]` lookup would have raised `IndexError` (§8: nothing raises that v2 accepted). It comes with `test_legacy_grid_over_no_bars_is_empty`. No plan step changed. |
+| `db949d0` (Task 7) | Sabotage checks: sabotage 3's example (Eb D#7 `0-7-6-7-5-4`) is stale after the D#7 library repair (`b69a932`), because Eb D#7 is `0-7-9-7-9-7` either way, and the 576-voicing audit still fails the sabotage through other shapes. Sabotage 2 (repair only the floored option) is caught only by the five explicit regression cases (review r1 F1), not by the bounded sweep or the holdout. Sabotage 4 (span 5) is caught by the 576-shape audit. Two trailing comments were moved for E501. |
+| Ledger ruling (Task 7) | The holdout uses L4 `≥ v2` (§6.4), where §6.1 says `>`. The measured 0.7962 → 0.8750 satisfies both. |
+| this commit (Task 8) | Documentation only. `docs/architecture-technical.md` §5.4.1 was also updated, beyond the brief's list: the leap and shape metrics, the tunings, holdout and reserve matrices, and `musicality_v2.json`. `compose/metrics.py` already names both specs, so it is unchanged. |
