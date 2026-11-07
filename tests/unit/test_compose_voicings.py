@@ -4,6 +4,7 @@ from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
 from music_decoder.chords.voicings import VOICINGS
 from music_decoder.compose.voicings import (
     _is_playable,
+    _retune,
     fingers_needed,
     search_voicing,
     shape_faults,
@@ -112,7 +113,10 @@ def test_standard_tuning_plays_the_library_shapes_unchanged():
 @pytest.mark.parametrize(
     ("tuning", "label", "frets"),
     [
-        (DROP_D, "D", (0, -1, 0, 2, 3, 2)),  # low D added (root); open A2 stays muted
+        (DROP_D, "D", (0, 0, 0, 2, 3, 2)),  # low D added (root), then the open A2 above it
+        (DROP_D, "Dm", (0, 0, 0, 2, 3, 1)),  # the open D2-A2-D3 drone, as in v2
+        (DADGAD, "D", (0, 0, 0, 2, 5, 4)),  # D2 A2 D3 A3 D4 F#4
+        (D_STANDARD, "Dsus4", (0, 0, 2, 4, 5, 5)),  # open G2 (the 4th) above the low D2
         (DROP_C, "C", (0, 5, 4, 2, 3, 2)),
         (EB_HALF_STEP_DOWN, "D#7", (0, 7, 9, 7, 9, 7)),  # v2: one D#2; not 0-7-6-7-5-4 (5 fingers)
         (EB_HALF_STEP_DOWN, "C7", (-1, 4, 3, 1, 0, 1)),  # searched: retuned x32310 needs 5 fingers
@@ -125,6 +129,20 @@ def test_standard_tuning_plays_the_library_shapes_unchanged():
 )
 def test_retune_and_search_choices(tuning, label, frets):
     assert _frets(label, tuning) == frets
+
+
+def test_retune_unmutes_the_root_first_then_chord_tones_above_it():
+    c = ChordSymbol.parse
+    # pass 1 adds the root D2; pass 2 then adds A2, above D2 but below the shape's D3
+    assert _retune(VOICINGS["D"], DROP_D, c("D")) == (0, 0, 0, 2, 3, 2)
+    assert _retune(VOICINGS["D"], DADGAD, c("D")) == (0, 0, 0, 2, 5, 4)
+    # F1: a non-root chord tone below the bass stays muted
+    assert _retune(VOICINGS["Bm"], DROP_D, c("Bm")) == (-1, 2, 4, 4, 3, 2)  # D2 under B2
+    assert _retune(VOICINGS["B"], EB_HALF_STEP_DOWN, c("B")) == (-1, 3, 5, 5, 5, 3)  # D#2
+    # EADGBE plays the shape unchanged; a tuning above standard cannot reach it
+    assert _retune(VOICINGS["Edim"], STANDARD_EADGBE, c("Edim")) == VOICINGS["Edim"]
+    f_std = Tuning("F_standard", (41, 46, 51, 56, 60, 65))
+    assert _retune(VOICINGS["C"], f_std, c("C")) is None  # open G3 would need fret -1
 
 
 def test_five_finger_retunes_are_rejected():

@@ -718,11 +718,13 @@ output. The output directory layout is content-addressed (`{timestamp}-{first
      `new_fret = canonical_fret + (eadgbe_open_pitch - target_open_pitch)`.
      If a fret would go below 0 (a custom tuning above standard), the
      retune fails and the shape search takes over.
-   - **Un-mute rule.** A muted string whose open note is a chord tone is
-     un-muted only if it is the root, or it sounds above the shifted
-     shape's lowest pitch (taken before any un-muting). An added open
-     string therefore never puts a non-root tone in the bass: in Drop D
-     a D chord gains its low D2 but keeps the A2 muted.
+   - **Un-mute rule**, in two passes. First every muted string whose open
+     note is the root is un-muted. Then every remaining muted string whose
+     open note is a chord tone is un-muted if it sounds above the lowest
+     pitch after the first pass. An added open string therefore never puts
+     a non-root tone in the bass (Bm in Drop D keeps the low D2 muted),
+     and in Drop D a D chord gains its low D2 and then the A2 above it,
+     `0-0-0-2-3-2`, keeping the open D–A–D drone.
 3. **Playability gate** `_is_playable`: at least one sounding string,
    every fret ≤ 22, a **fretted span** (frets > 0; open strings need no
    finger) of at most `MAX_FRETTED_SPAN = 3`, and **at most

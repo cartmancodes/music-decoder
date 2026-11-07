@@ -960,6 +960,14 @@ Deviation: `search_voicing` is decorated with `@functools.cache`, which is
 `lru_cache(maxsize=None)` itself; ruff's UP033 rejects the long spelling, so
 the gate requires the short one. Behaviour is identical.
 
+Deviation (final review): `_retune` un-mutes in two passes. Pass 1 un-mutes
+every string whose open note is the root; pass 2 then un-mutes every other
+chord-tone open string above the lowest pitch sounding after pass 1. The
+reference "before any un-muting" above muted the A2 inside 13 D-family
+chords in Drop D, DADGAD and D standard that v2 played faithfully, so the
+test's Drop D D is now `(0, 0, 0, 2, 3, 2)`, not `(0, -1, 0, 2, 3, 2)`
+(spec §5.2 item 3, §13).
+
 ---
 
 ### Task 6: Singable melodic leaps

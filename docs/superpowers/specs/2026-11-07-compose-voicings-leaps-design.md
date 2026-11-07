@@ -341,11 +341,19 @@ first element is what the composer plays. The changes:
    - Return `None` if any shifted fret would be below 0. That is only
      possible for custom tunings above standard. v2 silently turned such a
      string into a muted one.
-   - Un-mute a muted string only if its open pitch class is a chord tone
-     **and** it is either the root or higher than the shape's lowest
-     sounding pitch. This fixes F1. "Lowest sounding pitch" means the
-     shifted shape **before any un-muting**: in Drop D, D keeps its A2
-     muted even after the low D2 is added.
+   - Un-mute in two passes. This fixes F1.
+     - Pass 1: un-mute every muted string whose open pitch class is the
+       chord root.
+     - Pass 2: un-mute every remaining muted string whose open pitch class
+       is a chord tone **and** whose open pitch is higher than the lowest
+       sounding pitch after pass 1.
+     - So an added open string never puts a non-root tone in the bass
+       (Bm in Drop D keeps D2 muted; B in Eb keeps D#2 muted). In Drop D, D
+       gains its low D2 and then the A2 above it, `0-0-0-2-3-2`.
+     - Changed after the final review, to keep the open D–A–D drone: the
+       first rule measured the lowest pitch before any un-muting, and so
+       muted the A2 inside 13 D-family chords that v2 played faithfully
+       (§13).
    - When the target tuning equals EADGBE, return the shape unchanged
      (v2's early return). Otherwise the un-mute rule would alter Edim, Fdim
      and G#dim in standard tuning. The Drop D low D under a D chord and
@@ -925,7 +933,7 @@ compose e2e tests) it gave 285 passed and 3 failed, all of them expected:
 | Question | Pile | Answer (now in the text) |
 |---|---|---|
 | Which hard invariants apply on the tunings matrix, given that T1 depends on the tuning? | Minor (my call) | All of v2's, with a per-tuning T1 cap (§5.5, D15). |
-| Is the un-mute reference the shape before or during un-muting? | Answered by the prototype | Before (§5.2). The early return for an unchanged tuning is kept. |
+| Is the un-mute reference the shape before or during un-muting? | Answered by the prototype | Before (§5.2). The early return for an unchanged tuning is kept. Superseded after the final review: the reference is the shape after the root pass (§5.2 item 3, two passes). |
 | Commit order: could the voicing fixes erase the flagged leaps before the melody task? | Measured | No (§5.7). |
 
 Nothing needed the human partner.
@@ -954,11 +962,14 @@ The finding-by-finding responses are in the plan, section "Review responses
 
 ## 13. Results (implementation, 2026-11-07)
 
-Measured on `db949d0`, the last code commit (Task 7). The commits since then
-change only documentation. Composer version **3**.
+Measured on `db949d0`, the last code commit (Task 7), then re-measured after
+the post-review two-pass un-mute change (§13.6), which moved only the
+tunings matrix's V1 and the voicing audit's change count. Composer version
+**3**.
 
-**How it was measured.** Throwaway scripts in `/tmp/compose-task8/` were used,
-and nothing was written into the repository.
+**How it was measured.** Throwaway scripts in `/tmp/compose-task8/` were used
+(copied to `/tmp/compose-final/` for the §13.6 re-measure), and nothing was
+written into the repository.
 - The "v2" column is read from `tests/fixtures/compose/musicality_v2.json`
   (`source: b41e74f`).
 - The "v3" column comes from `evaluate((matrix,))`, one matrix at a time.
@@ -1001,7 +1012,7 @@ development data, so their thresholds are regression locks.
 | §6.2 | S1.foreign (max) | 0.25 → 0 | 0 → 0 | 0.125 → 0 | 0.2 → 0 |
 | §6.2 | S2 non-root bass (mean) | 0 → 0 | 0 → 0 | 0.1065 → 0 | 0.0200 → 0 |
 | §6.2 | S2 (max) | 0 → 0 | 0 → 0 | 0.375 → 0 | 0.2 → 0 |
-| §6.2 | V1 (mean) | 1.6210 → 1.6475 | 1.6198 → 1.6198 | 2.3977 → 1.6140 | 1.4893 → 1.5048 |
+| §6.2 | V1 (mean) | 1.6210 → 1.6475 | 1.6198 → 1.6198 | 2.3977 → 1.5976 | 1.4893 → 1.5048 |
 | §6.2 | H1.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
 | §6.2 | H2.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
 | §6.2 | A4.arpeggio (min) | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 1 |
@@ -1044,7 +1055,7 @@ development data, so their thresholds are regression locks.
   holdout made no difference.
 - **§6.2 voicings.** S1 and S2 are 0 everywhere, and H1, H2 and A4 are 1.0
   everywhere. V1 rose by +0.0265 on validation (limit +0.1), is unchanged on
-  edge, and fell from 2.40 to 1.61 on tunings: no more one-note chords.
+  edge, and fell from 2.40 to 1.60 on tunings: no more one-note chords.
 
 **§6.3 paired comparison.** M8, M9, M10, M12, M14, A1, A4, H1 and H2 are
 identical to v2 in every group of every matrix (every stat compared, not just
@@ -1103,7 +1114,7 @@ Measured with v3's `shape_faults` and `fingers_needed` on both versions'
 | Fretted span > 3 | 24 / 576 | **0 / 576** |
 | Library (EADGBE table, 96) | 5 faulty + C#7, D#7 five-finger = 7 | **0 / 96** |
 | Voicings from the shape search | — | 29 (Drop D 1, Eb 2, D standard 2, Drop C 5, DADGAD 19), exactly the §3.4 list |
-| Voicings that differ from v2 | — | 143 / 576 (EADGBE 7, the repaired shapes; Drop D 26, Eb 25, D standard 23, Drop C 26, DADGAD 36) |
+| Voicings that differ from v2 | — | 130 / 576 (EADGBE 7, the repaired shapes; Drop D 20, Eb 25, D standard 22, Drop C 26, DADGAD 30). Before the §13.6 change: 143 (Drop D 26, D standard 23, DADGAD 36) |
 
 ### 13.3 Sweeps and the ladder
 
@@ -1191,4 +1202,33 @@ was 3.3–7.4.
 | `f84a697` (Task 6) | An empty-bars guard: v2 returned `[]` for a legacy grid over zero bars, while v3's `bars[-1]` lookup would have raised `IndexError` (§8: nothing raises that v2 accepted). It comes with `test_legacy_grid_over_no_bars_is_empty`. No plan step changed. |
 | `db949d0` (Task 7) | Sabotage checks: sabotage 3's example (Eb D#7 `0-7-6-7-5-4`) is stale after the D#7 library repair (`b69a932`), because Eb D#7 is `0-7-9-7-9-7` either way, and the 576-voicing audit still fails the sabotage through other shapes. Sabotage 2 (repair only the floored option) is caught only by the five explicit regression cases (review r1 F1), not by the bounded sweep or the holdout. Sabotage 4 (span 5) is caught by the 576-shape audit. Two trailing comments were moved for E501. |
 | Ledger ruling (Task 7) | The holdout uses L4 `≥ v2` (§6.4), where §6.1 says `>`. The measured 0.7962 → 0.8750 satisfies both. |
-| this commit (Task 8) | Documentation only. `docs/architecture-technical.md` §5.4.1 was also updated, beyond the brief's list: the leap and shape metrics, the tunings, holdout and reserve matrices, and `musicality_v2.json`. `compose/metrics.py` already names both specs, so it is unchanged. |
+| `d47c262` (Task 8) | Documentation only. `docs/architecture-technical.md` §5.4.1 was also updated, beyond the brief's list: the leap and shape metrics, the tunings, holdout and reserve matrices, and `musicality_v2.json`. `compose/metrics.py` already names both specs, so it is unchanged. |
+| this commit (final review) | `_retune` un-mutes in two passes (§5.2 item 3, §13.6). The plan's Task 5 carries a "Deviation:" line, and its test's Drop D D is now `(0, 0, 0, 2, 3, 2)`. |
+
+### 13.6 Post-review change: the two-pass un-mute
+
+The final whole-branch review found that the first un-mute rule measured the
+lowest pitch before any un-muting. So an open chord-tone string between the
+added low root and the shape stayed muted: in Drop D, D was `0-x-0-2-3-2`
+where v2 played `0-0-0-2-3-2`. `_retune` now un-mutes the root strings
+first and then every chord-tone open string above the new lowest pitch
+(§5.2 item 3). This only adds open chord tones above a root bass, so
+faithfulness, fretted span and finger count cannot change.
+
+- **Voicings moved:** 13 of 576, all retuned library shapes, and every one
+  is now identical to v2's: Drop D and DADGAD D, Dm, D7, Dmaj7, Dm7 and
+  Dsus4, and D standard Dsus4 (`0-0-2-4-5-5`).
+- **576 audit:** still 0 faulty, 0 over four fingers, 0 fretted span over
+  3. The search still supplies the same 29 voicings (§3.4).
+- **Matrices:** only the tunings matrix's V1 changed: overall mean
+  1.6140 → 1.5976 (Drop D 1.5533 → 1.5041, DADGAD 1.6049 → 1.5557, minor
+  1.6369 → 1.5877). Lower is closer: the added A2 sits near a pitch of
+  the previous shape. Every other key, group and statistic of validation, edge, tunings and holdout is identical to
+  the first measurement. `python scripts/compose_musicality_report.py`
+  differs only on that line, and `--matrices acceptance` is identical. The
+  holdout's acceptance tests in `test_compose_musicality.py` pass, and
+  nothing was tuned.
+- **Sweeps:** the bounded sweep, the three sample sweeps and the ladder
+  counts are identical (§13.3).
+- **Gate:** `pytest -q tests/unit tests/integration` 689 passed, 3 skipped;
+  ruff check, ruff format --check and mypy --strict clean.

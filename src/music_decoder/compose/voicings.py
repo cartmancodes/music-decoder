@@ -94,9 +94,11 @@ def _retune(frets: Sequence[int], tuning: Tuning, chord: ChordSymbol) -> tuple[i
     """Move an EADGBE shape to ``tuning`` keeping every fretted pitch.
 
     ``None`` when a string would need a fret below 0 (a tuning above
-    standard). A muted string is un-muted when its open note is a chord tone
-    and either the root or above the shifted shape's lowest pitch, so an
-    added open string never puts a non-root tone in the bass.
+    standard). Muted strings are un-muted in two passes: first every one
+    whose open note is the root, then every one whose open note is a chord
+    tone above the lowest pitch sounding after the first pass. An added open
+    string so never puts a non-root tone in the bass, and Drop D's D keeps
+    its open D2-A2-D3 drone.
     """
     if tuning.open_pitches == STANDARD_EADGBE.open_pitches:
         return tuple(frets)
@@ -106,13 +108,12 @@ def _retune(frets: Sequence[int], tuning: Tuning, chord: ChordSymbol) -> tuple[i
     if any(f < 0 for f, orig in zip(shifted, frets, strict=True) if orig >= 0):
         return None
     pcs = harmony.chord_pcs(chord)
-    lowest = min((opens[s] + f for s, f in enumerate(shifted) if f >= 0), default=None)
-    out: list[int] = []
-    for s, f in enumerate(shifted):
-        if f < 0 and opens[s] % 12 in pcs:
-            if opens[s] % 12 == pcs[0] or (lowest is not None and opens[s] > lowest):
-                f = 0
-        out.append(f)
+    out = [0 if f < 0 and opens[s] % 12 == pcs[0] else f for s, f in enumerate(shifted)]
+    lowest = min((opens[s] + f for s, f in enumerate(out) if f >= 0), default=None)
+    if lowest is not None:
+        for s, f in enumerate(out):
+            if f < 0 and opens[s] % 12 in pcs and opens[s] > lowest:
+                out[s] = 0
     return tuple(out)
 
 
