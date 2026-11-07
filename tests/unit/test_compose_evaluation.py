@@ -136,3 +136,16 @@ def test_reserve_matrix_is_frozen_and_disjoint():
 def test_format_report_labels_every_row_with_its_matrix():
     text = ev.format_report({"edge": {"overall": {"M1": {"mean": 0.98, "min": 0.9, "max": 1.0}}}})
     assert text.splitlines() == ["edge  M1  mean=0.98 min=0.9 max=1"]
+
+
+V2 = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
+
+
+def test_committed_v2_snapshot_has_every_matrix_and_the_new_metrics():
+    snap = json.loads(V2.read_text())
+    assert {"source", "validation", "edge", "tunings", "holdout", "reserve"} <= set(snap)
+    assert not snap["source"].endswith("-dirty")
+    v = snap["validation"]["overall"]
+    assert v["L1"]["max"] == 1 and v["L4max"]["max"] == 12  # v2's measured defects
+    assert set(v["L0"]) == {"pooled", "n"}
+    assert snap["tunings"]["overall"]["S1.missing"]["mean"] > 0
