@@ -317,3 +317,45 @@ def test_cadence_identity_ignores_accompaniment_after_the_final_note():
     assert m.cadence_identity(melody, under, [c_major], STANDARD_EADGBE) is True
     later = [*under, _sec(2.0, 3.0, 52)]  # an E3 attack after the note has ended
     assert m.cadence_identity(melody, later, [c_major], STANDARD_EADGBE) is True
+
+
+def test_forbidden_interval_count():
+    mel = [n(0, 1, 60), n(1, 1, 66), n(2, 1, 76), n(3, 1, 65), n(4, 1, 78), n(5, 1, 60)]
+    # +6 tritone, +10 m7, -11 M7, +13 (> octave), -18 (> octave)
+    assert m.forbidden_interval_count(mel) == 5
+    assert m.forbidden_interval_count([n(0, 1, 60), n(1, 1, 67), n(2, 1, 72), n(3, 1, 64)]) == 0
+
+
+def test_large_leap_recovery_counts():
+    up_back = [n(0, 1, 60), n(1, 1, 68), n(2, 1, 67)]  # +8 then -1: recovered
+    up_on = [n(0, 1, 60), n(1, 1, 69), n(2, 1, 71)]  # +9 then +2: not
+    fifth = [n(0, 1, 60), n(1, 1, 67), n(2, 1, 69)]  # +7 is not "large"
+    assert m.large_leap_recovery_counts(up_back) == (1, 1)
+    assert m.large_leap_recovery_counts(up_on) == (1, 0)
+    assert m.large_leap_recovery_counts(fifth) == (0, 0)
+    assert m.large_leap_recovery_counts([n(0, 1, 60), n(1, 3, 72)]) == (0, 0)  # last
+
+
+def test_unjustified_large_leap_count():
+    p = prog("C", "G")
+    arpeggio = [n(0, 1, 64), n(1, 1, 72), n(2, 1, 71), n(3, 1, 67), n(4, 4, 67)]  # E4->C5 in C
+    assert m.unjustified_large_leap_count(arpeggio, p, 1, TEMPO) == 0
+    non_chord = [n(0, 1, 62), n(1, 1, 71), n(2, 1, 72), n(4, 4, 67)]  # D4 is not in C
+    assert m.unjustified_large_leap_count(non_chord, p, 1, TEMPO) == 1
+    across = [n(0, 4, 60), n(4, 1, 71), n(5, 3, 67)]  # C4 (C) -> B4 (G), +11 across the change
+    assert m.unjustified_large_leap_count(across, p, 1, TEMPO) == 1
+    into_final = [n(0, 1, 60), n(1, 1, 64), n(4, 1, 67), n(5, 3, 79)]  # +12 onto the last note
+    assert m.unjustified_large_leap_count(into_final, p, 1, TEMPO) == 1
+
+
+def test_chord_change_moves_and_bass_is_root():
+    p = prog("C", "G")
+    mel = [n(0, 2, 64), n(2, 2, 67), n(4, 2, 74), n(6, 2, 71)]
+    assert m.chord_change_moves(mel, p, 1, TEMPO) == [7]
+    assert m.chord_change_moves(mel, prog("C"), 1, TEMPO) == []
+    assert m.bass_is_root(shape("C"), STANDARD_EADGBE)
+    old_fmaj7 = VoicedChord(
+        ChordSymbol.parse("Fmaj7"),
+        tuple(TabPosition(s, f) for s, f in enumerate((-1, 3, 3, 2, 1, 0))),
+    )  # C3 F3 A3 C4 E4
+    assert not m.bass_is_root(old_fmaj7, STANDARD_EADGBE)

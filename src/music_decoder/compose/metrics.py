@@ -4,7 +4,9 @@ Pure functions over melody / accompaniment notes. They are applied to the
 pre-2026-11 composer (baseline, ``tests/fixtures/compose/musicality_baseline.json``)
 and to the current one on the same inputs by
 ``music_decoder.evaluation.compose_musicality``; definitions follow
-``docs/superpowers/specs/2026-11-06-compose-improvements-design.md`` section 4.
+``docs/superpowers/specs/2026-11-06-compose-improvements-design.md`` section 4;
+the leap and shape metrics (L0-L5, S2) follow
+``docs/superpowers/specs/2026-11-07-compose-voicings-leaps-design.md`` section 4.3.
 
 Times are in seconds and ``tempo_bpm`` fixes the 4/4 beat grid. Ratio metrics
 return ``None`` when nothing qualifies to be counted, which is distinct from
@@ -31,6 +33,9 @@ from music_decoder.types import ChordSymbol, Note, Scale, Tuning, VoicedChord
 _GRID_TOL_S = 1e-3  # onset counts as "on the grid" within 1 ms
 _STROKE_WINDOW_S = 0.06  # onsets this close to a stroke's first onset belong to it
 _OVERLAP_EPS_S = 1e-4  # notes must share more than this much time to overlap
+_FORBIDDEN_SIZES = frozenset({6, 10, 11})  # tritone, minor and major seventh
+_FIFTH = 7  # leaps larger than this are "large"
+_OCTAVE = 12  # intervals larger than this are forbidden
 
 
 def _beat_s(tempo_bpm: float) -> float:
@@ -120,6 +125,68 @@ def leap_recovery_counts(melody: Sequence[Note]) -> tuple[int, int]:
             leaps += 1
             recovered += i * j < 0 and 1 <= abs(j) <= 2
     return leaps, recovered
+
+
+def forbidden_interval_count(melody: Sequence[Note]) -> int:
+    """L1: intervals of 6, 10 or 11 semitones, or larger than an octave."""
+    return sum(abs(i) in _FORBIDDEN_SIZES or abs(i) > _OCTAVE for i in intervals(melody))
+
+
+def large_leap_recovery_counts(melody: Sequence[Note]) -> tuple[int, int]:
+    """L2: (leaps > a fifth followed by another note, of those recovered).
+
+    M5 with a "larger than a fifth" threshold; recovered = the next interval
+    moves the opposite way by 1-2 semitones.
+    """
+    leaps = recovered = 0
+    for i, j in pairwise(intervals(melody)):
+        if abs(i) > _FIFTH:
+            leaps += 1
+            recovered += i * j < 0 and 1 <= abs(j) <= 2
+    return leaps, recovered
+
+
+def unjustified_large_leap_count(
+    melody: Sequence[Note],
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+) -> int:
+    """L3: leaps > a fifth that are not an arpeggiation inside one chord.
+
+    A leap is unjustified when its two notes sound over different chords,
+    either note is not a tone of the chord under it, or it lands on the
+    final note.
+    """
+    count = 0
+    last = len(melody) - 1
+    for k, (a, b) in enumerate(pairwise(melody), start=1):
+        if abs(b.pitch - a.pitch) <= _FIFTH:
+            continue
+        ca = chord_at(a.start_s, progression, bars_per_chord, tempo_bpm)
+        cb = chord_at(b.start_s, progression, bars_per_chord, tempo_bpm)
+        count += (
+            ca != cb
+            or a.pitch % 12 not in chord_pcs(ca)
+            or b.pitch % 12 not in chord_pcs(cb)
+            or k == last
+        )
+    return count
+
+
+def chord_change_moves(
+    melody: Sequence[Note],
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+) -> list[int]:
+    """L4: absolute intervals between consecutive notes over different chords."""
+    return [
+        abs(b.pitch - a.pitch)
+        for a, b in pairwise(melody)
+        if chord_at(a.start_s, progression, bars_per_chord, tempo_bpm)
+        != chord_at(b.start_s, progression, bars_per_chord, tempo_bpm)
+    ]
 
 
 def ambitus(melody: Sequence[Note]) -> int:
@@ -428,6 +495,12 @@ def shape_tone_mismatch(
         frozenset(essential_pcs(voicing.chord) - shape),
         frozenset(shape - set(chord_pcs(voicing.chord))),
     )
+
+
+def bass_is_root(voicing: VoicedChord, tuning: Tuning) -> bool:
+    """S2: the lowest sounding pitch is the chord root (False for an empty shape)."""
+    pitches = _voicing_pitches(voicing, tuning)
+    return bool(pitches) and min(pitches) % 12 == chord_pcs(voicing.chord)[0]
 
 
 def hand_shift_rate(frets: Sequence[int]) -> float | None:
