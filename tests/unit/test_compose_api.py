@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 
+from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
 from music_decoder.compose import metrics
 from music_decoder.compose.api import (
     COMPOSE_TAB_WEIGHTS,
@@ -117,7 +118,7 @@ def test_compose_returns_the_arrangement_and_version(tmp_path):
     arr = arrange(Scale("C", "major"), _PROG, seed=1)
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
-    assert result.metadata["composer_version"] == COMPOSER_VERSION == 2
+    assert result.metadata["composer_version"] == COMPOSER_VERSION == 3
 
 
 def test_arrange_tabs_every_melody_note_in_a_playable_register():
@@ -298,3 +299,46 @@ def test_searched_voicings_compose_with_their_identity_heard(tuning_name, labels
         )
     )
     assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, tuning)
+
+
+# ---- singable leaps (composer v3): real floors from arrange() --------------
+
+
+def _api_leap_invariants(arr, labels, tempo=100.0):
+    mel, p = arr.melody, _chords(*labels)
+    assert metrics.forbidden_interval_count(mel) == 0
+    assert metrics.unjustified_large_leap_count(mel, p, 1, tempo) == 0
+    leaps, recovered = metrics.large_leap_recovery_counts(mel)
+    assert recovered == leaps
+    assert max(metrics.chord_change_moves(mel, p, 1, tempo), default=0) <= 7
+    assert abs(mel[-1].pitch - mel[-2].pitch) <= 7
+
+
+def test_review_r1_major_seventh_is_repaired():
+    arr = arrange(Scale("C", "major"), _chords("C", "D#m"), seed=19)  # v2 and rev. 1: 64 -> 75
+    _api_leap_invariants(arr, ("C", "D#m"))
+    assert arr.melody[-1].pitch % 12 == 3  # still ends on D#, the root of D#m
+
+
+@pytest.mark.parametrize(
+    ("key", "mode", "labels", "seed"),
+    [
+        ("C", "major", ("C", "D#m"), 20),
+        ("C", "major", ("C", "D#m7"), 20),
+        ("A", "minor", ("Am", "D#m"), 20),
+        ("A", "minor", ("Am", "D#m7"), 20),
+    ],
+)
+def test_revision_1_sweep_failures_are_repaired(key, mode, labels, seed):
+    _api_leap_invariants(arrange(Scale(key, mode), _chords(*labels), seed=seed), labels)
+
+
+def test_every_root_and_quality_composes_smoothly():  # spec section 6.4 bounded sweep
+    for key, mode, home in (("C", "major", "C"), ("A", "minor", "Am")):
+        for root in ROOTS:
+            for quality in QUALITIES:
+                x = chord_label(root, quality)
+                for labels in ((home, x), (home, x, home)):
+                    for seed in range(5):
+                        arr = arrange(Scale(key, mode), _chords(*labels), seed=seed)
+                        _api_leap_invariants(arr, labels)

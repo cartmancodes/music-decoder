@@ -5,8 +5,11 @@ templates arranged in antecedent/consequent phrases that end on cadences).
 Each pitch is sampled from a softmax over musical scores: interval size,
 chord fit weighted by metric position, leap recovery, leading-tone
 resolution, motif echo, register gravity and, in the final bar, a pull
-toward the cadence target. The only randomness is
-``numpy.random.default_rng(seed)``, so output is deterministic for a seed.
+toward the cadence target. Hard rules keep the line singable (no tritones
+or sevenths, large leaps only as recovered arpeggiations, every chord change
+and the final approach within a fifth); see :func:`admissible`. The only
+randomness is ``numpy.random.default_rng(seed)``, so output is deterministic
+for a seed.
 """
 
 from __future__ import annotations
@@ -64,6 +67,9 @@ GRAVITY_WIDTH = 6.0
 CADENCE_PULL = 0.25  # per semitone from the final target, final bar only
 CADENCE_END_NON_CHORD_TONE = -3.0  # last note of a cadence bar
 MIN_FLOOR_CANDIDATES = 5  # a chord floor applies only if it leaves this many pitches
+SMOOTH_LIMIT = 7  # largest interval allowed without justification: a perfect fifth
+FORBIDDEN_INTERVALS = frozenset({6, 10, 11})  # tritone, minor and major seventh
+CHORD_CHANGE_STEP_BONUS = 1.0  # step (1-2 semitones) into a new chord
 
 
 def _scale_pitches_in_range(pcs: Collection[int], low: int, high: int) -> list[int]:
@@ -101,6 +107,13 @@ class NoteContext:
     target: int | None  # final-bar cadence target
     cadence_end: bool  # last note of a cadence bar
     resolve_up: bool = False  # previous note is a leading tone entering a tonic chord
+    chord_change: bool = False  # first note over a new chord
+    prev_chord_tone: bool = False  # the previous pitch is a tone of this chord
+    # The next note's candidates, when it is in the same unconstrained bar;
+    # None forbids a large leap here.
+    recovery_pool: frozenset[int] | None = None
+    # Constrained bar: the pitches from which it can still finish smoothly.
+    allowed: frozenset[int] | None = None
 
 
 def _sign(x: int) -> int:
@@ -119,6 +132,8 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
         if size > MAX_INTERVAL:
             return -math.inf
         score += INTERVAL_WEIGHT[size]
+        if ctx.chord_change and 1 <= size <= 2:
+            score += CHORD_CHANGE_STEP_BONUS
         if abs(ctx.prev_interval) >= LEAP_SEMITONES:
             if interval * ctx.prev_interval < 0 and 1 <= size <= 2:
                 score += LEAP_RECOVERY_BONUS
@@ -149,6 +164,86 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
     if ctx.cadence_end and not is_chord_tone:
         score += CADENCE_END_NON_CHORD_TONE
     return score
+
+
+def _melodic(candidate: int, ctx: NoteContext) -> bool:
+    """Rules R1 (no forbidden interval) and R2 (a large leap is recovered)."""
+    if ctx.prev_pitch is None:
+        return True
+    interval = candidate - ctx.prev_pitch
+    size = abs(interval)
+    if size in FORBIDDEN_INTERVALS or size > MAX_INTERVAL:
+        return False
+    return abs(ctx.prev_interval) <= SMOOTH_LIMIT or (
+        interval * ctx.prev_interval < 0 and 1 <= size <= 2
+    )
+
+
+def admissible(candidate: int, ctx: NoteContext) -> bool:
+    """Hard singability rules R1-R4 (spec section 5.3).
+
+    R1 no tritone, seventh or leap over an octave; R2 a leap larger than a
+    fifth is followed by a contrary step; R3 such a leap is an arpeggiation
+    inside one chord (not at a chord change, not in the final bar, from a
+    step or repeat) with a recovery pitch available next; R4 in a constrained
+    bar the candidate is in the feasibility set.
+    """
+    if ctx.allowed is not None and candidate not in ctx.allowed:
+        return False
+    if not _melodic(candidate, ctx):
+        return False
+    if ctx.prev_pitch is None:
+        return True
+    interval = candidate - ctx.prev_pitch
+    if abs(interval) <= SMOOTH_LIMIT:
+        return True
+    return (
+        not ctx.chord_change
+        and ctx.target is None
+        and ctx.prev_chord_tone
+        and candidate % 12 in ctx.chord_pcs
+        and abs(ctx.prev_interval) <= 2
+        and ctx.recovery_pool is not None
+        and any(1 <= (candidate - r) * _sign(interval) <= 2 for r in ctx.recovery_pool)
+    )
+
+
+def smooth(a: int, b: int) -> bool:
+    """A move of at most a fifth that is not a tritone."""
+    return abs(b - a) <= SMOOTH_LIMIT and abs(b - a) != 6
+
+
+def feasible_sets(
+    candidates: Sequence[int], n_free: int, goal: Collection[int]
+) -> list[frozenset[int]]:
+    """Per free slot, the candidates from which ``goal`` stays reachable by smooth moves.
+
+    Built backward: the last free slot must move smoothly into ``goal``, each
+    earlier slot smoothly into the next slot's set.
+    """
+    sets: list[frozenset[int]] = []
+    nxt: Collection[int] = goal
+    for _ in range(n_free):
+        here = frozenset(c for c in candidates if any(smooth(c, x) for x in nxt))
+        sets.append(here)
+        nxt = here
+    return sets[::-1]
+
+
+def ranked_scores(
+    candidates: Sequence[int], ctx: NoteContext, tessitura_center: int
+) -> tuple[list[float], int]:
+    """Scores at the lowest ladder level with any finite score, and that level.
+
+    Level 0 keeps admissible candidates; level 1 only R1 and R2; level 2 is
+    the plain :func:`score_pitch`.
+    """
+    plain = [score_pitch(c, ctx, tessitura_center) for c in candidates]
+    for level, keep in enumerate((admissible, _melodic)):
+        scores = [s if keep(c, ctx) else -math.inf for c, s in zip(candidates, plain, strict=True)]
+        if any(math.isfinite(s) for s in scores):
+            return scores, level
+    return plain, 2
 
 
 def _sample(
@@ -251,6 +346,45 @@ def _candidates(
     return above
 
 
+def _plan_bar(
+    options: Sequence[list[int]],
+    final: bool,
+    approach: bool,
+    n_slots: int,
+    prev: int | None,
+    ref: int,
+    cadence: int | None,
+    final_approach: Collection[int],
+) -> tuple[list[int], int | None, list[frozenset[int]] | None] | None:
+    """The first option (candidates, target, feasibility sets) that can be entered.
+
+    Final bar: cadence pitches nearest ``ref`` first (the first try is
+    :func:`final_target`); approach bar: aim at ``final_approach``; any other
+    bar: some candidate a smooth move from ``prev``. ``None`` when no option
+    works.
+    """
+
+    def enters(feas: list[frozenset[int]]) -> bool:
+        return prev is None or any(smooth(prev, c) for c in feas[0])
+
+    for option in options:
+        if final:
+            targets = sorted(
+                (p for p in option if p % 12 == cadence), key=lambda p: (abs(p - ref), p)
+            )
+            for target in targets:
+                feas = feasible_sets(option, n_slots - 1, {target})
+                if (prev is None or smooth(prev, target)) if n_slots == 1 else enters(feas):
+                    return option, target, feas
+        elif approach:
+            feas = feasible_sets(option, n_slots, final_approach)
+            if enters(feas):
+                return option, None, feas
+        elif prev is None or any(smooth(prev, p) for p in option):
+            return option, None, None
+    return None
+
+
 def generate_melody(
     *,
     scale: Scale,
@@ -289,7 +423,17 @@ def generate_melody(
         bars = _phrase_bars(n_bars, beat_s, rng, velocity_strong, v_mid, velocity_weak)
     else:
         bars = _grid_bars(n_bars, beat_s, notes_per_bar, velocity_strong, v_mid, velocity_weak)
+    if not bars:  # legacy grid over no bars: nothing to play, as in v2
+        return []
     lead, tonic = leading_tone_pc(scale), tonic_pc(scale)
+    # A one-note final bar is entered from the bar before it, so that bar
+    # aims at the final chord's cadence pitches, at or above its floor if any.
+    final_pc = cadence_pc(scale, progression[-1])
+    final_approach = [p for p in range(pitch_low, pitch_high + 1) if p % 12 == final_pc]
+    final_floor = chord_floors[-1] if chord_floors is not None else None
+    if final_floor is not None and any(p >= final_floor for p in final_approach):
+        final_approach = [p for p in final_approach if p >= final_floor]
+    one_note_final = len(bars[-1].slots) == 1
 
     out: list[Note] = []
     prev: int | None = None
@@ -301,22 +445,23 @@ def generate_melody(
         chord = progression[chord_idx]
         tones = frozenset(chord_pcs(chord))
         floor = chord_floors[chord_idx] if chord_floors is not None else None
-        candidates = _candidates(
-            scale,
-            chord,
-            pitch_low,
-            pitch_high,
-            floor,
-            prev,
-            cadence_pc(scale, chord) if bar.final else None,
-        )
-        if not candidates:
+        n = len(bar.slots)
+        approach_bar = one_note_final and bar_idx == len(bars) - 2
+        cadence = cadence_pc(scale, chord) if bar.final else None
+        floored = _candidates(scale, chord, pitch_low, pitch_high, floor, prev, cadence)
+        if not floored:
             raise ValueError("Scale has no pitches in the requested range.")
-        target = (
-            final_target(scale, chord, candidates, prev if prev is not None else tessitura_center)
-            if bar.final
-            else None
-        )
+        unfloored = _candidates(scale, chord, pitch_low, pitch_high, None, prev, cadence)
+        options = [floored] if unfloored == floored else [floored, unfloored]
+        ref = prev if prev is not None else tessitura_center
+        choice = _plan_bar(options, bar.final, approach_bar, n, prev, ref, cadence, final_approach)
+        if choice is None:  # no smooth way through: v2's bar, and the ladder per note
+            choice = (
+                floored,
+                final_target(scale, chord, floored, ref) if bar.final else None,
+                None,
+            )
+        candidates, target, feas = choice
         motif = bar_intervals[bar.motif_from] if bar.motif_from is not None else None
         here: list[int] = []
         for k, slot in enumerate(bar.slots):
@@ -342,8 +487,16 @@ def generate_melody(
                     target=target,
                     cadence_end=bar.cadence and last,
                     resolve_up=resolve_up,
+                    chord_change=prev_chord is not None and chord != prev_chord,
+                    prev_chord_tone=prev is not None and prev % 12 in tones,
+                    recovery_pool=(
+                        frozenset(candidates)
+                        if k + 1 < n and not bar.final and not approach_bar
+                        else None
+                    ),
+                    allowed=feas[k] if feas else None,
                 )
-                scores = [score_pitch(c, ctx, tessitura_center) for c in candidates]
+                scores, _ = ranked_scores(candidates, ctx, tessitura_center)
                 pitch = _sample(candidates, scores, rng, prev)
             interval = pitch - prev if prev is not None else 0
             here.append(interval)

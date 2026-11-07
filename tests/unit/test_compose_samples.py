@@ -2,8 +2,8 @@
 
 Each command produced a faulty chord voicing and an over-wide melodic leap
 (docs/superpowers/specs/2026-11-07-compose-voicings-leaps-design.md section 2.1).
-The tests assert musical facts only; the strict xfail markers are removed by
-the voicing and melody fixes.
+The tests assert musical facts only; they were strict xfails until the voicing
+fix (composer v2 shapes) and the melody fix (composer v3).
 """
 
 from __future__ import annotations
@@ -117,16 +117,10 @@ def test_sample_voicings_are_faithful(name: str, tmp_path: Path) -> None:
         assert fingers_needed(frets) <= 4, f"audit fingers: {chord.to_label()}"
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(k, marks=pytest.mark.xfail(strict=True, reason="melodic leaps (Task 6)"))
-        for k in SAMPLES
-    ],
-)
+@pytest.mark.parametrize("name", list(SAMPLES))
 def test_sample_melodies_are_singable(name: str, tmp_path: Path) -> None:
-    # Musical assertions only, in a fixed order (spec section 5.6). No version
-    # check here: it would mask these assertions while the composer is still v2.
+    # Musical assertions only, in a fixed order (spec section 5.6); the version
+    # is checked separately below.
     args = SAMPLES[name]
     out = _run(args, tmp_path)
     mel = [Note(**d) for d in out["melody_notes"]]
@@ -146,3 +140,8 @@ def test_sample_commands_are_deterministic(name: str, tmp_path: Path) -> None:
     a = _run(SAMPLES[name], tmp_path / "a")
     b = _run(SAMPLES[name], tmp_path / "b")
     assert a["melody_notes"] == b["melody_notes"] and a["chord_voicings"] == b["chord_voicings"]
+
+
+def test_sample_metadata_reports_composer_version_3(tmp_path: Path) -> None:
+    out = _run(SAMPLES["minor-10-B"], tmp_path)
+    assert out["metadata"]["composer_version"] == 3
