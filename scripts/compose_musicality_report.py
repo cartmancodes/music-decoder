@@ -3,11 +3,16 @@
     python scripts/compose_musicality_report.py
     python scripts/compose_musicality_report.py \
         --write tests/fixtures/compose/musicality_baseline.json
+    python scripts/compose_musicality_report.py --matrices all \
+        --write tests/fixtures/compose/musicality_v2.json
 
 The committed baseline was written with ``--write`` on the pre-change
 composer (commit recorded in the JSON's ``"source"``: ``69c2fa7``, the
 last commit before the composer changed); re-running it now measures the
-current composer on the same inputs. The recorded label comes from
+current composer on the same inputs. ``musicality_v2.json`` is the same
+report for the v2 composer, written with ``--matrices all`` (it also holds the
+holdout and reserve numbers); the default, ``development``, builds only the
+validation, edge and tunings matrices. The recorded label comes from
 ``git describe --always --dirty``, so a run from a modified tree is marked
 ``-dirty``.
 """
@@ -19,7 +24,21 @@ import json
 import subprocess
 from pathlib import Path
 
-from music_decoder.evaluation.compose_musicality import evaluate
+from music_decoder.evaluation.compose_musicality import (
+    ACCEPTANCE_MATRICES,
+    ALL_MATRICES,
+    DEVELOPMENT_MATRICES,
+    RESERVE_MATRICES,
+    evaluate,
+    format_report,
+)
+
+MATRICES = {
+    "development": DEVELOPMENT_MATRICES,
+    "acceptance": ACCEPTANCE_MATRICES,
+    "reserve": RESERVE_MATRICES,
+    "all": ALL_MATRICES,
+}
 
 
 def _git_head() -> str:
@@ -34,12 +53,12 @@ def _git_head() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", type=Path, help="write the summary JSON here")
+    parser.add_argument(
+        "--matrices", choices=sorted(MATRICES), default="development", help="default: development"
+    )
     args = parser.parse_args()
-    report = evaluate()
-    for matrix, groups in report.items():
-        print(f"== {matrix}")
-        for key, stats in groups["overall"].items():
-            print(f"  {key:16s} " + "  ".join(f"{k}={v:g}" for k, v in stats.items()))
+    report = evaluate(MATRICES[args.matrices])
+    print(format_report(report))
     if args.write:
         args.write.parent.mkdir(parents=True, exist_ok=True)
         payload = {"source": _git_head(), **report}
