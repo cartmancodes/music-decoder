@@ -254,14 +254,20 @@ def test_nearest_pitch_proximity_is_not_a_voice_leading_score():
     assert m.nearest_pitch_proximity([wide, collapsed], STANDARD_EADGBE) == 0.0
 
 
-def test_shape_tone_mismatch_reports_inherited_shape_defects():
+def test_shape_tone_mismatch_reports_shape_defects():
     assert m.shape_tone_mismatch(shape("C"), STANDARD_EADGBE) == (frozenset(), frozenset())
-    # The canonical C#dim shape (x x 2 3 2 x -> E A# C#) lacks the diminished
-    # fifth G and adds A#; H1 cannot see this because it is shape-relative.
-    missing, foreign = m.shape_tone_mismatch(shape("C#dim"), STANDARD_EADGBE)
+    # The old C#dim shape (x x 2 3 2 x -> E A# C#) lacked the diminished fifth G
+    # and added A#; H1 cannot see this because it is shape-relative.
+    old = VoicedChord(
+        chord=ChordSymbol.parse("C#dim"),
+        positions=tuple(TabPosition(string=s, fret=f) for s, f in enumerate((-1, -1, 2, 3, 2, -1))),
+    )
+    missing, foreign = m.shape_tone_mismatch(old, STANDARD_EADGBE)
     assert missing == frozenset({7}) and foreign == frozenset({10})
     acc = [n(0, 4, 52), n(0, 4, 58), n(0, 4, 61)]
-    assert m.essential_tone_coverage([], acc, [shape("C#dim")], 1, TEMPO, STANDARD_EADGBE) == [True]
+    assert m.essential_tone_coverage([], acc, [old], 1, TEMPO, STANDARD_EADGBE) == [True]
+    # the repaired library shape has neither defect
+    assert m.shape_tone_mismatch(shape("C#dim"), STANDARD_EADGBE) == (frozenset(), frozenset())
 
 
 def test_cadence_identity_checks_the_held_final_note():

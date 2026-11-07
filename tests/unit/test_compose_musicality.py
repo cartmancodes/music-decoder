@@ -22,6 +22,7 @@ from music_decoder.evaluation.compose_musicality import STYLES, evaluate
 from music_decoder.types import ChordSymbol, Scale
 
 BASELINE_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_baseline.json"
+V2_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
 GROUPS = ("overall", "major", "minor", "bars1", "bars2")
 
 # Higher is better / lower is better; every subgroup must beat the baseline.
@@ -49,6 +50,11 @@ def report():
 @pytest.fixture(scope="module")
 def baseline():
     return json.loads(BASELINE_PATH.read_text())
+
+
+@pytest.fixture(scope="module")
+def v2():
+    return json.loads(V2_PATH.read_text())
 
 
 def _mean(report, metric, matrix="validation", group="overall"):
@@ -140,15 +146,15 @@ def test_relative_clash_reduction(report, baseline):
         assert c <= 0.7 * b, f"{metric}: {b} -> {c}"
 
 
-def test_guards_do_not_regress(report, baseline):
+def test_guards_do_not_regress(report, baseline, v2):
     for matrix in ("validation", "edge"):
         cand, base = report[matrix]["overall"], baseline[matrix]["overall"]
-        assert cand["V1"]["mean"] <= base["V1"]["mean"] + 1e-9  # shapes are unchanged
+        # The library shapes are repaired (spec section 6.2), so V1 (semitones per
+        # voice) moves; it may rise by at most 0.1 over the v2 composer.
+        assert cand["V1"]["mean"] <= v2[matrix]["overall"]["V1"]["mean"] + 0.1
         assert cand["M11a"]["mean"] >= base["M11a"]["mean"] - 0.05
-        # inherited shape defects (e.g. the canonical C#dim/Ddim shapes) are
-        # reported, unchanged: H1 is shape-relative and cannot hide new ones
-        for key in ("S1.missing", "S1.foreign"):
-            assert cand[key] == base[key]
+        # every shape is faithful: nothing missing, nothing foreign, anywhere
+        assert cand["S1.missing"]["max"] == 0 and cand["S1.foreign"]["max"] == 0
         for style in STYLES:  # cadence identity never below the old composer's
             assert cand[f"H2.{style}"]["mean"] >= base[f"H2.{style}"]["mean"]
 

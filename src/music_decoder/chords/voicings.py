@@ -4,6 +4,13 @@ Each voicing is a 6-tuple, low-to-high (E, A, D, G, B, e), where -1 = muted,
 0 = open, and positive ints are fret numbers. Open-position voicings are used
 where standard; barre voicings (with the bass on E or A string) cover the rest.
 
+Every shape is faithful and playable (the composer plays these as written):
+at least three sounding strings, no tone outside the chord, the chord root as
+the lowest sounding note, every chord tone present (a four-note chord may omit
+its perfect fifth), a fretted span of at most 3 frets, and at most four
+fretting fingers under a straight-barre model. The unit test
+``test_every_library_shape_is_faithful_and_playable`` audits every entry.
+
 These are display-only -- the runtime tab assigner is unrelated.
 """
 
@@ -44,9 +51,9 @@ VOICINGS: dict[str, tuple[int, int, int, int, int, int]] = {
     "Bm": (-1, 2, 4, 4, 3, 2),
     # ---- Dominant 7th chords
     "C7": (-1, 3, 2, 3, 1, 0),
-    "C#7": (-1, 4, 3, 4, 2, 1),
+    "C#7": (-1, 4, 6, 4, 6, 4),
     "D7": (-1, -1, 0, 2, 1, 2),
-    "D#7": (-1, 6, 5, 6, 4, 3),
+    "D#7": (-1, 6, 8, 6, 8, 6),
     "E7": (0, 2, 0, 1, 0, 0),
     "F7": (1, 3, 1, 2, 1, 1),
     "F#7": (2, 4, 2, 3, 2, 2),
@@ -61,7 +68,7 @@ VOICINGS: dict[str, tuple[int, int, int, int, int, int]] = {
     "Dmaj7": (-1, -1, 0, 2, 2, 2),
     "D#maj7": (-1, 6, 5, 3, 3, 3),
     "Emaj7": (0, 2, 1, 1, 0, 0),
-    "Fmaj7": (-1, 3, 3, 2, 1, 0),
+    "Fmaj7": (-1, -1, 3, 2, 1, 0),
     "F#maj7": (2, 4, 3, 3, 2, 2),
     "Gmaj7": (3, 2, 0, 0, 0, 2),
     "G#maj7": (4, 6, 5, 5, 4, 4),
@@ -83,9 +90,9 @@ VOICINGS: dict[str, tuple[int, int, int, int, int, int]] = {
     "Bm7": (-1, 2, 4, 2, 3, 2),
     # ---- Diminished triads (Phase B-3)
     "Cdim": (-1, 3, 4, 5, 4, -1),
-    "C#dim": (-1, -1, 2, 3, 2, -1),
-    "Ddim": (-1, -1, 0, 1, 0, 1),
-    "D#dim": (-1, -1, 1, 2, 1, 2),
+    "C#dim": (-1, 4, 5, 6, 5, -1),
+    "Ddim": (-1, -1, 0, 1, 3, 1),
+    "D#dim": (-1, -1, 1, 2, 4, 2),
     "Edim": (0, 1, 2, 0, -1, -1),
     "Fdim": (1, 2, 3, 1, -1, -1),
     "F#dim": (2, 3, 4, 2, -1, -1),
@@ -116,7 +123,7 @@ VOICINGS: dict[str, tuple[int, int, int, int, int, int]] = {
     "Faug": (-1, -1, 3, 2, 2, 1),
     "F#aug": (-1, -1, 4, 3, 3, 2),
     "Gaug": (-1, -1, 5, 4, 4, 3),
-    "G#aug": (-1, -1, 2, 1, 1, 0),
+    "G#aug": (-1, -1, 6, 5, 5, 4),
     "Aaug": (-1, 0, 3, 2, 2, 1),
     "A#aug": (-1, 1, 4, 3, 3, 2),
     "Baug": (-1, 2, 5, 4, 4, 3),

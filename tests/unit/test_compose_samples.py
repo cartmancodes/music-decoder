@@ -93,7 +93,6 @@ def _shapes(out: dict[str, Any]) -> list[tuple[ChordSymbol, list[int]]]:
 
 
 VOICING_XFAIL = {
-    "minor-10-B": "C#dim library shape (Task 4)",
     "major-08-Ab": "Eb7 collapses in Eb tuning (Task 5)",
     "major-09-Eb": "Bb7 bass is the open D in D standard (Task 5)",
 }
@@ -103,6 +102,8 @@ VOICING_XFAIL = {
     "name",
     [
         pytest.param(k, marks=pytest.mark.xfail(strict=True, reason=VOICING_XFAIL[k]))
+        if k in VOICING_XFAIL
+        else k
         for k in SAMPLES
     ],
 )

@@ -2,6 +2,9 @@
 import pytest
 
 from music_decoder.chords.voicings import VOICINGS, voicing_for
+from music_decoder.compose.voicings import fingers_needed, shape_faults
+from music_decoder.tabs.tuning import STANDARD_EADGBE
+from music_decoder.types import ChordSymbol
 
 
 def test_c_major_open_position():
@@ -67,3 +70,32 @@ def test_all_chords_have_voicings():
             if label not in VOICINGS:
                 missing.append(label)
     assert missing == [], f"Voicings missing for: {missing}"
+
+
+def test_every_library_shape_is_faithful_and_playable():
+    bad = {}
+    for label, v in VOICINGS.items():
+        if label == "N":
+            continue
+        fretted = [f for f in v if f > 0]
+        span = max(fretted) - min(fretted) if fretted else 0
+        faults = shape_faults(v, STANDARD_EADGBE, ChordSymbol.parse(label))
+        if faults or span > 3 or fingers_needed(v) > 4:
+            bad[label] = (faults, span, fingers_needed(v))
+    assert bad == {}
+
+
+@pytest.mark.parametrize(
+    ("label", "frets"),
+    [
+        ("C#dim", (-1, 4, 5, 6, 5, -1)),  # C#3 G3 C#4 E4
+        ("Ddim", (-1, -1, 0, 1, 3, 1)),  # D3 G#3 D4 F4
+        ("D#dim", (-1, -1, 1, 2, 4, 2)),  # D#3 A3 D#4 F#4
+        ("Fmaj7", (-1, -1, 3, 2, 1, 0)),  # F3 A3 C4 E4
+        ("G#aug", (-1, -1, 6, 5, 5, 4)),  # G#3 C4 E4 G#4
+        ("C#7", (-1, 4, 6, 4, 6, 4)),  # C#3 G#3 B3 F4 G#4 (v2 x43421 needs 5 fingers)
+        ("D#7", (-1, 6, 8, 6, 8, 6)),  # D#3 A#3 C#4 G4 A#4 (v2 x65643 needs 5 fingers)
+    ],
+)
+def test_repaired_shapes(label, frets):
+    assert VOICINGS[label] == frets
