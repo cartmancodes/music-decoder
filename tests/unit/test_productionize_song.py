@@ -207,6 +207,15 @@ def test_strings_double_the_chords_from_hook_2_and_tail_rings(composer_midi):
     assert tail and all(n.end_s == pytest.approx(song.tail_start_s + 8 * g.beat_s) for n in tail)
 
 
+@pytest.mark.parametrize("tempo, held_s", [(70.0, 4.5), (92.0, 4.5), (120.0, 4.0)])
+def test_final_strings_chord_ends_before_the_fade_out(composer_midi, tempo, held_s):
+    """Strings don't decay; at slow tempos 8 beats would ring into the last 50 ms."""
+    song = song_from_midi(composer_midi, tempo_bpm=tempo)
+    tail = [n for n in song.strings if n.start_s >= song.tail_start_s - 1e-9]
+    assert tail
+    assert all(n.end_s - song.tail_start_s == pytest.approx(held_s) for n in tail)
+
+
 def test_song_from_composition_uses_its_metadata(composer_midi):
     composition = Composition(
         midi_path=composer_midi,

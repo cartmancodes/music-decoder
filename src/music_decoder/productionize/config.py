@@ -139,6 +139,10 @@ class ComposerArrangeConfig:
     strings_voices: int = 4
     strings_velocity: int = 56
     strings_beats: float = 4.0
+    # The strings do not decay on their own, so their final chord ends by the
+    # time the mix fade-out starts (MixConfig: 7 s tail - 2.5 s fade). Held
+    # for ``tail_beats`` at slow tempos they are still loud in the last 50 ms.
+    strings_tail_max_s: float = 4.5
     # Bass roots are folded into this MIDI range (E1..D#2).
     bass_low: int = 28
     bass_high: int = 39

@@ -288,8 +288,9 @@ def song_from_midi(
         )
     )
     if any(s.strings for s in sections):
+        strings_end = tail + min(cfg.tail_beats * beat, cfg.strings_tail_max_s)
         strings.extend(
-            NoteEvent(tail, tail + cfg.tail_beats * beat, p, cfg.strings_velocity)
+            NoteEvent(tail, strings_end, p, cfg.strings_velocity)
             for p in chords[-1][-cfg.strings_voices :]
         )
 
