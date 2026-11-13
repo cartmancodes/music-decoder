@@ -93,10 +93,10 @@ _setup_main() {
     local sudo_cmd=""
     [[ $EUID -ne 0 ]] && sudo_cmd="sudo"
     if command -v apt-get >/dev/null 2>&1; then
-      log "apt install ffmpeg libfluidsynth3 libsndfile1 build-essential pkg-config python3.11 python3.11-venv python3.11-dev"
+      log "apt install ffmpeg fluidsynth libfluidsynth3 libsndfile1 build-essential pkg-config python3.11 python3.11-venv python3.11-dev"
       $sudo_cmd apt-get update
       $sudo_cmd apt-get install -y --no-install-recommends \
-        ffmpeg libfluidsynth3 libsndfile1 \
+        ffmpeg fluidsynth libfluidsynth3 libsndfile1 \
         build-essential pkg-config \
         python3.11 python3.11-venv python3.11-dev
     elif command -v dnf >/dev/null 2>&1; then

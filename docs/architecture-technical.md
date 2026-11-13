@@ -1375,3 +1375,80 @@ and composition output folders).
 - madmom: <https://github.com/CPJKU/madmom>
 - yt-dlp: <https://github.com/yt-dlp/yt-dlp>
 - FluidSynth: <https://www.fluidsynth.org/>
+
+---
+
+## 17. Production chain: `productionize()`
+
+Package `music_decoder.productionize` renders a composition as a mastered
+instrumental. It is separate from the frozen top-level API: import
+`productionize` from the package itself.
+
+### 17.1 Flow
+
+```text
+source (Composition | take folder | composer MIDI | Song)
+  -> song.py        Song: grid, sections, bass roots, piano + strings notes
+  -> mix.py         each bus rendered and levelled alone, then summed
+       drums.py       multi-mic kit, pattern on 8th notes, bus compressor
+       bass.py        one continuous-phase sine, ducked by the kick
+       piano.py       Salamander sampler, pedal + re-strike rules, hall send
+       strings.py     FluidSynth CLI, band-limited, faded in
+       percussion.py  optional shaker / tambourine / congas
+  -> master.py      25 Hz high-pass, glue compressor, 4x soft clipper,
+                    look-ahead true-peak limiter, loudness loop, WAV + MP3
+  -> qc.py          acceptance checks on the WAV and the decoded MP3
+```
+
+### 17.2 Modules
+
+| Module | Holds |
+|---|---|
+| `config.py` | Every level, EQ band and time constant, as frozen dataclasses; the Hisaab grid, form and reference values |
+| `dsp.py` | RBJ biquads, Butterworth filters, block compressor, synthetic reverb, oversampling |
+| `samples.py` | Sample sources pinned to a commit, download, loading, resampling, round robin |
+| `song.py` | `Song`, the composer-to-form layout, the reference song |
+| `instruments/` | One module per element; each returns an unlevelled stereo bus |
+| `mix.py` | Bus levels (verse RMS), mono low end, air shelf, fade-out |
+| `master.py` | The master chain and export |
+| `qc.py` | Measurements and the pass/fail report |
+| `api.py` | `productionize()` and `Production` |
+
+Levels are RMS over the verse sections. A `Song` without verses falls
+back to its full-drum sections, then to all sections.
+
+### 17.3 Decisions worth knowing
+
+- **Notes come from the song, sound from the config.** A different song
+  is a different `Song`; a different sound is a different
+  `ProductionConfig`. No module hard-codes a level.
+- **Composer layout.** The composer writes one pass over its
+  progression, ending on a ringing chord. Each section replays that
+  pass. Verses replace the accompaniment with one rolled, held chord
+  per bar (the distinct accompaniment pitches of the bar), because
+  repeated short chord stabs were rejected in listening.
+- **Mono low end is zero-phase.** The low band is taken with
+  `sosfiltfilt`. With a causal low-pass, `mix - low + mean(low)` leaves
+  most of the stereo difference below the crossover in place (the
+  phase shift stops the subtraction from cancelling). Every other
+  filter is causal.
+- **Octave bands are measured on the mono sum** from a Hann short-time
+  spectrum (2048 points), after matching the mono sum to -10 LUFS. This
+  reproduces the reference values of the Hisaab master within about
+  1 dB per band; a stereo or filter-bank measurement of the same audio
+  reads 2 to 9 dB differently in some bands.
+- **The beat tracker starts from the expected tempo.** With librosa's
+  default 120 BPM prior, a slow backbeat with 8th-note hats reads as
+  double time. For songs without a reference master, half and double
+  time also pass.
+- **Sample URLs are pinned to a commit** of each sample repository, and
+  a download is accepted only if it starts with a FLAC or WAV header.
+
+### 17.4 Tests
+
+`tests/unit/test_productionize_*.py` run offline on generated samples
+(`tests/productionize_helpers.py`), including one end-to-end render.
+`tests/integration/test_productionize_e2e.py` renders the reference
+song and a composer take with the real samples and requires every
+acceptance check to pass; it needs ffmpeg, fluidsynth and network on
+its first run.

@@ -19,7 +19,7 @@ what it's playing. You can also flip it around and have it write a new
 piece of music for you. Everything runs on your own laptop — no servers,
 no accounts, no upload of your audio anywhere.
 
-There are three things it does. Each one is a self-contained feature.
+There are four things it does. Each one is a self-contained feature.
 
 ---
 
@@ -85,6 +85,23 @@ seed, get a different piece.
 
 Why this matters: it's a fast way to sketch an idea — pick a scale and
 some chords, hit a button, hear it. No music theory degree required.
+
+---
+
+## Feature 4: Make that piece sound like a record
+
+The composition from Feature 3 is a sketch: a guitar-like melody and
+accompaniment. `productionize` turns it into a finished instrumental you
+could release. It lays the sketch out as a song (intro, hook, four
+verses, second hook, outro), plays it on a sampled grand piano, adds a
+real recorded drum kit playing a steady hip-hop backbeat, a deep bass
+that follows the chords, and strings that swell in near the end. Then it
+masters the result to streaming loudness and writes a WAV, an MP3 and
+the separate instrument tracks.
+
+It also checks its own work: loudness, peaks, timing of every drum hit,
+and whether the track still sounds right in mono. The checks catch
+technical faults; whether it sounds good is still for your ears.
 
 ---
 
