@@ -1408,6 +1408,7 @@ source (Composition | take folder | composer MIDI | Song)
 | `dsp.py` | RBJ biquads, Butterworth filters, block compressor, synthetic reverb, oversampling |
 | `samples.py` | Sample sources pinned to a commit, download, loading, resampling, round robin |
 | `song.py` | `Song`, the composer-to-form layout, the reference song |
+| `verse.py` | Verse writing: per-bar harmony, voice-led piano voicings, the guide-line search, the hook skeleton |
 | `instruments/` | One module per element; each returns an unlevelled stereo bus |
 | `mix.py` | Bus levels (verse RMS), mono low end, air shelf, fade-out |
 | `master.py` | The master chain and export |
@@ -1427,6 +1428,16 @@ back to its full-drum sections, then to all sections.
   pass. Verses replace the accompaniment with one rolled, held chord
   per bar (the distinct accompaniment pitches of the bar), because
   repeated short chord stabs were rejected in listening.
+- **Verse styles** (`--verse`, `ComposerArrangeConfig.verse_style`). The
+  voice-led voicing per bar is the right-hand set of chord tones (always
+  the third and seventh, no two a semitone apart, G3-A4) that moves the
+  fewest semitones from the previous bar, solved once around the loop.
+  The guide line is a Viterbi search over each bar's chord tones and
+  in-scale ninth: steps cost nothing, repeats and leaps cost more,
+  returning to the note of two bars before costs 0.6, thirds and sevenths
+  are preferred, and the last note must lead back to the first. Under a
+  skeleton melody the voicing is capped a minor third below the tune.
+  `held` (the default) reproduces the original verse exactly.
 - **Mono low end is zero-phase.** The low band is taken with
   `sosfiltfilt`. With a causal low-pass, `mix - low + mean(low)` leaves
   most of the stereo difference below the crossover in place (the

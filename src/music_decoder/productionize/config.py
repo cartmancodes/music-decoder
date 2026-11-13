@@ -13,7 +13,7 @@ a composer output or from a note file.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 SAMPLE_RATE = 44_100
@@ -21,6 +21,8 @@ SAMPLE_RATE = 44_100
 DrumMode = Literal["none", "light", "full", "outro"]
 SectionRole = Literal["intro", "hook", "verse", "outro"]
 PianoTexture = Literal["as_composed", "held_chords", "accompaniment_only"]
+ChordVoicing = Literal["shapes", "voice_led"]
+VerseMelody = Literal["full", "skeleton", "guide_line"]
 EqKind = Literal["peak", "low_shelf", "high_shelf"]
 
 
@@ -74,6 +76,10 @@ class SectionSpec:
     # Used only when the notes come from the composer (see song.py).
     piano_texture: PianoTexture = "as_composed"
     piano_velocity_offset: int = 0
+    # For "held_chords" only: the composer's guitar shapes or piano voicings,
+    # and the whole melody, its notes on beats 1 and 3, or one note a bar.
+    chord_voicing: ChordVoicing = "shapes"
+    verse_melody: VerseMelody = "full"
 
 
 # Slope of a straight-line fit to the original loop's 13 note onsets.
@@ -94,6 +100,7 @@ HISAAB_SECTIONS: tuple[SectionSpec, ...] = (
 
 # The same form for composer output. The composer writes one pass over the
 # progression; each section replays it with the texture named here.
+# ``composer_sections`` swaps in another verse style (see VERSE_STYLES).
 COMPOSER_SECTIONS: tuple[SectionSpec, ...] = (
     SectionSpec(
         "Intro",
@@ -123,6 +130,41 @@ COMPOSER_SECTIONS: tuple[SectionSpec, ...] = (
 )
 
 
+# Verse styles for composer songs: (voicing, melody) of verses 1, 2, 3, 4
+# (a shorter list repeats).
+VERSE_STYLES: dict[str, tuple[tuple[ChordVoicing, VerseMelody], ...]] = {
+    # The composer's chord shapes held under the whole hook melody.
+    "held": (("shapes", "full"),),
+    # Piano voicings with smooth voice leading; one held note a bar from a
+    # stepwise line over the chord tones (the Hisaab verse).
+    "guide-line": (("voice_led", "guide_line"),),
+    # Piano voicings; the hook melody's notes on beats 1 and 3 only.
+    "skeleton": (("voice_led", "skeleton"),),
+    # Verses 1-2 as guide-line, verses 3-4 as skeleton: the verse builds.
+    "build": (
+        ("voice_led", "guide_line"),
+        ("voice_led", "guide_line"),
+        ("voice_led", "skeleton"),
+        ("voice_led", "skeleton"),
+    ),
+}
+
+
+def composer_sections(verse_style: str = "held") -> tuple[SectionSpec, ...]:
+    """The composer form with ``verse_style`` (a key of VERSE_STYLES) in its verses."""
+    if verse_style not in VERSE_STYLES:
+        raise ValueError(f"Unknown verse style {verse_style!r}; choose from {sorted(VERSE_STYLES)}")
+    plan = VERSE_STYLES[verse_style]
+    out, verse = [], 0
+    for section in COMPOSER_SECTIONS:
+        if section.role == "verse":
+            voicing, melody = plan[verse % len(plan)]
+            section = replace(section, chord_voicing=voicing, verse_melody=melody)
+            verse += 1
+        out.append(section)
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class ComposerArrangeConfig:
     """How composer notes become the piano and strings parts."""
@@ -146,6 +188,22 @@ class ComposerArrangeConfig:
     # Bass roots are folded into this MIDI range (E1..D#2).
     bass_low: int = 28
     bass_high: int = 39
+    # Verse style (a key of VERSE_STYLES) when no section list is given.
+    verse_style: str = "held"
+    # Voice-led piano voicings: left-hand root (+ fifth) from E2 up, and
+    # right-hand chord tones (always the third and seventh) in G3..A4.
+    lh_low: int = 40
+    rh_low: int = 55
+    rh_high: int = 69
+    rh_voices: int = 3
+    # Guide line: one note a bar at this 16th, at least this far above the
+    # bar's chord and no higher than the hook melody.
+    line_step: float = 10.0
+    line_beats: float = 1.4
+    line_velocity: int = 72
+    line_min_gap: int = 3
+    # Skeleton: the melody notes sounding at these 16ths of each bar.
+    skeleton_steps: tuple[float, ...] = (0.0, 8.0)
 
 
 # ---- Shared DSP blocks -----------------------------------------------------
@@ -672,7 +730,6 @@ def with_percussion(
     config: ProductionConfig, layers: tuple[PercussionLayer, ...]
 ) -> ProductionConfig:
     """``config`` with the given percussion layers switched on."""
-    from dataclasses import replace
 
     for layer in layers:
         if layer.option not in PERCUSSION_OPTIONS:

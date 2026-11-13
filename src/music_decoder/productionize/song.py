@@ -21,7 +21,6 @@ import pretty_midi
 
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize.config import (
-    COMPOSER_SECTIONS,
     HISAAB_BAR_ROOTS,
     HISAAB_GRID,
     HISAAB_SECTIONS,
@@ -30,8 +29,16 @@ from music_decoder.productionize.config import (
     Grid,
     QcReference,
     SectionSpec,
+    composer_sections,
 )
-from music_decoder.types import VALID_TONICS, ChordSymbol, Composition
+from music_decoder.productionize.verse import (
+    bar_harmonies,
+    guide_lines,
+    left_hand,
+    skeleton_pitches,
+    voice_led_voicings,
+)
+from music_decoder.types import VALID_TONICS, ChordSymbol, Composition, Scale
 
 
 class ProductionError(MusicDecoderError):
@@ -172,18 +179,23 @@ def song_from_midi(
     *,
     tempo_bpm: float | None = None,
     progression: Sequence[ChordSymbol] | None = None,
+    scale: Scale | None = None,
     title: str = "Composition (Instrumental)",
     key: str = "",
-    sections: tuple[SectionSpec, ...] = COMPOSER_SECTIONS,
+    sections: tuple[SectionSpec, ...] | None = None,
     arrange: ComposerArrangeConfig | None = None,
 ) -> Song:
     """Lay a composer MIDI file (one pass over its progression) over the form.
 
     The tempo comes from the file unless given. Each bar's bass root is the
     root of ``progression`` when given, else the lowest accompaniment note
-    of the bar.
+    of the bar. ``scale`` (else the pitch classes the file uses) decides
+    which ninths a verse line may use. Without ``sections`` the form is the
+    composer form with the verse style of ``arrange``.
     """
     cfg = arrange or ComposerArrangeConfig()
+    if sections is None:
+        sections = composer_sections(cfg.verse_style)
     pm = _load_midi(midi_path)
     by_name = {inst.name.lower(): inst for inst in pm.instruments if not inst.is_drum}
     pitched = [inst for inst in pm.instruments if not inst.is_drum]
@@ -236,6 +248,47 @@ def song_from_midi(
         raise ProductionError("bass range must span an octave (bass_high >= bass_low + 11)")
 
     last_bar_start = (n_bars - 1) * bar - snap
+    harmonies = bar_harmonies(
+        chords,
+        root_pcs,
+        progression=progression,
+        scale=scale,
+        all_pitches=[n.pitch for n in (*melody, *accompaniment)],
+    )
+    voicings = voice_led_voicings(harmonies, cfg)
+
+    def with_left_hand(rhs: Sequence[tuple[int, ...]]) -> list[list[int]]:
+        return [sorted({*left_hand(h, cfg), *rh}) for h, rh in zip(harmonies, rhs, strict=True)]
+
+    piano_chords = with_left_hand(voicings)
+    hook_top = max((n.pitch for n in melody), default=max(chords[0]) + 12)
+    hook_pcs = [frozenset(n.pitch % 12 for n in melody if bar_of(n) == b) for b in range(n_bars)]
+
+    def line_for(tops: Sequence[int]) -> tuple[int, ...]:
+        floors = [top + cfg.line_min_gap for top in tops]
+        return guide_lines(harmonies, floors, hook_top, hook_pcs, limit=1)[0].pitches
+
+    lines = {
+        "shapes": line_for([max(c) for c in chords]),
+        "voice_led": line_for([max(rh) for rh in voicings]),
+    }
+    skeleton = skeleton_pitches(
+        [(n.start_s, n.end_s, n.pitch) for n in melody], bar, n_bars, cfg.skeleton_steps
+    )
+    # Under the skeleton the chord stays a minor third below the tune, as the
+    # composer's own accompaniment does.
+    skeleton_low = [
+        min((p for sb, _, p in skeleton if sb == b), default=None) for b in range(n_bars)
+    ]
+    skeleton_chords = with_left_hand(
+        voice_led_voicings(
+            harmonies,
+            cfg,
+            [None if low is None else low - cfg.line_min_gap for low in skeleton_low],
+        )
+    )
+    velocity_at = {(bar_of(n), n.pitch): n.velocity for n in melody}
+
     piano: list[NoteEvent] = []
     strings: list[NoteEvent] = []
     for index, section in enumerate(sections):
@@ -251,19 +304,50 @@ def song_from_midi(
 
         offset = section.piano_velocity_offset
         if section.piano_texture == "held_chords":
-            for b in range(n_bars - 1):
+            voice_led = section.chord_voicing == "voice_led"
+            if not voice_led:
+                bar_chords = chords
+            elif section.verse_melody == "skeleton":
+                bar_chords = skeleton_chords
+            else:
+                bar_chords = piano_chords
+            # Shapes keep the composer's own ringing chord in the last bar.
+            for b in range(n_bars if voice_led else n_bars - 1):
                 piano.extend(
                     _roll(
-                        chords[b],
+                        bar_chords[b],
                         t0 + b * bar,
                         cfg.roll_steps * grid.step_s,
                         cfg.held_chord_beats * beat,
                         _clamp_velocity(cfg.held_chord_velocity + offset),
                     )
                 )
-            # The last bar is the composer's own ringing chord.
-            piano.extend(place([n for n in accompaniment if n.start_s >= last_bar_start], offset))
-            piano.extend(place(melody, offset))
+            if not voice_led:
+                piano.extend(
+                    place([n for n in accompaniment if n.start_s >= last_bar_start], offset)
+                )
+            if section.verse_melody == "guide_line":
+                for b, pitch in enumerate(lines[section.chord_voicing]):
+                    start = t0 + b * bar + cfg.line_step * grid.step_s
+                    piano.append(
+                        NoteEvent(
+                            start,
+                            start + cfg.line_beats * beat,
+                            pitch,
+                            _clamp_velocity(cfg.line_velocity + offset),
+                        )
+                    )
+            elif section.verse_melody == "skeleton":
+                for b, step, pitch in skeleton:
+                    start = t0 + b * bar + step * grid.step_s
+                    velocity = velocity_at.get((b, pitch), cfg.line_velocity)
+                    piano.append(
+                        NoteEvent(
+                            start, start + 2 * beat, pitch, _clamp_velocity(velocity + offset)
+                        )
+                    )
+            else:
+                piano.extend(place(melody, offset))
         elif section.piano_texture == "accompaniment_only":
             piano.extend(place(accompaniment, offset))
         else:
@@ -309,7 +393,7 @@ def song_from_midi(
 def song_from_composition(
     composition: Composition,
     *,
-    sections: tuple[SectionSpec, ...] = COMPOSER_SECTIONS,
+    sections: tuple[SectionSpec, ...] | None = None,
     arrange: ComposerArrangeConfig | None = None,
 ) -> Song:
     """A :class:`Song` from what ``compose()`` returned (uses its metadata)."""
@@ -321,6 +405,7 @@ def song_from_composition(
         composition.midi_path,
         tempo_bpm=float(tempo) if tempo is not None else None,
         progression=[ChordSymbol.parse(str(label)) for label in labels] or None,
+        scale=Scale.parse(scale) if scale else None,
         title=f"Composition in {scale.replace(':', ' ')}" if scale else "Composition",
         key=_key_label(scale) if scale else "",
         sections=sections,

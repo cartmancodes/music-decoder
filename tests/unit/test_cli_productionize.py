@@ -135,3 +135,15 @@ def test_fetch_samples_downloads_into_the_given_folder(tmp_path):
     assert r.exit_code == 0
     store.assert_called_once_with(tmp_path)
     assert "146 samples" in r.output and "146 downloaded" in r.output
+
+
+def test_verse_style_is_passed_in_the_config(tmp_path):
+    with mock.patch("music_decoder.cli.main.productionize") as p:
+        p.return_value = _production(tmp_path)
+        r = CliRunner().invoke(
+            main, ["productionize", "take", "--out", str(tmp_path), "--verse", "build"]
+        )
+    assert r.exit_code == 0, r.output
+    assert p.call_args.kwargs["config"].arrange.verse_style == "build"
+    r = CliRunner().invoke(main, ["productionize", "take", "--out", str(tmp_path), "--verse", "x"])
+    assert r.exit_code != 0

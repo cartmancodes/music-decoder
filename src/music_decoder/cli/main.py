@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -30,6 +30,7 @@ from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
     PERCUSSION_OPTIONS,
+    VERSE_STYLES,
     PercussionLayer,
     with_percussion,
 )
@@ -247,6 +248,12 @@ def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
     default=False,
     help="render the reference song; SOURCE is then its note file (optional)",
 )
+@click.option(
+    "--verse",
+    type=click.Choice(sorted(VERSE_STYLES)),
+    default="held",
+    help="verse style for composer songs (see the usage guide)",
+)
 @click.option("--samples-dir", type=click.Path(file_okay=False), default=None)
 @click.option("--no-qc", is_flag=True, default=False, help="skip the acceptance checks")
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
@@ -259,6 +266,7 @@ def cli_productionize(
     progression: str | None,
     percussion: tuple[str, ...],
     hisaab: bool,
+    verse: str,
     samples_dir: str | None,
     no_qc: bool,
     fmt: str,
@@ -270,6 +278,7 @@ def cli_productionize(
     if source is None and not hisaab:
         raise click.UsageError("give a composition folder or MIDI file (or --hisaab)")
     config = with_percussion(ProductionConfig(), _parse_percussion(percussion))
+    config = replace(config, arrange=replace(config.arrange, verse_style=verse))
 
     def progress(stage: str, fraction: float) -> None:
         click.echo(f"  {stage} ...", err=True)

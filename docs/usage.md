@@ -343,6 +343,7 @@ music-decoder productionize SOURCE --out DIR [--name NAME]
                              [--title TITLE] [--key KEY]
                              [--progression "CHORDS..."]
                              [--percussion NAME[@SECTIONS]]...
+                             [--verse held | guide-line | skeleton | build]
                              [--samples-dir DIR] [--no-qc]
                              [--format pretty | json]
 ```
@@ -363,6 +364,15 @@ ceiling, and checked.
 - `--percussion` — add `shaker`, `tambourine` or `congas`; repeat the
   option for several. `NAME@1,6` limits one to those sections (numbered
   from 0; default sections 2-6). Off by default.
+- `--verse` — what the four verses play (default `held`):
+  - `held` — the composer's chord shapes held under the whole hook melody.
+  - `guide-line` — piano voicings (root and fifth low, third and seventh
+    in the middle) that move as little as possible between chords, and one
+    held note a bar from a stepwise line over the chord tones and the
+    in-scale ninth. Sparse, leaves room for a vocal.
+  - `skeleton` — the same voicings under the hook melody's notes on beats
+    1 and 3 only: the tune at half its density.
+  - `build` — verses 1-2 as `guide-line`, verses 3-4 as `skeleton`.
 - `--samples-dir` — where samples are kept (default
   `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`).
 - `--no-qc` — skip the acceptance checks.
@@ -374,7 +384,7 @@ plays that pass eight times, as eight sections, then a final chord:
 |---|---------|-------|-------|------|---------|
 | 0 | Intro | accompaniment only, soft, extra reverb | none | none | none |
 | 1 | Hook 1 | melody + accompaniment as composed | light | yes | none |
-| 2-5 | Verses 1-4 | held rolled chords + melody | full | yes | none |
+| 2-5 | Verses 1-4 | held rolled chords + melody (see `--verse`) | full | yes | none |
 | 6 | Hook 2 | melody + accompaniment as composed | full | yes | fade in |
 | 7 | Outro | held rolled chords + melody, soft, extra reverb | one kick + crash | last note decays | yes |
 

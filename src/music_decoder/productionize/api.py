@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from music_decoder.productionize.config import ProductionConfig
+from music_decoder.productionize.config import ComposerArrangeConfig, ProductionConfig
 from music_decoder.productionize.master import (
     MasterReport,
     encode_mp3,
@@ -52,20 +52,22 @@ def resolve_song(
     progression: Sequence[ChordSymbol] | None = None,
     title: str | None = None,
     key: str | None = None,
+    arrange: ComposerArrangeConfig | None = None,
 ) -> Song:
     """The song for any accepted source: a ``Song``, what ``compose()``
-    returned, a composition folder, or a composer MIDI file."""
+    returned, a composition folder, or a composer MIDI file. ``arrange``
+    lays out composer sources (verse style and the rest)."""
     if isinstance(source, Song):
         song = source
     elif isinstance(source, Composition):
-        song = song_from_composition(source)
+        song = song_from_composition(source, arrange=arrange)
     else:
         path = Path(source).expanduser()
         if path.is_dir():
             path = path / COMPOSITION_MIDI
         if not path.is_file():
             raise ProductionError(f"no composer MIDI file at {path}")
-        song = song_from_midi(path, progression=progression)
+        song = song_from_midi(path, progression=progression, arrange=arrange)
     if title is not None:
         song = replace(song, title=title)
     if key is not None:
@@ -100,7 +102,7 @@ def productionize(
     """
     cb: ProgressCallback = progress if progress is not None else NullProgress()
     cfg = config or ProductionConfig()
-    song = resolve_song(source, progression=progression, title=title, key=key)
+    song = resolve_song(source, progression=progression, title=title, key=key, arrange=cfg.arrange)
     sr = song.grid.sample_rate
     out_dir.mkdir(parents=True, exist_ok=True)
     store = SampleStore(samples_dir)
@@ -138,6 +140,7 @@ def productionize(
         )
     metadata: dict[str, Any] = {
         "title": song.title,
+        "verse_style": cfg.arrange.verse_style,
         "key": song.key,
         "tempo_bpm": song.grid.tempo_bpm,
         "duration_s": song.body_s + cfg.mix.tail_s + cfg.master.lead_in_s,
