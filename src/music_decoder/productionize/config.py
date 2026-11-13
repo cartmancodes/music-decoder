@@ -150,7 +150,11 @@ VERSE_STYLES: dict[str, tuple[tuple[ChordVoicing, VerseMelody], ...]] = {
 }
 
 
-def composer_sections(verse_style: str = "held") -> tuple[SectionSpec, ...]:
+# Chosen by listening: "build" rated best on the QA takes (Nov 2026).
+DEFAULT_VERSE_STYLE = "build"
+
+
+def composer_sections(verse_style: str = DEFAULT_VERSE_STYLE) -> tuple[SectionSpec, ...]:
     """The composer form with ``verse_style`` (a key of VERSE_STYLES) in its verses."""
     if verse_style not in VERSE_STYLES:
         raise ValueError(f"Unknown verse style {verse_style!r}; choose from {sorted(VERSE_STYLES)}")
@@ -189,7 +193,7 @@ class ComposerArrangeConfig:
     bass_low: int = 28
     bass_high: int = 39
     # Verse style (a key of VERSE_STYLES) when no section list is given.
-    verse_style: str = "held"
+    verse_style: str = DEFAULT_VERSE_STYLE
     # Voice-led piano voicings: left-hand root (+ fifth) from E2 up, and
     # right-hand chord tones (always the third and seventh) in G3..A4.
     lh_low: int = 40

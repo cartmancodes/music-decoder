@@ -198,9 +198,11 @@ def test_skeleton_verse_quotes_the_hook_at_half_density(turnaround_midi):
         assert max(below) <= n.pitch - 3 or n.pitch in below  # the chord stays a minor third under
 
 
-def test_default_verse_is_unchanged(turnaround_midi):
+def test_default_verse_builds_and_held_keeps_the_original(turnaround_midi):
     default = song_from_midi(turnaround_midi, progression=TURNAROUND)
+    assert default.sections == composer_sections("build")
     held = song_from_midi(
         turnaround_midi, progression=TURNAROUND, arrange=ComposerArrangeConfig(verse_style="held")
     )
-    assert default.piano == held.piano and default.sections == COMPOSER_SECTIONS
+    assert held.sections == COMPOSER_SECTIONS
+    assert default.piano != held.piano

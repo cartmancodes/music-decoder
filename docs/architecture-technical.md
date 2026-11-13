@@ -1437,7 +1437,8 @@ back to its full-drum sections, then to all sections.
   returning to the note of two bars before costs 0.6, thirds and sevenths
   are preferred, and the last note must lead back to the first. Under a
   skeleton melody the voicing is capped a minor third below the tune.
-  `held` (the default) reproduces the original verse exactly.
+  `build` is the default (rated best by ear on the QA takes); `held`
+  reproduces the original verse exactly.
 - **Mono low end is zero-phase.** The low band is taken with
   `sosfiltfilt`. With a causal low-pass, `mix - low + mean(low)` leaves
   most of the stereo difference below the crossover in place (the

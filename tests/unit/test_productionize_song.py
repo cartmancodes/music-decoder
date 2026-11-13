@@ -5,7 +5,7 @@ import pytest
 
 from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import build_midi
-from music_decoder.productionize.config import HISAAB_GRID, PianoConfig
+from music_decoder.productionize.config import HISAAB_GRID, ComposerArrangeConfig, PianoConfig
 from music_decoder.productionize.instruments.piano import nearest_sample
 from music_decoder.productionize.song import (
     NoteEvent,
@@ -176,8 +176,8 @@ def test_intro_is_the_accompaniment_alone_and_softer(composer_midi):
     assert max(n.velocity for n in intro) == max(n.velocity for n in accompaniment.notes) - 14
 
 
-def test_verses_hold_rolled_chords_under_the_melody(composer_midi):
-    song = song_from_midi(composer_midi)
+def test_held_verses_hold_rolled_chords_under_the_melody(composer_midi):
+    song = song_from_midi(composer_midi, arrange=ComposerArrangeConfig(verse_style="held"))
     g = song.grid
     verse = _section(song, 2, song.piano)
     for bar in range(3):

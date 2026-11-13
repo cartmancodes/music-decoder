@@ -364,7 +364,7 @@ ceiling, and checked.
 - `--percussion` — add `shaker`, `tambourine` or `congas`; repeat the
   option for several. `NAME@1,6` limits one to those sections (numbered
   from 0; default sections 2-6). Off by default.
-- `--verse` — what the four verses play (default `held`):
+- `--verse` — what the four verses play (default `build`):
   - `held` — the composer's chord shapes held under the whole hook melody.
   - `guide-line` — piano voicings (root and fifth low, third and seventh
     in the middle) that move as little as possible between chords, and one
@@ -372,7 +372,8 @@ ceiling, and checked.
     in-scale ninth. Sparse, leaves room for a vocal.
   - `skeleton` — the same voicings under the hook melody's notes on beats
     1 and 3 only: the tune at half its density.
-  - `build` — verses 1-2 as `guide-line`, verses 3-4 as `skeleton`.
+  - `build` (default) — verses 1-2 as `guide-line`, verses 3-4 as
+    `skeleton`, so the verse grows into the second hook.
 - `--samples-dir` — where samples are kept (default
   `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`).
 - `--no-qc` — skip the acceptance checks.

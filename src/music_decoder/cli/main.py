@@ -29,6 +29,7 @@ from music_decoder.api import analyze, compose
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
+    DEFAULT_VERSE_STYLE,
     PERCUSSION_OPTIONS,
     VERSE_STYLES,
     PercussionLayer,
@@ -251,7 +252,8 @@ def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
 @click.option(
     "--verse",
     type=click.Choice(sorted(VERSE_STYLES)),
-    default="held",
+    default=DEFAULT_VERSE_STYLE,
+    show_default=True,
     help="verse style for composer songs (see the usage guide)",
 )
 @click.option("--samples-dir", type=click.Path(file_okay=False), default=None)
