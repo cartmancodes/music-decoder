@@ -393,10 +393,17 @@ plays that pass eight times, as eight sections, then a final chord:
 | 6 | Hook 2 | melody + accompaniment as composed | full | yes | fade in |
 | 7 | Outro | held rolled chords + melody, soft, extra reverb | one kick + crash | last note decays | yes |
 
+The final chord is the song's home chord, even when the loop ends
+elsewhere (a `Cmaj7 Am7 Dm7 G7` loop ends on Cmaj7, not G7). The key comes
+from the composition's scale, else `--key`, else the loop's first chord;
+the chord is voiced like the verses (root and fifth low, the third and
+seventh in the middle), rolled, and the strings hold its top notes.
+
 Every drum hit is on an 8th note; the groove plays through the last bar
 of each section and a change is marked only by an open hi-hat and a
-crash. The first run downloads the samples it needs (drums about 40 MB,
-piano 1-2 MB per note and loudness used). A render takes under a minute
+crash. Samples not already fetched by `setup.sh` / `music-decoder
+fetch-samples` download on first use (drums about 40 MB, piano 1-2 MB per
+note and loudness used). A render takes under a minute
 and about 3 GB of memory, so run one at a time.
 
 Example:
