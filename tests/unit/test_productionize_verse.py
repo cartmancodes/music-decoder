@@ -206,3 +206,34 @@ def test_default_verse_builds_and_held_keeps_the_original(turnaround_midi):
     )
     assert held.sections == COMPOSER_SECTIONS
     assert default.piano != held.piano
+
+
+def test_tonic_harmony_uses_the_loops_chord_on_the_tonic():
+    from music_decoder.productionize.verse import tonic_harmony
+
+    harmonies = _harmonies()  # Cmaj7 Am7 Dm7 G7
+    h = tonic_harmony(harmonies, 0, minor=False, scale_pcs=frozenset({0, 2, 4, 5, 7, 9, 11}))
+    assert h is harmonies[0]
+
+
+def test_tonic_harmony_builds_a_triad_when_the_loop_lacks_it():
+    from music_decoder.productionize.verse import tonic_harmony
+
+    loop = [ChordSymbol.parse(c) for c in ("F", "G", "Am", "F")]
+    h = tonic_harmony(_harmonies(loop), 0, minor=False, scale_pcs=frozenset({0, 2, 4, 5, 7, 9, 11}))
+    assert (h.root, h.tones, h.essential) == (0, frozenset({0, 4, 7}), frozenset({4}))
+    minor = tonic_harmony(
+        _harmonies(loop), 9, minor=True, scale_pcs=frozenset({9, 11, 0, 2, 4, 5, 7})
+    )
+    assert minor.tones == frozenset({9, 0, 4})
+
+
+def test_resolve_voicing_moves_least_from_the_last_chord():
+    from music_decoder.productionize.verse import resolve_voicing
+
+    harmonies = _harmonies()
+    g7 = voice_led_voicings(harmonies, CFG)[-1]
+    out = resolve_voicing(harmonies[0], g7, CFG)
+    assert len(out) == len(g7)
+    assert {p % 12 for p in out} <= harmonies[0].tones
+    assert sum(abs(a - b) for a, b in zip(sorted(out), sorted(g7), strict=True)) <= 4

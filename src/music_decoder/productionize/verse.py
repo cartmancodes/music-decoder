@@ -177,6 +177,33 @@ def voice_led_voicings(
     return run(first_pass[-1]) if len(harmonies) > 1 else first_pass
 
 
+def resolve_voicing(
+    h: BarHarmony, prev: tuple[int, ...], cfg: ComposerArrangeConfig
+) -> tuple[int, ...]:
+    """The right-hand voicing of ``h`` that moves least from ``prev`` (a final
+    chord resolving from the last chord of the loop)."""
+    centre = (cfg.rh_low + cfg.rh_high) / 2.0
+    options = right_hand_options(h, cfg)
+    same_size = [o for o in options if len(o) == len(prev)] or options
+    return min(
+        same_size,
+        key=lambda o: _voicing_cost(o, h, prev if len(o) == len(prev) else None, centre),
+    )
+
+
+def tonic_harmony(
+    harmonies: Sequence[BarHarmony], tonic_pc: int, *, minor: bool, scale_pcs: frozenset[int]
+) -> BarHarmony:
+    """The home chord: the loop's chord on the tonic as written (so a maj7
+    stays a maj7), else the tonic triad of the key."""
+    for h in harmonies:
+        if h.root == tonic_pc:
+            return h
+    third = (tonic_pc + (3 if minor else 4)) % 12
+    tones = frozenset({tonic_pc, third, (tonic_pc + 7) % 12})
+    return BarHarmony(tonic_pc, tones, frozenset({third}), scale_pcs | tones)
+
+
 # ---- Guide line ------------------------------------------------------------
 
 _STEP_COST = {0: 1.0, 1: 0.0, 2: 0.0, 3: 0.35, 4: 0.5}

@@ -241,3 +241,45 @@ def test_a_file_without_two_parts_is_rejected(tmp_path):
     pm.write(str(path))
     with pytest.raises(ProductionError, match="not a composer file"):
         song_from_midi(path)
+
+
+# ---- The final chord -------------------------------------------------------
+
+
+def _tail_pitches(song: Song) -> list[int]:
+    return sorted(n.pitch for n in song.piano if n.start_s >= song.tail_start_s - 1e-9)
+
+
+def _tail_strings(song: Song) -> list[int]:
+    return sorted(n.pitch for n in song.strings if n.start_s >= song.tail_start_s - 1e-9)
+
+
+def test_tail_resolves_to_the_tonic(composer_midi):
+    # Am F C G ends its loop on G; the song must end on its home chord, Am.
+    song = song_from_midi(composer_midi, progression=PROGRESSION, scale=Scale("A", "minor"))
+    tail = _tail_pitches(song)
+    assert {p % 12 for p in tail} == {9, 0, 4}
+    assert tail[0] % 12 == 9
+    strings = _tail_strings(song)
+    assert strings and {p % 12 for p in strings} <= {9, 0, 4}
+
+
+def test_tail_uses_the_key_tag_without_a_scale(composer_midi):
+    song = song_from_midi(composer_midi, key="Am")
+    assert {p % 12 for p in _tail_pitches(song)} == {9, 0, 4}
+
+
+def test_tail_falls_back_to_the_first_bar(composer_midi):
+    # No scale, no key: a loop usually starts on its home chord.
+    assert _tail_pitches(song_from_midi(composer_midi))[0] % 12 == 9
+
+
+def test_tail_is_voiced_like_the_verses(composer_midi):
+    cfg = ComposerArrangeConfig()
+    song = song_from_midi(composer_midi, progression=PROGRESSION, scale=Scale("A", "minor"))
+    tail = _tail_pitches(song)
+    left = [p for p in tail if p < cfg.rh_low]
+    right = [p for p in tail if p >= cfg.rh_low]
+    assert min(tail) >= cfg.lh_low
+    assert 1 <= len(left) <= 2 and len(right) == cfg.rh_voices
+    assert max(right) <= cfg.rh_high

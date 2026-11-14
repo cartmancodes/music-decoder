@@ -12,6 +12,7 @@ Two sources:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,9 @@ from music_decoder.productionize.verse import (
     bar_harmonies,
     guide_lines,
     left_hand,
+    resolve_voicing,
     skeleton_pitches,
+    tonic_harmony,
     voice_led_voicings,
 )
 from music_decoder.types import VALID_TONICS, ChordSymbol, Composition, Scale
@@ -157,6 +160,23 @@ def _key_label(scale: str) -> str:
     """``"A:minor"`` -> ``"Am"``; ``"C:major"`` -> ``"C"``."""
     tonic, _, mode = scale.partition(":")
     return tonic + ("m" if mode == "minor" else "")
+
+
+_FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+
+
+def _tonic(scale: Scale | None, key: str, first_root_pc: int) -> tuple[int, bool]:
+    """(pitch class, minor) of the home key: the scale, else a key tag such as
+    ``"F#m"`` or ``"Bb"``, else the loop's first bar (loops usually start home)."""
+    if scale is not None:
+        return VALID_TONICS.index(
+            _FLAT_TO_SHARP.get(scale.tonic, scale.tonic)
+        ), scale.mode == "minor"
+    match = re.fullmatch(r"([A-G][#b]?)(m|min|minor)?", key.strip()) if key else None
+    if match:
+        tonic = _FLAT_TO_SHARP.get(match.group(1), match.group(1))
+        return VALID_TONICS.index(tonic), match.group(2) is not None
+    return first_root_pc, False
 
 
 def _roll(
@@ -361,10 +381,15 @@ def song_from_midi(
                     for p in chords[b][-cfg.strings_voices :]
                 )
 
+    # The song ends on its home chord (the loop's last chord is often IV or
+    # V), voiced like the verses and moving least from their last chord.
+    tonic_pc, minor = _tonic(scale, key, root_pcs[0])
+    home = tonic_harmony(harmonies, tonic_pc, minor=minor, scale_pcs=harmonies[0].scale)
+    final_chord = sorted({*left_hand(home, cfg), *resolve_voicing(home, voicings[-1], cfg)})
     tail = len(sections) * grid.section_s
     piano.extend(
         _roll(
-            chords[-1],
+            final_chord,
             tail,
             cfg.tail_roll_steps * grid.step_s,
             cfg.tail_beats * beat,
@@ -375,7 +400,7 @@ def song_from_midi(
         strings_end = tail + min(cfg.tail_beats * beat, cfg.strings_tail_max_s)
         strings.extend(
             NoteEvent(tail, strings_end, p, cfg.strings_velocity)
-            for p in chords[-1][-cfg.strings_voices :]
+            for p in final_chord[-cfg.strings_voices :]
         )
 
     return Song(

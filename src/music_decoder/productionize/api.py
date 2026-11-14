@@ -67,7 +67,8 @@ def resolve_song(
             path = path / COMPOSITION_MIDI
         if not path.is_file():
             raise ProductionError(f"no composer MIDI file at {path}")
-        song = song_from_midi(path, progression=progression, arrange=arrange)
+        # The key tag also tells the arrangement which chord is home.
+        song = song_from_midi(path, progression=progression, key=key or "", arrange=arrange)
     if title is not None:
         song = replace(song, title=title)
     if key is not None:
