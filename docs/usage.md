@@ -1285,6 +1285,7 @@ make dev          # pip install -e ".[dev]"
 make test-fast    # unit tests only
 make test         # unit + integration
 make regression   # accuracy regression suite (pytest -m regression)
+make test-production  # full-song productionize renders (downloads ~180 MB samples)
 make lint         # ruff
 make typecheck    # mypy --strict
 make run          # alias for `music-decoder ui`

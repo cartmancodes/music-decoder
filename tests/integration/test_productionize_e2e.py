@@ -2,7 +2,8 @@
 
 Renders "Hisaab" with the real samples (downloaded on first use, about
 180 MB) and runs the acceptance checks of the build spec on the mastered
-WAV and MP3. Skipped unless ffmpeg and fluidsynth are installed.
+WAV and MP3. Opt-in: runs only with ``MUSIC_DECODER_PRODUCTION_E2E=1``
+(``make test-production``), and needs ffmpeg and fluidsynth.
 
 Set ``HISAAB_NOTES`` to the final note file (``hisaab_final_notes.mid``) to
 check the real notes; without it the notes are rebuilt from the spec.
@@ -24,6 +25,12 @@ from music_decoder.types import ChordSymbol, Scale
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
+    # Opt-in: each render downloads ~180 MB on first use and needs ~2.7 GB of
+    # memory, so `make test` skips them; `make test-production` runs them.
+    pytest.mark.skipif(
+        os.environ.get("MUSIC_DECODER_PRODUCTION_E2E") != "1",
+        reason="set MUSIC_DECODER_PRODUCTION_E2E=1 (or run `make test-production`)",
+    ),
     pytest.mark.skipif(
         shutil.which("ffmpeg") is None or shutil.which("fluidsynth") is None,
         reason="needs ffmpeg and fluidsynth",

@@ -1,4 +1,4 @@
-.PHONY: dev test test-fast lint typecheck regression run
+.PHONY: dev test test-fast test-production lint typecheck regression run
 
 dev:
 	pip install --upgrade hatchling "numpy<2" "cython<3" "scipy>=0.16" "mido>=1.2.8"
@@ -10,6 +10,10 @@ test:
 
 test-fast:
 	pytest -q tests/unit
+
+# Full-song renders with the real samples (~180 MB download, ~2.7 GB RAM each).
+test-production:
+	MUSIC_DECODER_PRODUCTION_E2E=1 pytest -q tests/integration/test_productionize_e2e.py
 
 regression:
 	pytest -q -m regression tests/integration/test_regression.py

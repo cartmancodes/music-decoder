@@ -1463,4 +1463,6 @@ back to its full-drum sections, then to all sections.
 `tests/integration/test_productionize_e2e.py` renders the reference
 song and a composer take with the real samples and requires every
 acceptance check to pass; it needs ffmpeg, fluidsynth and network on
-its first run.
+its first run (~180 MB of samples, ~2.7 GB of memory per render), so it
+is opt-in: `make test-production` (or `MUSIC_DECODER_PRODUCTION_E2E=1`).
+`make test` skips it.
