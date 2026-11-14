@@ -40,3 +40,20 @@ def test_setup_help_documents_model_flags():
     ).stdout
     assert "--no-models" in out
     assert "fetch-models" in out
+
+
+def test_setup_prefetches_production_samples_in_the_models_step():
+    setup_script = (ROOT / "setup.sh").read_text()
+    step = setup_script[setup_script.index("# --- 6.") : setup_script.index("# --- 7.")]
+    skipped, _, fetched = step.partition("else")
+    assert "music-decoder fetch-samples" not in skipped  # --no-models skips it
+    assert "music-decoder fetch-samples" in fetched
+
+
+def test_setup_help_mentions_samples():
+    import subprocess
+
+    out = subprocess.run(
+        ["bash", str(ROOT / "setup.sh"), "--help"], capture_output=True, text=True, check=True
+    ).stdout
+    assert "samples" in out

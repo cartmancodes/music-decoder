@@ -54,8 +54,11 @@ dance for you: detects your OS, installs system binaries (ffmpeg,
 fluidsynth, libsndfile, plus python@3.11 if missing), creates `.venv`,
 installs the package with dev extras (`pip install -e ".[dev]"`),
 pre-downloads the models with `music-decoder fetch-models` (Demucs
-weights ~52 MB + GeneralUser GS soundfont ~30 MB), and runs
-`music-decoder doctor`. Nothing else downloads later.
+weights ~52 MB + GeneralUser GS soundfont ~30 MB) and the `productionize`
+drum and percussion samples with `music-decoder fetch-samples` (~41 MB),
+and runs `music-decoder doctor`. The only later downloads are the piano
+samples a `productionize` song needs (or all ~700 MB up front with
+`music-decoder fetch-samples --piano`).
 
 ```bash
 git clone https://github.com/cartmancodes/music-decoder.git
@@ -71,8 +74,9 @@ modify the parent shell's environment).
 Re-running is idempotent. Flags:
 
 - `--no-system` — skip the brew/apt step (use existing system binaries).
-- `--no-models` — skip the model pre-downloads (Demucs then downloads on
-  the first full-mix analysis; composition uses the bundled soundfont).
+- `--no-models` — skip the model and sample pre-downloads (Demucs then
+  downloads on the first full-mix analysis, samples on the first
+  `productionize`; composition uses the bundled soundfont).
 - `--no-soundfont` — skip only the GeneralUser GS soundfont.
 - `--recreate` — wipe and rebuild `.venv` from scratch.
 - `--python /path/to/python3.11` — pick a specific interpreter.

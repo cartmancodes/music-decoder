@@ -14,8 +14,10 @@ Prerequisites: Python 3.11 or 3.12, `ffmpeg`, `fluidsynth` (for synthesis).
 The fastest way is the bundled `setup.sh`. It installs system binaries
 (ffmpeg, fluidsynth, libsndfile), creates `.venv`, installs the package
 with dev extras, pre-downloads the models (`music-decoder fetch-models`:
-Demucs weights + GeneralUser GS soundfont), and runs `doctor` — so nothing
-downloads on first use:
+Demucs weights + GeneralUser GS soundfont) and the `productionize` drum and
+percussion samples (`music-decoder fetch-samples`), and runs `doctor` — so
+first runs don't stall on downloads (piano samples still arrive as songs
+need them):
 
 ```bash
 source ./setup.sh   # also activates .venv in your current shell
