@@ -4,8 +4,10 @@ Subcommands:
 - analyze <source>: chord progression + tab from file or YouTube URL
 - compose: generate an arrangement from a scale + progression
 - ui: launch the Streamlit UI
+- productionize <source>: render composer output as a mastered instrumental
 - doctor: verify ffmpeg, fluidsynth, models
 - fetch-models: pre-download Demucs weights and the GeneralUser GS soundfont
+- fetch-samples: pre-download the drum, percussion and piano samples
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -25,6 +27,20 @@ import click
 
 from music_decoder.api import analyze, compose
 from music_decoder.errors import MusicDecoderError
+from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
+from music_decoder.productionize.config import (
+    DEFAULT_VERSE_STYLE,
+    PERCUSSION_OPTIONS,
+    VERSE_STYLES,
+    PercussionLayer,
+    with_percussion,
+)
+from music_decoder.productionize.samples import (
+    SampleStore,
+    drum_refs,
+    percussion_refs,
+    piano_refs,
+)
 from music_decoder.tabs.render import render_ascii_tab
 from music_decoder.tabs.tuning import (
     D_STANDARD,
@@ -192,6 +208,135 @@ def cli_compose(
         click.echo(result.ascii_tab)
 
 
+def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
+    """``NAME`` or ``NAME@1,6`` (0-based section numbers) per --percussion."""
+    layers = []
+    for spec in specs:
+        name, _, sections = spec.partition("@")
+        if name not in PERCUSSION_OPTIONS:
+            raise click.BadParameter(
+                f"unknown percussion {name!r}; choose from {', '.join(sorted(PERCUSSION_OPTIONS))}"
+            )
+        if not sections:
+            layers.append(PercussionLayer(name))
+            continue
+        try:
+            layers.append(PercussionLayer(name, tuple(int(s) for s in sections.split(","))))
+        except ValueError as e:
+            raise click.BadParameter(
+                f"sections of {spec!r} must be numbers, e.g. {name}@1,6"
+            ) from e
+    return tuple(layers)
+
+
+@main.command("productionize")
+@click.argument("source", required=False)
+@click.option("--out", type=click.Path(file_okay=False), required=True)
+@click.option("--name", default="production", help="file name of the master (without extension)")
+@click.option("--title", default=None, help="title tag of the MP3")
+@click.option("--key", default=None, help="key tag of the MP3, e.g. 'F#m'")
+@click.option(
+    "--progression", default=None, help="chords of SOURCE, e.g. 'Am Dm E7 Am' (default: inferred)"
+)
+@click.option(
+    "--percussion",
+    multiple=True,
+    help="add shaker, tambourine or congas; NAME or NAME@SECTIONS (e.g. tambourine@1,6)",
+)
+@click.option(
+    "--hisaab",
+    is_flag=True,
+    default=False,
+    help="render the reference song; SOURCE is then its note file (optional)",
+)
+@click.option(
+    "--verse",
+    type=click.Choice(sorted(VERSE_STYLES)),
+    default=DEFAULT_VERSE_STYLE,
+    show_default=True,
+    help="verse style for composer songs (see the usage guide)",
+)
+@click.option("--samples-dir", type=click.Path(file_okay=False), default=None)
+@click.option("--no-qc", is_flag=True, default=False, help="skip the acceptance checks")
+@click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
+def cli_productionize(
+    source: str | None,
+    out: str,
+    name: str,
+    title: str | None,
+    key: str | None,
+    progression: str | None,
+    percussion: tuple[str, ...],
+    hisaab: bool,
+    verse: str,
+    samples_dir: str | None,
+    no_qc: bool,
+    fmt: str,
+) -> None:
+    """Render composer output as a mastered instrumental (WAV + MP3 + stems).
+
+    SOURCE is a folder written by `compose` or its composition.mid.
+    """
+    if source is None and not hisaab:
+        raise click.UsageError("give a composition folder or MIDI file (or --hisaab)")
+    config = with_percussion(ProductionConfig(), _parse_percussion(percussion))
+    config = replace(config, arrange=replace(config.arrange, verse_style=verse))
+
+    def progress(stage: str, fraction: float) -> None:
+        click.echo(f"  {stage} ...", err=True)
+
+    try:
+        song: Song | str
+        if hisaab:
+            song = hisaab_song(Path(source) if source else None)
+        else:
+            song = cast(str, source)
+        chords = [ChordSymbol.parse(c) for c in progression.split()] if progression else None
+        with _quiet_stdout():
+            result = productionize(
+                song,
+                out_dir=Path(out),
+                name=name,
+                config=config,
+                samples_dir=Path(samples_dir) if samples_dir else None,
+                progression=chords,
+                title=title,
+                key=key,
+                check=not no_qc,
+                progress=progress,
+            )
+    except MusicDecoderError as e:
+        raise click.ClickException(str(e)) from e
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    qc = result.qc
+    if fmt == "json":
+        payload = cast(dict[str, object], _serialize(result))
+        if qc is not None:
+            payload["qc"] = qc.to_dict()
+        click.echo(json.dumps(payload, indent=2, default=str))
+    else:
+        click.echo(f"WAV:     {result.wav_path}")
+        click.echo(f"MP3:     {result.mp3_path}")
+        click.echo(f"Raw mix: {result.raw_mix_path} (+ {len(result.stem_paths)} stems)")
+        click.echo(
+            f"Master:  {result.master.integrated_lufs:.1f} LUFS, "
+            f"{result.master.true_peak_dbtp:.2f} dBTP, "
+            f"limiter up to {result.master.limiter_max_reduction_db:.1f} dB"
+        )
+        for credit in result.metadata.get("credits", []):
+            click.echo(f"Credit:  {credit}")
+        if qc is not None:
+            click.echo("Checks:")
+            click.echo(qc.format())
+    if qc is not None and not qc.passed:
+        raise click.ClickException(
+            f"{len(qc.failures)} acceptance check(s) failed: "
+            + ", ".join(c.name for c in qc.failures)
+        )
+
+
 def _suppress_streamlit_email_prompt() -> None:
     """Pre-seed ~/.streamlit/credentials.toml so Streamlit's first-run
     interactive 'Email:' prompt never blocks on stdin.
@@ -322,6 +467,32 @@ def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
             click.echo(f"  FAILED: {e} (the bundled TimGM6mb soundfont will be used)")
             rc = 1
     sys.exit(rc)
+
+
+@main.command("fetch-samples")
+@click.option("--samples-dir", type=click.Path(file_okay=False), default=None)
+@click.option("--piano", is_flag=True, help="Also fetch every piano sample (~700 MB).")
+@click.option("--list", "list_only", is_flag=True, help="Print URL and local path; fetch nothing.")
+def cli_fetch_samples(samples_dir: str | None, piano: bool, list_only: bool) -> None:
+    """Pre-download the samples `productionize` plays (idempotent).
+
+    Fetches the drum kit and the optional percussion. Piano samples are
+    fetched as songs need them unless --piano is given.
+    """
+    config = ProductionConfig()
+    refs = [*drum_refs(config.drums), *percussion_refs(PERCUSSION_OPTIONS)]
+    if piano:
+        refs += piano_refs(config.piano)
+    if list_only:
+        for ref in refs:
+            click.echo(f"{ref.url}\t{ref.path}")
+        return
+    store = SampleStore(Path(samples_dir) if samples_dir else None)
+    try:
+        fetched = store.ensure(refs)
+    except MusicDecoderError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"{len(refs)} samples in {store.root} ({fetched} downloaded)")
 
 
 if __name__ == "__main__":

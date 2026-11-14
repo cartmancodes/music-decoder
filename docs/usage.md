@@ -15,6 +15,8 @@ output layout, troubleshooting, and tips for getting good results.
 - **fluidsynth** — renders composition output (and the synthetic
   regression fixtures) with real instrument sounds. Without it,
   `compose()` falls back to pretty-MIDI's built-in sine synthesizer.
+  `productionize` needs the `fluidsynth` command-line program for its
+  strings.
 - A General MIDI soundfont is **not** a prerequisite: pretty-MIDI ships
   one (`TimGM6mb.sf2`), and `setup.sh` / `music-decoder fetch-models`
   install the higher-quality GeneralUser GS. See
@@ -30,7 +32,7 @@ brew install ffmpeg fluidsynth
 
 ```bash
 sudo apt update
-sudo apt install ffmpeg libsndfile1 libfluidsynth3
+sudo apt install ffmpeg libsndfile1 libfluidsynth3 fluidsynth
 ```
 
 ### Windows
@@ -52,8 +54,11 @@ dance for you: detects your OS, installs system binaries (ffmpeg,
 fluidsynth, libsndfile, plus python@3.11 if missing), creates `.venv`,
 installs the package with dev extras (`pip install -e ".[dev]"`),
 pre-downloads the models with `music-decoder fetch-models` (Demucs
-weights ~52 MB + GeneralUser GS soundfont ~30 MB), and runs
-`music-decoder doctor`. Nothing else downloads later.
+weights ~52 MB + GeneralUser GS soundfont ~30 MB) and the `productionize`
+drum and percussion samples with `music-decoder fetch-samples` (~41 MB),
+and runs `music-decoder doctor`. The only later downloads are the piano
+samples a `productionize` song needs (or all ~700 MB up front with
+`music-decoder fetch-samples --piano`).
 
 ```bash
 git clone https://github.com/cartmancodes/music-decoder.git
@@ -69,8 +74,9 @@ modify the parent shell's environment).
 Re-running is idempotent. Flags:
 
 - `--no-system` — skip the brew/apt step (use existing system binaries).
-- `--no-models` — skip the model pre-downloads (Demucs then downloads on
-  the first full-mix analysis; composition uses the bundled soundfont).
+- `--no-models` — skip the model and sample pre-downloads (Demucs then
+  downloads on the first full-mix analysis, samples on the first
+  `productionize`; composition uses the bundled soundfont).
 - `--no-soundfont` — skip only the GeneralUser GS soundfont.
 - `--recreate` — wipe and rebuild `.venv` from scratch.
 - `--python /path/to/python3.11` — pick a specific interpreter.
@@ -140,8 +146,9 @@ the first full-mix `analyze()`.
 
 ## CLI reference
 
-The CLI is grouped under `music-decoder` with five subcommands:
-`analyze`, `compose`, `ui`, `doctor`, and `fetch-models`.
+The CLI is grouped under `music-decoder` with seven subcommands:
+`analyze`, `compose`, `productionize`, `ui`, `doctor`, `fetch-models`,
+and `fetch-samples`.
 
 ### `analyze` — chord progression + tab
 
@@ -333,6 +340,109 @@ music-decoder compose --scale C:major --progression "C G Am F" \
   --seed 1 --out ./out --format json | jq '.metadata'
 ```
 
+### `productionize` — master a composition for release
+
+```text
+music-decoder productionize SOURCE --out DIR [--name NAME]
+                             [--title TITLE] [--key KEY]
+                             [--progression "CHORDS..."]
+                             [--percussion NAME[@SECTIONS]]...
+                             [--verse held | guide-line | skeleton | build]
+                             [--samples-dir DIR] [--no-qc]
+                             [--format pretty | json]
+```
+
+Takes what `compose` wrote and renders it as a finished boom-bap
+instrumental: an acoustic drum kit, a synthesized bass, a sampled grand
+piano and strings, mixed, mastered to -10.5 LUFS under a -1.8 dBTP
+ceiling, and checked.
+
+- `SOURCE` — a take folder written by `compose`, or its `composition.mid`.
+- `--out` (required) — where the files go (see
+  [Production output](#production-output)).
+- `--name` — file name of the master, default `production`.
+- `--title`, `--key` — title and key tags of the MP3 (key like `F#m`).
+- `--progression` — the chords of the composition, e.g. `"Am F C G"`.
+  The bass follows their roots. Without it, each bar's bass note is the
+  lowest note of the accompaniment in that bar.
+- `--percussion` — add `shaker`, `tambourine` or `congas`; repeat the
+  option for several. `NAME@1,6` limits one to those sections (numbered
+  from 0; default sections 2-6). Off by default.
+- `--verse` — what the four verses play (default `build`):
+  - `held` — the composer's chord shapes held under the whole hook melody.
+  - `guide-line` — piano voicings (root and fifth low, third and seventh
+    in the middle) that move as little as possible between chords, and one
+    held note a bar from a stepwise line over the chord tones and the
+    in-scale ninth. Sparse, leaves room for a vocal.
+  - `skeleton` — the same voicings under the hook melody's notes on beats
+    1 and 3 only: the tune at half its density.
+  - `build` (default) — verses 1-2 as `guide-line`, verses 3-4 as
+    `skeleton`, so the verse grows into the second hook.
+- `--samples-dir` — where samples are kept (default
+  `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`).
+- `--no-qc` — skip the acceptance checks.
+
+The composition is one pass over its chord progression. The production
+plays that pass eight times, as eight sections, then a final chord:
+
+| # | Section | Piano | Drums | Bass | Strings |
+|---|---------|-------|-------|------|---------|
+| 0 | Intro | accompaniment only, soft, extra reverb | none | none | none |
+| 1 | Hook 1 | melody + accompaniment as composed | light | yes | none |
+| 2-5 | Verses 1-4 | held rolled chords + melody (see `--verse`) | full | yes | none |
+| 6 | Hook 2 | melody + accompaniment as composed | full | yes | fade in |
+| 7 | Outro | held rolled chords + melody, soft, extra reverb | one kick + crash | last note decays | yes |
+
+The final chord is the song's home chord, even when the loop ends
+elsewhere (a `Cmaj7 Am7 Dm7 G7` loop ends on Cmaj7, not G7). The key comes
+from the composition's scale, else `--key`, else the loop's first chord;
+the chord is voiced like the verses (root and fifth low, the third and
+seventh in the middle), rolled, and the strings hold its top notes.
+
+Every drum hit is on an 8th note; the groove plays through the last bar
+of each section and a change is marked only by an open hi-hat and a
+crash. Samples not already fetched by `setup.sh` / `music-decoder
+fetch-samples` download on first use (drums about 40 MB, piano 1-2 MB per
+note and loudness used). A render takes under a minute
+and about 3 GB of memory, so run one at a time.
+
+Example:
+
+```bash
+music-decoder compose --scale A:minor --progression "Am F C G" \
+  --tempo 92 --seed 7 --out ./out
+music-decoder productionize ./out/20261113T085802-79b50081 \
+  --out ./release --name night_drive --title "Night Drive" --key Am \
+  --progression "Am F C G"
+```
+
+Expected output (abridged):
+
+```text
+WAV:     release/night_drive.wav
+MP3:     release/night_drive.mp3
+Raw mix: release/pro_raw.wav (+ 8 stems)
+Master:  -10.6 LUFS, -1.93 dBTP, limiter up to 2.0 dB
+Credit:  Piano: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0)
+Checks:
+PASS  format              44100 Hz, PCM_24, 2 ch, 90.60 s  (expected ...)
+PASS  loudness (WAV)      -10.57 LUFS  (expected -10.5 +-0.3 LU)
+...
+PASS  drum grid           308 of 308 hits on an 8th note  (expected all, within +-3 ms)
+```
+
+The checks cover format, loudness and true peak of the WAV and the MP3,
+clipping, the lead-in and the tail, DC offset, stereo width and mono
+compatibility, tempo and beat steadiness, level across section changes,
+and the drum grid. If one fails, the files are still written, the report
+is printed, and the command exits with status 1. The checks do not
+replace listening.
+
+`--hisaab` renders the reference song the sound was tuned on ("Hisaab",
+F# minor, 80.1 BPM) and also compares section levels and octave bands
+against its reference master. Pass its final note file as `SOURCE`;
+without one the notes are rebuilt from the song's build spec.
+
 ### `ui` — launch the Streamlit app
 
 ```bash
@@ -363,7 +473,18 @@ music-decoder fetch-models --no-soundfont  # Demucs only
 music-decoder fetch-models --no-demucs     # soundfont only
 ```
 
-Idempotent: anything already present is kept. Downloads the Demucs
+### `fetch-samples` — pre-download production samples
+
+```bash
+music-decoder fetch-samples            # drum kit + percussion (146 files)
+music-decoder fetch-samples --piano    # also every piano sample (~700 MB)
+music-decoder fetch-samples --list     # print URL and local path, fetch nothing
+```
+
+Optional: `productionize` fetches what a song needs on first use. Use
+this to prepare a machine that will be offline.
+
+Idempotent: anything already present is kept. `fetch-models` downloads the Demucs
 `htdemucs_6s` weights (~52 MB) into the torch hub cache and GeneralUser
 GS (~30 MB) to the `fluidsynth_soundfont` path in `config/runtime.yaml`
 (`~/.music-decoder/GeneralUser-GS.sf2`). Exits non-zero if a download
@@ -464,6 +585,54 @@ result = compose(
 print(result.midi_path)   # ./out/20260508T...-.../composition.mid
 print(result.wav_path)    # ./out/20260508T...-.../composition.wav
 print(result.ascii_tab)
+```
+
+### `productionize()`
+
+```python
+from music_decoder.productionize import productionize, ProductionConfig
+
+def productionize(
+    source: Song | Composition | Path | str,
+    *,
+    out_dir: Path,           # required
+    name: str = "production",
+    config: ProductionConfig | None = None,
+    samples_dir: Path | None = None,
+    progression: Sequence[ChordSymbol] | None = None,
+    title: str | None = None,
+    key: str | None = None,
+    check: bool = True,
+    progress: ProgressCallback | None = None,
+) -> Production: ...
+```
+
+`source` is what `compose()` returned, a take folder, or a composer MIDI
+file. It is imported from `music_decoder.productionize`, not from the
+package root.
+
+```python
+release = productionize(result, out_dir=Path("./release"), name="night_drive")
+
+print(release.wav_path, release.mp3_path)
+print(release.master.integrated_lufs, release.master.true_peak_dbtp)
+print(release.qc.passed)        # False if an acceptance check failed
+print(release.qc.format())      # the report the CLI prints
+```
+
+Every level, EQ setting and time constant of the sound lives in
+`ProductionConfig` (frozen dataclasses in
+[productionize/config.py](../src/music_decoder/productionize/config.py)).
+To change one, pass a modified copy:
+
+```python
+from dataclasses import replace
+from music_decoder.productionize.config import PercussionLayer, with_percussion
+
+cfg = ProductionConfig()
+cfg = replace(cfg, mix=replace(cfg.mix, bass_dbfs=-17.5))      # quieter bass
+cfg = with_percussion(cfg, (PercussionLayer("shaker"),))       # shaker in sections 2-6
+release = productionize(result, out_dir=Path("./release"), config=cfg)
 ```
 
 ### Helper constructors
@@ -582,6 +751,21 @@ differs each run, so re-running with the same inputs creates a fresh
 folder rather than overwriting. `--out` from the CLI is the parent
 `<out_dir>`. The Streamlit UI uses
 `<data_dir>/compositions/` (default `~/.music-decoder/compositions/`).
+
+### Production output
+
+`productionize` writes straight into `--out` (re-running overwrites):
+
+- `<name>.wav` — the master: 44.1 kHz, 24-bit PCM, stereo, with 0.12 s
+  of silence at the start.
+- `<name>.mp3` — 320 kbps, ID3v2.3 tags (title, BPM, key, genre).
+- `<name>.json` — metadata, what the master did, and the check report.
+- `pro_raw.wav` — the pre-master mix, 32-bit float.
+- `stem_<element>.wav` — one float stem each for `drums`, `bass`,
+  `piano`, `strings`, `kick`, `snare`, `hats`, `crash` (and `percussion`
+  when on). About 35 MB per stem for a 1:40 track.
+
+Samples are cached in `<data_dir>/samples/` (`piano/`, `drums/`, `perc/`).
 
 ---
 
@@ -791,6 +975,20 @@ system library and the Python binding:
 
 Without fluidsynth, `compose()` falls back to pretty-MIDI's sine synth;
 analyze and compose still work.
+
+### `the strings need the fluidsynth command-line tool`
+
+`productionize` renders its strings with the `fluidsynth` program, not
+the Python module `doctor` checks. Install it (`brew install fluidsynth`,
+`apt install fluidsynth`); `setup.sh` does. It uses
+`/usr/share/sounds/sf2/FluidR3_GM.sf2` when present (`apt install
+fluid-soundfont-gm`), else the soundfont composition uses.
+
+### `N samples are missing ...` / `could not download ...`
+
+`productionize` could not fetch a sample from GitHub. Check the network,
+then retry: finished downloads are kept. For an offline machine, run
+`music-decoder fetch-samples --piano` once while online.
 
 ### `soundfont: FAIL`
 
@@ -1107,6 +1305,7 @@ make dev          # pip install -e ".[dev]"
 make test-fast    # unit tests only
 make test         # unit + integration
 make regression   # accuracy regression suite (pytest -m regression)
+make test-production  # full-song productionize renders (downloads ~180 MB samples)
 make lint         # ruff
 make typecheck    # mypy --strict
 make run          # alias for `music-decoder ui`
@@ -1140,6 +1339,9 @@ music-decoder analyze song.mp3 --format json | jq '.chord_progression'
 # Compose a piece
 music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" \
                        --style fingerstyle --tempo 100 --seed 42 --out ./out
+
+# Master it for release (WAV + MP3 + stems + checks)
+music-decoder productionize ./out/<take-folder> --out ./release --name my_track
 
 # Launch UI
 music-decoder ui

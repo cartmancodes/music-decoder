@@ -4,14 +4,14 @@
 # Installs system binaries (ffmpeg, fluidsynth, libsndfile), creates a
 # Python 3.11 virtual environment at ./.venv, installs the package with
 # dev extras, pre-downloads models with `music-decoder fetch-models`
-# (Demucs weights ~52 MB + GeneralUser GS soundfont ~30 MB), and runs the
+# (Demucs ~52 MB + GeneralUser GS ~30 MB) and samples, and runs the
 # `music-decoder doctor` health check.
 #
 # Usage:
 #     source ./setup.sh         # run setup AND activate the venv in your shell
 #     ./setup.sh                # run setup; prints activate command at the end
 #     ./setup.sh --no-system    # skip system-package install (need sudo / brew)
-#     ./setup.sh --no-models    # skip all model pre-downloads
+#     ./setup.sh --no-models    # skip model and production-sample pre-downloads
 #     ./setup.sh --no-soundfont # skip only the soundfont (a bundled one is used)
 #     ./setup.sh --recreate     # delete and recreate the .venv
 #
@@ -93,10 +93,10 @@ _setup_main() {
     local sudo_cmd=""
     [[ $EUID -ne 0 ]] && sudo_cmd="sudo"
     if command -v apt-get >/dev/null 2>&1; then
-      log "apt install ffmpeg libfluidsynth3 libsndfile1 build-essential pkg-config python3.11 python3.11-venv python3.11-dev"
+      log "apt install ffmpeg fluidsynth libfluidsynth3 libsndfile1 build-essential pkg-config python3.11 python3.11-venv python3.11-dev"
       $sudo_cmd apt-get update
       $sudo_cmd apt-get install -y --no-install-recommends \
-        ffmpeg libfluidsynth3 libsndfile1 \
+        ffmpeg fluidsynth libfluidsynth3 libsndfile1 \
         build-essential pkg-config \
         python3.11 python3.11-venv python3.11-dev
     elif command -v dnf >/dev/null 2>&1; then
@@ -198,9 +198,9 @@ _setup_main() {
   log "pip install -e .[dev]  (this may take several minutes for demucs/madmom/basic-pitch)"
   python -m pip install -e ".[dev]"
 
-  # --- 6. Pre-download models (Demucs weights + soundfont) ----------------
+  # --- 6. Pre-download models (Demucs weights + soundfont) and samples ----
   # Idempotent; failures only warn — the app still works (bundled soundfont,
-  # Demucs downloads lazily on the first full-mix analysis).
+  # Demucs and the productionize samples download lazily on first use).
   if [[ $SKIP_MODELS -eq 1 ]]; then
     log "skipping model pre-download (--no-models)"
   else
@@ -211,8 +211,10 @@ _setup_main() {
     else
       music-decoder fetch-models || fetch_ok=0
     fi
+    log "pre-downloading production samples: music-decoder fetch-samples"
+    music-decoder fetch-samples || fetch_ok=0
     if [[ $fetch_ok -eq 0 ]]; then
-      warn "some model downloads failed — retry later with: music-decoder fetch-models"
+      warn "some downloads failed — retry later with: music-decoder fetch-models / fetch-samples"
     fi
   fi
 

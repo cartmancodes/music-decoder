@@ -25,6 +25,8 @@ dependencies = [
   "pyyaml>=6.0",
   "click>=8.1",
   "yt-dlp>=2026.8.19",
+  "soundfile>=0.12",
+  "pyloudnorm>=0.1.1",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +62,8 @@ plugins = []
 [[tool.mypy.overrides]]
 module = ["basic_pitch.*", "demucs.*", "librosa.*", "pretty_midi.*",
           "music21.*", "mir_eval.*", "fluidsynth.*",
-          "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*"]
+          "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*",
+          "soundfile.*", "pyloudnorm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -1,10 +1,11 @@
 # music-decoder
 
-Local audio analysis tool. Three things it does:
+Local audio analysis tool. Four things it does:
 
 1. **Identify chord progression** for a YouTube URL or local MP3/WAV/FLAC.
 2. **Generate guitar tablature** for the same.
 3. **Suggest a music composition** given a scale and a chord progression — outputs MIDI, WAV, and ASCII tab.
+4. **Productionize a composition** — render it as a boom-bap instrumental (real drum kit, bass, sampled grand piano, strings) mastered to a 24-bit WAV and a 320 kbps MP3.
 
 ## Install
 
@@ -13,8 +14,10 @@ Prerequisites: Python 3.11 or 3.12, `ffmpeg`, `fluidsynth` (for synthesis).
 The fastest way is the bundled `setup.sh`. It installs system binaries
 (ffmpeg, fluidsynth, libsndfile), creates `.venv`, installs the package
 with dev extras, pre-downloads the models (`music-decoder fetch-models`:
-Demucs weights + GeneralUser GS soundfont), and runs `doctor` — so nothing
-downloads on first use:
+Demucs weights + GeneralUser GS soundfont) and the `productionize` drum and
+percussion samples (`music-decoder fetch-samples`), and runs `doctor` — so
+first runs don't stall on downloads (piano samples still arrive as songs
+need them):
 
 ```bash
 source ./setup.sh   # also activates .venv in your current shell
@@ -45,6 +48,9 @@ music-decoder compose \
     --style fingerstyle --tempo 100 --seed 42 \
     --out ./out
 
+# Turn that composition into a mastered instrumental (WAV + MP3 + stems)
+music-decoder productionize ./out/<take-folder> --out ./release --name my_track
+
 # Launch the Streamlit UI
 music-decoder ui
 
@@ -53,6 +59,9 @@ music-decoder doctor
 
 # Pre-download models (done by setup.sh; run once after a pip/pipx install)
 music-decoder fetch-models
+
+# Pre-download the drum and percussion samples for productionize (optional)
+music-decoder fetch-samples
 ```
 
 ## Library
@@ -71,6 +80,11 @@ comp = compose(
     out_dir=Path("./out"), seed=42,
 )
 print(comp.midi_path, comp.wav_path)
+
+from music_decoder.productionize import productionize
+
+release = productionize(comp, out_dir=Path("./release"), name="my_track")
+print(release.wav_path, release.mp3_path, release.qc.passed)
 ```
 
 ## Development
@@ -80,6 +94,7 @@ make dev          # install with dev extras (pip install -e ".[dev]")
 make test-fast    # unit tests only
 make test         # unit + integration
 make regression   # accuracy regression suite (pytest -m regression)
+make test-production  # full-song productionize renders (downloads ~180 MB samples)
 make lint         # ruff
 make typecheck    # mypy --strict
 make run          # launch the Streamlit UI (alias for `music-decoder ui`)
@@ -102,3 +117,8 @@ python scripts/benchmark_guitarset.py --split dev --by-style
 ## License
 
 MIT.
+
+`productionize` plays third-party samples, downloaded on first use:
+Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0 — **credit it on
+release**: "Piano: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0)")
+and Virtuosity Drums (CC0).
