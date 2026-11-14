@@ -65,7 +65,11 @@ def limiter_gain(x: Audio, ceiling: float, cfg: MasterConfig, sr: int) -> npt.ND
     need = np.minimum(1.0, ceiling / np.maximum(peak, 1e-12))
     ahead = max(int(cfg.lookahead_s * sr), 1)
     held = minimum_filter1d(need, size=2 * ahead + 1, mode="nearest")
-    target = np.minimum(held, uniform_filter1d(held, size=ahead, mode="nearest"))
+    # The centred average of the +-ahead hold is a smooth ramp that still never
+    # exceeds ``need``: every sample it averages holds a window that covers
+    # this one. (Taking min(held, average) instead re-introduced the hold's
+    # edges as one-sample gain steps, i.e. clicks.)
+    target = uniform_filter1d(held, size=ahead, mode="nearest")
 
     block = cfg.limiter_block
     n_blocks = -(-n // block)

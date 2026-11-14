@@ -87,6 +87,33 @@ def test_limiter_looks_ahead_and_releases():
     assert np.all(limiter_gain(np.full((1000, 2), 0.1), ceiling, CFG, SR) == 1.0)
 
 
+def _bursty(seconds=2.0):
+    """A steady tone with loud noise bursts: limiting starts and stops often."""
+    rng = np.random.default_rng(0)
+    t = np.arange(int(seconds * SR)) / SR
+    x = 0.5 * np.sin(2 * np.pi * 220 * t)
+    for k in range(8):
+        start, n = int((0.2 + 0.22 * k) * SR), int(0.03 * SR)
+        x[start : start + n] += 0.6 * np.exp(-np.arange(n) / (0.008 * SR)) * rng.standard_normal(n)
+    return np.stack([x, x], axis=1)
+
+
+def test_limiter_gain_has_no_sample_to_sample_jumps():
+    # A jump in gain is a click: the gain must glide into and out of limiting.
+    x = _bursty()
+    ceiling = ceiling_gain(CFG)
+    gain = limiter_gain(x, ceiling, CFG, SR)
+    assert gain.min() < 0.5  # the bursts really are limited (> 6 dB)
+    assert np.abs(np.diff(gain)).max() < 0.01
+    assert dsp.true_peak(x * gain[:, None], CFG.oversample) <= ceiling * 1.0001
+
+
+def test_limiter_gain_is_unity_when_under_the_ceiling():
+    t = np.arange(SR) / SR
+    x = np.stack([0.1 * np.sin(2 * np.pi * 220 * t)] * 2, axis=1)
+    assert np.all(limiter_gain(x, ceiling_gain(CFG), CFG, SR) == 1.0)
+
+
 def test_master_hits_the_loudness_target_under_the_ceiling():
     out, report = master(_music(), CFG, SR)
     assert out.shape == _music().shape
