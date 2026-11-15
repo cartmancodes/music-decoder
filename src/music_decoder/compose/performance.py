@@ -11,6 +11,7 @@ never change, so the MIDI and the tab stay on the eighth-note grid.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from collections.abc import Sequence
 
 import numpy as np
@@ -36,6 +37,7 @@ MIN_VELOCITY = 30
 MAX_VELOCITY = 118
 _EPS_S = 1e-4  # notes must share more than this much time to overlap
 MAX_OFFSET_S = 0.006  # micro-timing: at most 6 ms either way
+RELEASE_GAP_S = 1e-3  # a note ends this long before the next onset of its pitch
 
 
 def _with_velocity(t: TabbedNote, velocity: int) -> TabbedNote:
@@ -211,7 +213,10 @@ def humanize(
     form one stroke and all move by the same offset, so a roll keeps its
     stagger. Offsets are uniform in ``[-max_offset_s, +max_offset_s]``, one
     per stroke in time order from ``numpy.random.default_rng(seed)``. Lengths
-    are kept and no onset moves below 0. The result follows ``notes``' order.
+    are kept, except that a note ends at least :data:`RELEASE_GAP_S` before
+    the next onset of the same pitch in ``notes`` (a same-pitch overlap would
+    let the first note's note-off silence the second in the render). No onset
+    moves below 0. The result follows ``notes``' order.
     """
     heads = stroke_heads([n.start_s for n in notes])
     offsets = np.random.default_rng(seed).uniform(-max_offset_s, max_offset_s, size=len(heads))
@@ -224,4 +229,14 @@ def humanize(
         out.append(
             dataclasses.replace(n, start_s=max(0.0, n.start_s + offset), end_s=n.end_s + offset)
         )
+    # no same-pitch overlap after the shifts
+    by_pitch: dict[int, list[int]] = {}
+    for i, n in enumerate(out):
+        by_pitch.setdefault(n.pitch, []).append(i)
+    for indices in by_pitch.values():
+        indices.sort(key=lambda i: out[i].start_s)
+        for i, j in itertools.pairwise(indices):
+            limit = out[j].start_s - RELEASE_GAP_S
+            if out[i].end_s > limit:
+                out[i] = dataclasses.replace(out[i], end_s=max(limit, out[i].start_s + 1e-4))
     return tuple(out)

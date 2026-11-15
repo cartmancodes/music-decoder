@@ -200,7 +200,13 @@ def test_humanize_keeps_strokes_together_and_bounded():
     assert humanize(notes, seed=7) == h and humanize(notes, seed=8) != h
     for orig, new in zip(notes, h, strict=True):
         assert abs(new.start_s - orig.start_s) <= 0.006 + 1e-9
-        assert new.end_s - new.start_s == pytest.approx(orig.end_s - orig.start_s)
+        # lengths are kept unless the note was cut short before the next same-pitch onset
+        assert new.end_s - new.start_s <= orig.end_s - orig.start_s + 1e-9
+    kept = sum(
+        new.end_s - new.start_s == pytest.approx(orig.end_s - orig.start_s)
+        for orig, new in zip(notes, h, strict=True)
+    )
+    assert kept >= len(notes) * 0.7
     roll = sorted((n for n in h if n.start_s >= 2.0 - 0.01), key=lambda n: n.start_s)
     gaps = [b.start_s - a_.start_s for a_, b in itertools.pairwise(roll)]
     assert all(g == pytest.approx(0.010, abs=1e-6) or g == pytest.approx(0, abs=1e-6) for g in gaps)
@@ -211,3 +217,18 @@ def test_humanize_never_moves_an_onset_below_zero():
     for seed in range(20):
         (n,) = humanize(notes, seed=seed)
         assert n.start_s >= 0.0 and n.end_s - n.start_s == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_humanize_leaves_no_same_pitch_overlap(seed):
+    for labels, bpm in ((("C", "G", "Am", "F"), 100.0), (("C", "Am", "F", "G"), 120.0)):
+        _, a = _fs(labels, tempo=bpm, seed=seed)
+        for part in (a.accompaniment, a.melody):
+            h = sorted(humanize(part, seed=seed), key=lambda n: n.start_s)
+            by_pitch = {}
+            for n in h:
+                by_pitch.setdefault(n.pitch, []).append(n)
+            for ns in by_pitch.values():
+                for x, y in itertools.pairwise(ns):
+                    assert x.end_s <= y.start_s - 1e-3 + 1e-9
+                    assert x.end_s > x.start_s
