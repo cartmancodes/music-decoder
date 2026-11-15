@@ -1,9 +1,15 @@
-"""Plain-text tablature for a composition: the melody tab and the chord shapes.
+"""Plain-text tablature for a composition, followed by the chord shapes.
 
-Each melody note gets its own column in playing order (bars separated by
-``|``, a few bars per line), so no note can overwrite another; the chord
-shapes are listed separately under their names. Rhythm is not drawn: the
-MIDI file is the source of truth for timing.
+Strum and arpeggio (:func:`render_composition_tab`): a ``Melody`` block in
+which each melody note gets its own column in playing order (bars separated
+by ``|``, a few bars per line), so no note can overwrite another. Rhythm is
+not drawn there: the MIDI file is the source of truth for timing.
+
+Fingerstyle (:func:`render_fingerstyle_tab`): a ``Fingerstyle`` block with
+the whole one-guitar part, melody and accompaniment together, drawn with
+rhythm: eight eighth-note columns per bar, a chord-name row and a count row.
+
+Both end with a ``Chords`` block listing each chord shape under its name.
 """
 
 from __future__ import annotations

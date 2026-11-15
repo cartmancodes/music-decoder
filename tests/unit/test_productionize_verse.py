@@ -144,7 +144,8 @@ def turnaround_midi(tmp_path):
     arr = arrange(C_MAJOR, TURNAROUND, tempo_bpm=100.0, style="fingerstyle", seed=42)
     return build_midi(
         melody=arr.melody, voicings=arr.voicings, bars_per_chord=1, tempo_bpm=100.0,
-        style="fingerstyle", out_path=tmp_path / "composition.mid",
+        style="fingerstyle", accompaniment=arr.accompaniment,
+        out_path=tmp_path / "composition.mid",
     )  # fmt: skip
 
 
@@ -162,7 +163,7 @@ def test_guide_line_verse_is_one_melody_note_per_bar_over_voice_led_chords(turna
     g = song.grid
     notes = _verse_notes(song, 2)
     line = [n for n in notes if abs((n.start_s - g.time(2)) % g.bar_s - 10 * g.step_s) < 1e-6]
-    assert _names(n.pitch for n in line) == "E5 G5 F5 D5"
+    assert _names(n.pitch for n in line) == "D5 E5 C5 B4"  # the v4 seed-42 fingerstyle melody
     chord_tops = [
         max(
             n.pitch

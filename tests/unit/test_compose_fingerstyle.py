@@ -1,8 +1,14 @@
+import math
+import re
 from collections.abc import Sequence
+from unittest import mock
 
+import pretty_midi
 import pytest
 
 from music_decoder.compose import fingerstyle, metrics
+from music_decoder.compose.api import accompany, arrange, compose
+from music_decoder.compose.arrangement import build_midi
 from music_decoder.compose.fingerstyle import (
     arrange_fingerstyle,
     body_bar,
@@ -14,8 +20,9 @@ from music_decoder.compose.fingerstyle import (
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc
 from music_decoder.compose.voicings import voicings_for
-from music_decoder.tabs.tuning import STANDARD_EADGBE
-from music_decoder.types import ChordSymbol, Note, Scale, TabPosition, VoicedChord
+from music_decoder.evaluation.compose_musicality import TUNING_PROGRESSIONS
+from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE
+from music_decoder.types import VALID_TONICS, ChordSymbol, Note, Scale, TabPosition, VoicedChord
 
 
 def P(string: int, fret: int) -> TabPosition:
@@ -334,3 +341,265 @@ def test_arrange_fingerstyle_joins_body_and_final_bars():
     assert [t.note for t in part.melody_tab] == melody
     assert part.identity_misses == () and not part.final_fallback
     assert metrics.playable_moment_ratio([*part.melody_tab, *part.accompaniment_tab]) == 1.0
+
+
+# ---- the arranged piece: arrange(style="fingerstyle") and compose() --------
+
+_QUALITY_SUFFIXES = ("", "m", "7", "maj7", "m7", "dim", "sus4", "aug")  # as in test_compose_api
+
+
+def _chords(*labels: str) -> list[ChordSymbol]:
+    return [ChordSymbol.parse(c) for c in labels]
+
+
+def _fingerstyle(key, mode, labels, seed, bars=1, tempo=120.0, tuning=STANDARD_EADGBE):
+    progression = _chords(*labels)
+    arr = arrange(
+        Scale(key, mode),
+        progression,
+        bars_per_chord=bars,
+        tempo_bpm=tempo,
+        style="fingerstyle",
+        tuning=tuning,
+        seed=seed,
+    )
+    return arr, progression
+
+
+SEVENTH_QUALITIES = frozenset({"maj7", "min7", "7"})
+
+# Spec 5.3 allows a counted, listed final-voicing fallback when no voicing
+# exists. (key, mode, labels, seed, tuning) of the one such case: no shape the
+# design allows voices D#dim's F# and A under a D# on the B or e string.
+FINAL_FALLBACK_CASES = frozenset({("C", "major", ("C", "D#dim"), 7, "EADGBE")})
+
+
+def _assert_identity_is_counted(arr, progression, bars, tempo, fallback=False):
+    """Accompaniment-only identity (spec 5.4): a bar whose shape leaves no
+    room for its missing tone counts as a miss. Triad-family bars never miss,
+    misses fall only on seventh-chord bars, and ``identity_misses`` lists them
+    exactly."""
+    heard = metrics.bar_identity(arr.accompaniment, progression, bars, tempo)
+    missed = tuple(bar for bar, ok in enumerate(heard) if not ok)
+    assert arr.identity_misses == missed
+    for bar, ok in enumerate(heard):
+        seventh = progression[bar // bars].quality in SEVENTH_QUALITIES
+        # A counted final-voicing fallback (spec 5.3, ruling R7a) cannot sound
+        # its chord under the final note, so its final bar may miss; it is
+        # still listed in identity_misses, and every body bar stays checked.
+        assert ok or seventh or (fallback and bar == len(heard) - 1), (
+            bar,
+            progression[bar // bars].to_label(),
+        )
+
+
+def _assert_one_playable_part(
+    arr, progression, bars=1, tempo=120.0, tuning=STANDARD_EADGBE, fallback=False
+):
+    """``fallback`` marks a FINAL_FALLBACK_CASES entry: it must fall back,
+    and H2 and its final bar's identity are not checked (spec 5.3, R7, R7a)."""
+    part = [*arr.melody_tab, *arr.accompaniment_tab]
+    assert metrics.playable_moment_ratio(part) == 1.0
+    assert metrics.melody_onset_on_top_ratio(arr.melody, arr.accompaniment) == 1.0
+    _assert_identity_is_counted(arr, progression, bars, tempo, fallback=fallback)
+    assert metrics.tab_consistent([*arr.melody, *arr.accompaniment], part, tuning)
+    assert [t.note for t in arr.melody_tab] == list(arr.melody)
+    assert arr.final_fallback is fallback
+    assert metrics.final_chord_rings(arr.accompaniment, len(progression) * bars, tempo)
+    if not fallback:
+        assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, tuning)
+    assert metrics.forbidden_interval_count(arr.melody) == 0
+    assert metrics.unjustified_large_leap_count(arr.melody, progression, bars, tempo) == 0
+    assert max(metrics.chord_change_moves(arr.melody, progression, bars, tempo), default=0) <= 7
+
+
+@pytest.mark.parametrize("seed", range(10))
+@pytest.mark.parametrize(
+    ("key", "mode", "labels"),
+    [
+        ("C", "major", ("C", "Am", "F", "G")),
+        ("A", "minor", ("Am", "F", "C", "G")),
+        ("C", "major", ("Cmaj7", "Am7", "Dm7", "G7")),
+        ("G", "major", ("G", "D", "Em", "C")),
+    ],
+)
+def test_fingerstyle_arrangement_is_one_playable_part(key, mode, labels, seed):
+    arr, progression = _fingerstyle(key, mode, labels, seed)
+    _assert_one_playable_part(arr, progression)
+
+
+@pytest.mark.parametrize("seed", range(10))
+@pytest.mark.parametrize(
+    ("key", "mode", "labels"),
+    [
+        ("D", "major", ("D", "G", "A", "D")),
+        ("D", "minor", ("Dm", "A7", "Dm")),
+        ("G", "major", ("G", "D7", "G")),
+        ("D", "major", ("D", "Bm", "G", "A")),
+    ],
+)
+def test_d_family_bars_keep_their_identity(key, mode, labels, seed):
+    arr, progression = _fingerstyle(key, mode, labels, seed)
+    _assert_one_playable_part(arr, progression)
+
+
+@pytest.mark.parametrize("seed", range(5))
+@pytest.mark.parametrize(
+    ("key", "mode", "labels"),
+    [
+        ("F", "major", ("F", "A#", "C", "F")),  # F Bb C F
+        ("B", "minor", ("Bm", "G", "D", "A")),
+        ("C#", "minor", ("C#m", "A", "E", "B")),
+    ],
+)
+def test_barre_progressions_are_playable(key, mode, labels, seed):
+    arr, progression = _fingerstyle(key, mode, labels, seed)
+    _assert_one_playable_part(arr, progression)
+
+
+@pytest.mark.parametrize(("key", "mode", "home"), [("C", "major", "C"), ("A", "minor", "Am")])
+def test_every_root_and_quality_ends_playably(key, mode, home):
+    for root in VALID_TONICS:
+        for suffix in _QUALITY_SUFFIXES:
+            labels = (home, root + suffix)
+            arr, progression = _fingerstyle(key, mode, labels, 7)
+            fallback = (key, mode, labels, 7, STANDARD_EADGBE.name) in FINAL_FALLBACK_CASES
+            try:
+                _assert_one_playable_part(arr, progression, fallback=fallback)
+            except AssertionError as e:
+                raise AssertionError(f"{home} {root + suffix}") from e
+
+
+@pytest.mark.parametrize("seed", range(1000, 1003))
+@pytest.mark.parametrize("tuning_name", sorted(PRESETS))
+@pytest.mark.parametrize(("key", "mode", "labels"), TUNING_PROGRESSIONS)
+def test_fingerstyle_in_every_preset_tuning(key, mode, labels, tuning_name, seed):
+    tuning = PRESETS[tuning_name]
+    arr, progression = _fingerstyle(key, mode, labels, seed, tuning=tuning)
+    _assert_one_playable_part(arr, progression, tuning=tuning)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_single_chord_and_two_bars_per_chord(seed):
+    arr, progression = _fingerstyle("D", "major", ("D",), seed)
+    _assert_one_playable_part(arr, progression)
+    arr, progression = _fingerstyle("C", "major", ("C", "Am", "F", "G"), seed, bars=2)
+    _assert_one_playable_part(arr, progression, bars=2)
+
+
+def test_fingerstyle_ends_on_a_held_tonic_over_one_roll():
+    arr, progression = _fingerstyle("D", "major", ("D", "G", "A", "D"), 9)
+    last_bar = 3 * 2.0
+    final = arr.melody[-1]
+    assert final.start_s == pytest.approx(last_bar)
+    assert final.pitch % 12 == cadence_pc(Scale("D", "major"), progression[-1]) == 2
+    roll = [a for a in arr.accompaniment if a.start_s >= last_bar - 1e-9]
+    assert roll and all(a.start_s - last_bar <= 0.050 + 1e-9 for a in roll)
+
+
+# the five fingerstyle checks that used to run on _accompaniment_notes
+
+
+def test_fingerstyle_stroke_heads_sit_on_the_sixteenth_grid():
+    arr, _ = _fingerstyle("C", "major", ("C", "Am", "F", "G7"), 9)
+    heads = metrics.stroke_heads([a.start_s for a in arr.accompaniment])
+    assert metrics.onset_grid_ratio(heads, 120.0, 4) == 1.0
+
+
+def test_fingerstyle_final_bar_is_one_ringing_chord():
+    arr, _ = _fingerstyle("C", "major", ("C", "G", "C"), 9)
+    assert metrics.final_chord_rings(arr.accompaniment, 3, 120.0)
+
+
+def test_fingerstyle_single_bar_accompaniment_is_the_final_chord():
+    arr, _ = _fingerstyle("C", "major", ("C",), 9)
+    assert arr.accompaniment and metrics.final_chord_rings(arr.accompaniment, 1, 120.0)
+
+
+def test_fingerstyle_d_major_cadence_keeps_its_third():
+    arr, _ = _fingerstyle("D", "major", ("D", "G", "A", "D"), 9)
+    coverage = metrics.essential_tone_coverage(
+        arr.melody, arr.accompaniment, arr.voicings, 1, 120.0, STANDARD_EADGBE
+    )
+    assert all(coverage)
+
+
+def test_fingerstyle_final_chord_keeps_the_seventh_under_the_cadence():
+    arr, _ = _fingerstyle("C", "major", ("C", "G7"), 9)
+    assert metrics.cadence_identity(arr.melody, arr.accompaniment, arr.voicings, STANDARD_EADGBE)
+    assert metrics.final_chord_rings(arr.accompaniment, 2, 120.0)
+
+
+def _decode_fingerstyle(text: str) -> set[tuple[int, int, int, int]]:
+    """(bar, column, string, fret) for every fret number in a fingerstyle tab.
+
+    Columns are found from the count row: its symbols sit where the cells start.
+    """
+    block = text.split("\n\nChords\n")[0].removeprefix("Fingerstyle\n")
+    out: set[tuple[int, int, int, int]] = set()
+    for k, system in enumerate(block.split("\n\n")):
+        lines = system.split("\n")
+        rows, counts = lines[1:-1], lines[-1]
+        starts = [i for i, ch in enumerate(counts) if ch != " "]
+        for r, row in enumerate(rows):
+            string = len(rows) - 1 - r
+            for j, at in enumerate(starts):
+                cell = re.match(r"\d+", row[at:])
+                if cell:
+                    out.add((4 * k + j // 8, j % 8, string, int(cell.group())))
+    return out
+
+
+def test_compose_writes_the_fingerstyle_part_to_midi_and_tab(tmp_path):
+    labels = ("Am", "F", "C", "G", "Dm7", "E7")  # six bars: two systems
+    with mock.patch("music_decoder.compose.api.render_wav"):
+        result = compose(
+            scale=Scale("A", "minor"),
+            progression=_chords(*labels),
+            tempo_bpm=120.0,
+            style="fingerstyle",
+            seed=4,
+            out_dir=tmp_path,
+        )
+    arr, _ = _fingerstyle("A", "minor", labels, 4)
+    pm = pretty_midi.PrettyMIDI(str(result.midi_path))
+    tracks = {i.name: i for i in pm.instruments}
+    assert [i.name for i in pm.instruments] == ["melody", "accompaniment"]
+    for name, expected in (("melody", arr.melody), ("accompaniment", arr.accompaniment)):
+        written = sorted(tracks[name].notes, key=lambda n: (n.start, n.pitch))
+        want = sorted(expected, key=lambda n: (n.start_s, n.pitch))
+        assert len(written) == len(want), name
+        for w, e in zip(written, want, strict=True):
+            assert w.pitch == e.pitch and abs(w.start - e.start_s) <= 1e-3, name
+
+    bar_s, eighth_s = 2.0, 0.25
+    expected_cells = set()
+    for t in [*arr.melody_tab, *arr.accompaniment_tab]:
+        bar = math.floor(t.note.start_s / bar_s + 1e-6)
+        column = round((t.note.start_s - bar * bar_s) / eighth_s)
+        expected_cells.add((bar, column, t.position.string, t.position.fret))
+    assert result.ascii_tab.startswith("Fingerstyle\n")
+    assert _decode_fingerstyle(result.ascii_tab) == expected_cells
+
+
+def test_accompany_and_build_midi_refuse_bare_fingerstyle(tmp_path):
+    voicings = [C_HAND.voicing, D_HAND.voicing]
+    melody = [*_quarters(64, 65, 67, 65), note(2.0, 3.9, 62)]
+    with pytest.raises(ValueError, match="use arrange"):
+        accompany(
+            voicings,
+            melody,
+            bars_per_chord=1,
+            tempo_bpm=120.0,
+            style="fingerstyle",
+            tuning=STANDARD_EADGBE,
+        )
+    with pytest.raises(ValueError, match="use arrange"):
+        build_midi(
+            melody=melody,
+            voicings=voicings,
+            bars_per_chord=1,
+            tempo_bpm=120.0,
+            style="fingerstyle",
+            out_path=tmp_path / "x.mid",
+        )

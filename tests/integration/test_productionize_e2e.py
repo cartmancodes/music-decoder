@@ -61,6 +61,7 @@ def test_composer_output_is_release_ready(tmp_path):
         bars_per_chord=1,
         tempo_bpm=92.0,
         style="fingerstyle",
+        accompaniment=arr.accompaniment,
         out_path=tmp_path / "composition.mid",
     )
     result = productionize(midi, out_dir=tmp_path / "out", progression=progression, key="Am")

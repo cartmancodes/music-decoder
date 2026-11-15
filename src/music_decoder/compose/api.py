@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import statistics
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,9 +16,10 @@ from music_decoder.compose.arrangement import (
     _voiced_pitches,
     build_midi,
 )
+from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pitches, hand_shape
 from music_decoder.compose.harmony import essential_pcs
-from music_decoder.compose.melody import generate_melody
-from music_decoder.compose.tabtext import render_composition_tab
+from music_decoder.compose.melody import cadence_pc, generate_melody
+from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.synth import render_wav
@@ -35,7 +37,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 3
+COMPOSER_VERSION = 4
 
 # A* fingering parameters for the melody tab. Pinned here (values as tuned on
 # GuitarSet dev for analyze(), 2026-10) rather than read from
@@ -54,12 +56,23 @@ COMPOSE_TAB_MAX_FRET = 22
 
 @dataclass(frozen=True)
 class Arrangement:
-    """Everything compose() writes, computed without touching the filesystem."""
+    """Everything compose() writes, computed without touching the filesystem.
+
+    ``accompaniment_tab``, ``identity_misses`` and ``final_fallback`` are
+    filled only for fingerstyle, where melody and accompaniment are one tabbed
+    guitar part (``accompaniment`` is then ``accompaniment_tab``'s notes).
+    ``identity_misses`` lists the bars whose accompaniment alone lacks an
+    essential tone (spec 5.4 counts them); ``final_fallback`` says the final
+    chord could not be re-voiced under the final note (spec 5.3).
+    """
 
     melody: tuple[Note, ...]
     voicings: tuple[VoicedChord, ...]
     accompaniment: tuple[Note, ...]
     melody_tab: tuple[TabbedNote, ...]
+    accompaniment_tab: tuple[TabbedNote, ...] = ()
+    identity_misses: tuple[int, ...] = ()
+    final_fallback: bool = False
 
 
 def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: int) -> None:
@@ -121,7 +134,12 @@ def accompany(
     style: Literal["arpeggio", "strum", "fingerstyle"],
     tuning: Tuning,
 ) -> tuple[Note, ...]:
-    """The accompaniment track as ``Note``s, thinned around ``melody``."""
+    """The accompaniment track as ``Note``s, thinned around ``melody``.
+
+    Strum and arpeggio only: the fingerstyle accompaniment is arranged with
+    its own melody, so ``style="fingerstyle"`` raises ``ValueError`` (use
+    :func:`arrange`).
+    """
     return tuple(
         Note(
             start_s=float(n.start),
@@ -133,6 +151,50 @@ def accompany(
         for n in _accompaniment_notes(
             voicings, bars_per_chord, tempo_bpm, style, tuning, melody=melody
         )
+    )
+
+
+def _arrange_fingerstyle(
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    voicings: tuple[VoicedChord, ...],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+    seed: int | None,
+) -> Arrangement:
+    """The fingerstyle arrangement: a melody drawn from the pitches each bar's
+    held chord shape can reach (spec 5.5), then the one-guitar part around it."""
+    hands = [hand_shape(v, tuning) for v in voicings]
+    n_bars = len(voicings) * bars_per_chord
+    allowed = [hands[bar // bars_per_chord].allowed for bar in range(n_bars)]
+    allowed[-1] = final_bar_pitches(
+        hands[-1], cadence_pc(scale, progression[-1]), essential_pcs(progression[-1])
+    )
+    center = statistics.median_low([p for pitches in allowed for p in sorted(pitches)])
+    melody = tuple(
+        generate_melody(
+            scale=scale,
+            progression=progression,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            seed=seed,
+            tessitura_center=center,
+            allowed_pitches=allowed,
+            final_whole_note=True,
+        )
+    )
+    part = arrange_fingerstyle(
+        voicings, melody, hands, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm
+    )
+    return Arrangement(
+        melody=melody,
+        voicings=voicings,
+        accompaniment=tuple(t.note for t in part.accompaniment_tab),
+        melody_tab=part.melody_tab,
+        accompaniment_tab=part.accompaniment_tab,
+        identity_misses=part.identity_misses,
+        final_fallback=part.final_fallback,
     )
 
 
@@ -153,6 +215,10 @@ def arrange(
     """
     _validate(scale, progression, bars_per_chord)
     voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
+    if style == "fingerstyle":
+        return _arrange_fingerstyle(
+            scale, progression, voicings, bars_per_chord, tempo_bpm, tuning, seed
+        )
     melody = tuple(
         generate_melody(
             scale=scale,
@@ -215,17 +281,27 @@ def compose(
         style=style,
         out_path=midi_path,
         tuning=tuning,
+        accompaniment=arrangement.accompaniment if style == "fingerstyle" else None,
     )
     wav_path = work / "composition.wav"
     render_wav(midi_path, wav_path)
 
-    ascii_tab = render_composition_tab(
-        arrangement.melody_tab,
-        arrangement.voicings,
-        bars_per_chord=bars_per_chord,
-        tempo_bpm=tempo_bpm,
-        tuning=tuning,
-    )
+    if style == "fingerstyle":
+        ascii_tab = render_fingerstyle_tab(
+            [*arrangement.melody_tab, *arrangement.accompaniment_tab],
+            arrangement.voicings,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            tuning=tuning,
+        )
+    else:
+        ascii_tab = render_composition_tab(
+            arrangement.melody_tab,
+            arrangement.voicings,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            tuning=tuning,
+        )
 
     return Composition(
         midi_path=midi_path,
