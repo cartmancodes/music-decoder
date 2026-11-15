@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from music_decoder.compose.api import arrange
 from music_decoder.evaluation import compose_musicality as ev
 from music_decoder.types import ChordSymbol, Scale
 
@@ -40,6 +41,36 @@ def test_case_metrics_cover_every_style():
         for prefix in ("A1", "A2", "A3", "A4", "H1", "H2"):
             assert f"{prefix}.{style}" in row
     assert {"M1", "M7", "M11a", "M12", "M13", "T1", "T2", "V1", "S1.missing"} <= set(row)
+
+
+def test_cases_carry_a_separate_fingerstyle_arrangement():
+    (case,) = ev.build_cases(ev.edge_inputs()[:1])
+    scale, prog, bars, seed = ev.edge_inputs()[0]
+    kw = dict(bars_per_chord=bars, tempo_bpm=ev.TEMPO_BPM, seed=seed)
+    assert case.arrangement == arrange(scale, prog, style="strum", **kw)
+    assert case.fingerstyle == arrange(scale, prog, style="fingerstyle", **kw)
+    row = ev.case_metrics(case)
+    assert {"P1", "P2", "P3", "P3m", "P4", "P5", "F.M1", "F.L1", "F.M7"} <= set(row)
+    # spec §5.4 / controller ruling R6, R8: triad-family identity reported apart
+    assert row["P3t"] == row["P3"]  # C F G: every bar is triad-family
+
+
+def test_p3t_skips_seventh_chord_bars():  # spec §5.4 / controller ruling R6, R8
+    scale = Scale("C", "major")
+    prog = tuple(ChordSymbol.parse(c) for c in ("Cmaj7", "Dm7", "G7", "Cmaj7"))
+    (case,) = ev.build_cases([(scale, prog, 1, 1000)])
+    assert ev.case_metrics(case)["P3t"] is None
+
+
+def test_aggregate_pools_the_fingerstyle_melody_counts():
+    rows = [
+        {"F.M5.leaps": 4, "F.M5.recovered": 3, "F.L0.large": 1, "F.L0.intervals": 10},
+        {"F.M5.leaps": 0, "F.M5.recovered": 0, "F.L0.large": 0, "F.L0.intervals": 10},
+    ]
+    out = ev._aggregate(rows)
+    assert out["F.M5"] == {"pooled": 0.75, "n": 4.0}
+    assert out["F.L0"] == {"pooled": 0.05, "n": 20.0}
+    assert not {"F.M5.leaps", "F.M5.recovered", "F.L0.large", "F.L0.intervals"} & set(out)
 
 
 def test_summarize_groups_and_pools_counts():
