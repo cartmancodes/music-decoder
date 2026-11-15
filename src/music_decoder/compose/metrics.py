@@ -28,7 +28,16 @@ from music_decoder.compose.harmony import (
     tonic_pc,
 )
 from music_decoder.compose.rhythm import phrase_layout
-from music_decoder.types import ChordSymbol, Note, Scale, Tuning, VoicedChord
+from music_decoder.compose.voicings import MAX_FINGERS, MAX_FRETTED_SPAN, fingers_needed
+from music_decoder.types import (
+    ChordSymbol,
+    Note,
+    Scale,
+    TabbedNote,
+    TabPosition,
+    Tuning,
+    VoicedChord,
+)
 
 _GRID_TOL_S = 1e-3  # onset counts as "on the grid" within 1 ms
 _STROKE_WINDOW_S = 0.06  # onsets this close to a stroke's first onset belong to it
@@ -535,3 +544,95 @@ def nearest_pitch_proximity(voicings: Sequence[VoicedChord], tuning: Tuning) -> 
             continue
         moves.append(sum(min(abs(x - y) for y in pa) for x in pb) / len(pb))
     return sum(moves) / len(moves) if moves else None
+
+
+# ---- fingerstyle part -----------------------------------------------------
+
+
+def moment_playable(positions: Sequence[TabPosition]) -> bool:
+    """Spec 5.1 for one moment: the hand can hold ``positions`` at once.
+
+    One note per string; a fretted span (frets > 0, open strings excluded) of
+    at most ``MAX_FRETTED_SPAN``; and ``fingers_needed`` of the per-string fret
+    list (one entry per string up to the highest used, ``-1`` = not sounding)
+    at most ``MAX_FINGERS``.
+
+    Spec 5.1 rule 4 (no open string under a barre) needs no separate check:
+    in ``fingers_needed`` an open or silent string ends a barre run, so a
+    barre split by an open string costs an extra finger and is caught by the
+    finger limit.
+    """
+    sounding = [p for p in positions if p.fret >= 0]
+    strings = [p.string for p in sounding]
+    if len(set(strings)) != len(strings):
+        return False
+    fretted = [p.fret for p in sounding if p.fret > 0]
+    if fretted and max(fretted) - min(fretted) > MAX_FRETTED_SPAN:
+        return False
+    frets = [-1] * (max(strings) + 1 if strings else 0)
+    for p in sounding:
+        frets[p.string] = p.fret
+    return fingers_needed(frets) <= MAX_FINGERS
+
+
+def playable_moment_ratio(part: Sequence[TabbedNote]) -> float | None:
+    """Share of moments (each distinct onset) whose sounding notes are
+    :func:`moment_playable`. ``None`` without notes."""
+    onsets = sorted({round(t.note.start_s, 6) for t in part})
+    hits = 0
+    for onset in onsets:
+        at = onset + _OVERLAP_EPS_S
+        hits += moment_playable(
+            [t.position for t in part if t.note.start_s <= at and t.note.end_s > at]
+        )
+    return _ratio(hits, len(onsets))
+
+
+def melody_onset_on_top_ratio(
+    melody: Sequence[Note], accompaniment: Sequence[Note]
+) -> float | None:
+    """Share of melody onsets whose pitch is higher than every accompaniment
+    note sounding then or entering within the stroke window (so a final roll's
+    late strings count). Unlike A2, a fill that begins after the melody onset
+    is not compared. ``None`` without a melody."""
+    hits = 0
+    for n in melody:
+        t = n.start_s
+        hits += all(
+            n.pitch > a.pitch
+            for a in accompaniment
+            if a.start_s < t + _STROKE_WINDOW_S and a.end_s > t + _OVERLAP_EPS_S
+        )
+    return _ratio(hits, len(melody))
+
+
+def bar_identity(
+    notes: Sequence[Note],
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+) -> list[bool]:
+    """Per bar: every essential tone of the bar's chord is heard in ``notes``
+    (same overlap test as :func:`essential_tone_coverage`)."""
+    bar_s = 4.0 * _beat_s(tempo_bpm)
+    out: list[bool] = []
+    for bar in range(len(progression) * bars_per_chord):
+        t0, t1 = bar * bar_s, (bar + 1) * bar_s
+        heard = {
+            n.pitch % 12
+            for n in notes
+            if n.start_s < t1 - _OVERLAP_EPS_S and n.end_s > t0 + _OVERLAP_EPS_S
+        }
+        out.append(essential_pcs(progression[bar // bars_per_chord]) <= heard)
+    return out
+
+
+def tab_consistent(notes: Sequence[Note], tab: Sequence[TabbedNote], tuning: Tuning) -> bool:
+    """The tab carries exactly ``notes`` (same onsets and pitches, as multisets)
+    and every tab note's pitch is its string's open pitch plus its fret."""
+    tab_notes = Counter((round(t.note.start_s, 6), t.note.pitch) for t in tab)
+    if Counter((round(n.start_s, 6), n.pitch) for n in notes) != tab_notes:
+        return False
+    return all(
+        t.note.pitch == tuning.open_pitches[t.position.string] + t.position.fret for t in tab
+    )
