@@ -180,6 +180,27 @@ def choose_bar_shapes(
     return tuple(bars[b][s][0].voicing for b, s in enumerate(path))
 
 
+@functools.cache  # both arguments are frozen dataclasses
+def _repair_hands(chord: ChordSymbol, tuning: Tuning) -> tuple[HandShape, ...]:
+    """The hands :func:`repair_identity` tries: the :func:`shape_candidates`
+    in :func:`bar_cost` order, then every other usable :func:`ranked_shapes`
+    shape in :func:`bar_cost` order (v5 ruling F2b)."""
+    essential = essential_pcs(chord)
+    scored = _scored(chord, tuning)
+    first = [h for _, h in sorted(enumerate(scored), key=lambda x: (x[1][1], x[0]))]
+    seen = {_frets(h.voicing) for h, _ in scored}
+    rest: list[tuple[float, int, HandShape]] = []
+    for frets in ranked_shapes(chord, tuning):
+        if frets in seen:
+            continue
+        seen.add(frets)
+        hand = _usable_hand(_voiced(chord, frets), tuning)
+        if hand is not None:
+            rank = len(scored) + len(rest)
+            rest.append((bar_cost(hand, essential, rank), rank, hand))
+    return (*(h for h, _ in first), *(h for _, _, h in sorted(rest, key=lambda x: x[:2])))
+
+
 def _bar_of(t: TabbedNote, bar_s: float) -> int:
     return int((t.note.start_s + _EPS_S) // bar_s)
 
@@ -214,11 +235,12 @@ def repair_identity(
 ) -> tuple[FingerstylePart, tuple[VoicedChord, ...]]:
     """Re-voice the body bars that miss an essential tone (spec 5.2, repair).
 
-    For each body bar in ``part.identity_misses``, the chord's other
-    :func:`shape_candidates` are tried in :func:`bar_cost` order. The first
-    whose hand reaches every melody pitch of the bar, whose re-arranged bar
-    meets identity and which keeps P1 and P2 for the bar replaces the bar's
-    notes and its shape. Melody pitches and timing never change, only their
+    For each body bar in ``part.identity_misses``, the chord's other shapes
+    are tried: its :func:`shape_candidates` in :func:`bar_cost` order, then
+    every other :func:`ranked_shapes` shape in that order (v5 ruling F2b).
+    The first whose hand reaches every melody pitch of the bar, whose
+    re-arranged bar meets identity and which keeps P1 and P2 for the bar
+    replaces the bar's notes and its shape. Melody pitches and timing never change, only their
     positions. Returns the part, with ``identity_misses`` recomputed, and
     the bar shapes.
     """
@@ -236,9 +258,7 @@ def repair_identity(
         start = bar * bar_s
         notes = [t.note for t in melody if _bar_of(t, bar_s) == bar]
         current = _frets(voicings[bar])
-        scored = _scored(chord, tuning)
-        for rank in sorted(range(len(scored)), key=lambda r: (scored[r][1], r)):
-            hand = scored[rank][0]
+        for hand in _repair_hands(chord, tuning):
             if _frets(hand.voicing) == current or any(n.pitch not in hand.allowed for n in notes):
                 continue
             new = body_bar(hand, notes, bar_start_s=start, beat_s=beat_s, essential=essential)
