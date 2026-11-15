@@ -19,7 +19,7 @@ from music_decoder.compose.arrangement import (
 from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pitches, hand_shape
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
-from music_decoder.compose.performance import let_ring, shape_dynamics
+from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
@@ -260,6 +260,40 @@ def compose(
     seed: int | None = None,
     out_dir: Path,
 ) -> Composition:
+    return compose_with_options(
+        scale,
+        progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        style=style,
+        tuning=tuning,
+        seed=seed,
+        out_dir=out_dir,
+        sound="soundfont",
+    )
+
+
+def compose_with_options(
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    *,
+    bars_per_chord: int = 1,
+    tempo_bpm: float = 100.0,
+    style: Literal["arpeggio", "strum", "fingerstyle"] = "fingerstyle",
+    tuning: Tuning = STANDARD_EADGBE,
+    seed: int | None = None,
+    out_dir: Path,
+    sound: Literal["soundfont", "plucked"] = "soundfont",
+) -> Composition:
+    """compose() plus the choice of ``sound``.
+
+    ``composition.mid`` and the tab are the on-grid part. For fingerstyle the
+    WAV is rendered from a temporary performance MIDI whose strokes are
+    micro-timed by :func:`humanize` (v5 spec 5.1); the temporary file is
+    deleted after rendering.
+    """
+    if sound == "plucked":
+        raise NotImplementedError("the plucked sound arrives in a later task")
     arrangement = arrange(
         scale,
         progression,
@@ -289,7 +323,25 @@ def compose(
         accompaniment=arrangement.accompaniment if style == "fingerstyle" else None,
     )
     wav_path = work / "composition.wav"
-    render_wav(midi_path, wav_path)
+    if style == "fingerstyle":
+        performance_path = work / "composition.performance.mid"
+        humanize_seed = seed if seed is not None else 0
+        build_midi(
+            melody=humanize(arrangement.melody, seed=humanize_seed),
+            voicings=arrangement.voicings,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            style=style,
+            out_path=performance_path,
+            tuning=tuning,
+            accompaniment=humanize(arrangement.accompaniment, seed=humanize_seed),
+        )
+        try:
+            render_wav(performance_path, wav_path)
+        finally:
+            performance_path.unlink(missing_ok=True)
+    else:
+        render_wav(midi_path, wav_path)
 
     if style == "fingerstyle":
         ascii_tab = render_fingerstyle_tab(
@@ -323,5 +375,6 @@ def compose(
             "seed": seed,
             "tuning": tuning.name,
             "composer_version": COMPOSER_VERSION,
+            "sound": sound,
         },
     )

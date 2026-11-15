@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 from unittest import mock
 
+import pretty_midi
 import pytest
 
 from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
@@ -13,6 +14,7 @@ from music_decoder.compose.api import (
     _melody_tab,
     arrange,
     compose,
+    compose_with_options,
 )
 from music_decoder.compose.melody import MAX_INTERVAL, generate_melody
 from music_decoder.compose.tabtext import render_melody_tab
@@ -357,3 +359,51 @@ def test_every_root_and_quality_composes_smoothly():  # spec section 6.4 bounded
                     for seed in range(5):
                         arr = arrange(Scale(key, mode), _chords(*labels), seed=seed)
                         _api_leap_invariants(arr, labels)
+
+
+def test_compose_writes_on_grid_midi_and_records_the_sound(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        result = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path)
+    pm = pretty_midi.PrettyMIDI(str(result.midi_path))
+    starts = [n.start for i in pm.instruments for n in i.notes]
+    assert metrics.onset_grid_ratio(metrics.stroke_heads(starts), 100.0, 2) == 1.0
+    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 5
+    assert not list(result.midi_path.parent.glob("*performance*"))  # temp MIDI removed
+
+
+def test_compose_renders_fingerstyle_from_the_humanized_performance_midi(tmp_path):
+    rendered = []
+
+    def fake(midi_path, out_path):
+        rendered.append(midi_path)
+        assert midi_path.exists()
+        out_path.write_bytes(b"RIFF")
+
+    with mock.patch("music_decoder.compose.api.render_wav", side_effect=fake):
+        result = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path)
+    assert rendered[0] != result.midi_path and "performance" in rendered[0].name
+    assert not rendered[0].exists()
+
+
+def test_compose_renders_strum_from_composition_midi(tmp_path):
+    rendered = []
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda m, o: (rendered.append(m), o.write_bytes(b"RIFF"))
+        result = compose_with_options(
+            Scale("C", "major"), _PROG, style="strum", seed=1, out_dir=tmp_path
+        )
+    assert rendered == [result.midi_path]
+
+
+def test_plucked_sound_is_not_available_yet(tmp_path):
+    with pytest.raises(NotImplementedError):
+        compose_with_options(Scale("C", "major"), _PROG, sound="plucked", out_dir=tmp_path)
+
+
+def test_compose_delegates_to_compose_with_options(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        a = compose(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "a")
+        b = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "b")
+    assert a.melody_notes == b.melody_notes and a.ascii_tab == b.ascii_tab

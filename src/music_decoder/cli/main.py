@@ -25,7 +25,8 @@ from typing import Literal, cast
 
 import click
 
-from music_decoder.api import analyze, compose
+from music_decoder.api import analyze
+from music_decoder.compose.api import compose_with_options
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
@@ -166,6 +167,12 @@ def cli_analyze(
 @click.option("--bars", type=int, default=1)
 @click.option("--seed", type=int, default=None)
 @click.option("--tuning", type=click.Choice(list(_TUNINGS)), default="EADGBE")
+@click.option(
+    "--sound",
+    type=click.Choice(["soundfont", "plucked"]),
+    default="soundfont",
+    help="guitar sound of the WAV",
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -176,6 +183,7 @@ def cli_compose(
     bars: int,
     seed: int | None,
     tuning: str,
+    sound: str,
     out: str,
     fmt: str,
 ) -> None:
@@ -184,7 +192,7 @@ def cli_compose(
         s = Scale.parse(scale)
         chords = [ChordSymbol.parse(c) for c in progression.split()]
         with _quiet_stdout():
-            result = compose(
+            result = compose_with_options(
                 scale=s,
                 progression=chords,
                 bars_per_chord=bars,
@@ -193,6 +201,7 @@ def cli_compose(
                 tuning=_TUNINGS[tuning],
                 seed=seed,
                 out_dir=Path(out),
+                sound=cast(Literal["soundfont", "plucked"], sound),
             )
     except MusicDecoderError as e:
         raise click.ClickException(str(e)) from e

@@ -30,7 +30,7 @@ def test_analyze_subcommand_calls_api(tmp_path):
 
 
 def test_compose_subcommand_calls_api(tmp_path):
-    with mock.patch("music_decoder.cli.main.compose") as c:
+    with mock.patch("music_decoder.cli.main.compose_with_options") as c:
         c.return_value = mock.Mock(
             midi_path=tmp_path / "a.mid",
             wav_path=tmp_path / "a.wav",
@@ -53,6 +53,30 @@ def test_compose_subcommand_calls_api(tmp_path):
         )
     assert r.exit_code == 0
     c.assert_called_once()
+
+
+def test_cli_compose_accepts_sound(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = CliRunner().invoke(
+            main,
+            [
+                "compose",
+                "--scale",
+                "C:major",
+                "--progression",
+                "C G",
+                "--sound",
+                "soundfont",
+                "--seed",
+                "1",
+                "--out",
+                str(tmp_path),
+                "--format",
+                "json",
+            ],
+        )
+    assert r.exit_code == 0 and '"sound": "soundfont"' in r.output
 
 
 def test_compose_invalid_scale():

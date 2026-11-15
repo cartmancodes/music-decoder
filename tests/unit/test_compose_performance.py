@@ -1,3 +1,4 @@
+import itertools
 import math
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from music_decoder.compose import metrics
 from music_decoder.compose.api import arrange
 from music_decoder.compose.fingerstyle import FingerstylePart, arrange_fingerstyle, hand_shape
-from music_decoder.compose.performance import let_ring, shape_dynamics
+from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import ChordSymbol, Note, Scale, TabbedNote, TabPosition
 
@@ -190,3 +191,23 @@ def test_mean_length_beats():
     assert metrics.mean_length_beats([], 120.0) is None
     assert metrics.mean_length_beats([_n(0, 0.5), _n(0, 1.5)], 120.0) == pytest.approx(2.0)
     assert math.isclose(metrics.mean_length_beats([_n(0, 1.0)], 60.0) or 0, 1.0)
+
+
+def test_humanize_keeps_strokes_together_and_bounded():
+    _, a = _fs(("C", "G"))
+    notes = (*a.melody, *a.accompaniment)
+    h = humanize(notes, seed=7)
+    assert humanize(notes, seed=7) == h and humanize(notes, seed=8) != h
+    for orig, new in zip(notes, h, strict=True):
+        assert abs(new.start_s - orig.start_s) <= 0.006 + 1e-9
+        assert new.end_s - new.start_s == pytest.approx(orig.end_s - orig.start_s)
+    roll = sorted((n for n in h if n.start_s >= 2.0 - 0.01), key=lambda n: n.start_s)
+    gaps = [b.start_s - a_.start_s for a_, b in itertools.pairwise(roll)]
+    assert all(g == pytest.approx(0.010, abs=1e-6) or g == pytest.approx(0, abs=1e-6) for g in gaps)
+
+
+def test_humanize_never_moves_an_onset_below_zero():
+    notes = [Note(start_s=0.0, end_s=0.5, pitch=60, velocity=70, confidence=1.0)]
+    for seed in range(20):
+        (n,) = humanize(notes, seed=seed)
+        assert n.start_s >= 0.0 and n.end_s - n.start_s == pytest.approx(0.5)

@@ -13,12 +13,14 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Sequence
 
+import numpy as np
+
 from music_decoder.compose.arrangement import THIN_MARGIN_SEMITONES
 from music_decoder.compose.fingerstyle import THUMB_EIGHTHS, FingerstylePart
 from music_decoder.compose.harmony import essential_pcs
-from music_decoder.compose.metrics import moment_playable
+from music_decoder.compose.metrics import moment_playable, stroke_heads
 from music_decoder.compose.rhythm import phrase_layout
-from music_decoder.types import ChordSymbol, TabbedNote
+from music_decoder.types import ChordSymbol, Note, TabbedNote
 
 MELODY_VELOCITY = 78
 STRONG_BEAT_BOOST = 6  # melody notes on eighths 0 and 4 (beats 1 and 3)
@@ -33,6 +35,7 @@ MELODY_MARGIN = 8  # melody at least this much louder than the accompaniment und
 MIN_VELOCITY = 30
 MAX_VELOCITY = 118
 _EPS_S = 1e-4  # notes must share more than this much time to overlap
+MAX_OFFSET_S = 0.006  # micro-timing: at most 6 ms either way
 
 
 def _with_velocity(t: TabbedNote, velocity: int) -> TabbedNote:
@@ -197,3 +200,28 @@ def let_ring(
         if end > a.note.end_s:
             accompaniment[i] = _with_end(a, end)
     return dataclasses.replace(part, accompaniment_tab=tuple(accompaniment))
+
+
+def humanize(
+    notes: Sequence[Note], *, seed: int, max_offset_s: float = MAX_OFFSET_S
+) -> tuple[Note, ...]:
+    """Shift each stroke by a small random offset. Spec 5.1, micro-timing.
+
+    Onsets within 60 ms of a stroke's first onset (:func:`stroke_heads`)
+    form one stroke and all move by the same offset, so a roll keeps its
+    stagger. Offsets are uniform in ``[-max_offset_s, +max_offset_s]``, one
+    per stroke in time order from ``numpy.random.default_rng(seed)``. Lengths
+    are kept and no onset moves below 0. The result follows ``notes``' order.
+    """
+    heads = stroke_heads([n.start_s for n in notes])
+    offsets = np.random.default_rng(seed).uniform(-max_offset_s, max_offset_s, size=len(heads))
+    shift = {head: float(off) for head, off in zip(heads, offsets, strict=True)}
+    # a stroke's offset must not take its earliest onset below 0
+    out: list[Note] = []
+    for n in notes:
+        head = max(h for h in heads if h <= n.start_s + 1e-12)
+        offset = max(shift[head], -head)
+        out.append(
+            dataclasses.replace(n, start_s=max(0.0, n.start_s + offset), end_s=n.end_s + offset)
+        )
+    return tuple(out)
