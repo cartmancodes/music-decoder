@@ -1,0 +1,23 @@
+{
+  "source": "master 6b9cf8a (composer v4): evaluate(ALL_MATRICES) overall means",
+  "validation": {
+    "F.M6": 9.9375,
+    "P3": 0.9775
+  },
+  "edge": {
+    "F.M6": 9.1091,
+    "P3": 0.9841
+  },
+  "tunings": {
+    "F.M6": 10.4778,
+    "P3": 0.9759
+  },
+  "holdout": {
+    "F.M6": 10.66,
+    "P3": 0.952
+  },
+  "reserve": {
+    "F.M6": 10.9,
+    "P3": 0.94
+  }
+}

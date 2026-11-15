@@ -638,6 +638,17 @@ def tab_consistent(notes: Sequence[Note], tab: Sequence[TabbedNote], tuning: Tun
     )
 
 
+def shape_moves(bar_voicings: Sequence[VoicedChord], tuning: Tuning) -> float | None:
+    """F.shape_moves (v5 spec 5.2): share of consecutive bar pairs whose hand
+    windows differ in their lowest fret. ``None`` with fewer than 2 bars."""
+    # Imported here: fingerstyle imports this module.
+    from music_decoder.compose.fingerstyle import hand_shape
+
+    lows = [hand_shape(v, tuning).window[0] for v in bar_voicings]
+    moves = [a != b for a, b in pairwise(lows)]
+    return _ratio(sum(moves), len(moves))
+
+
 # ---- performance (v5 spec 5.1) ----------------------------------------------
 
 

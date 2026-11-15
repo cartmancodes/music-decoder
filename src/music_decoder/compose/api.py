@@ -23,6 +23,7 @@ from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pit
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
+from music_decoder.compose.shapes import choose_bar_shapes, repair_identity
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
@@ -69,6 +70,8 @@ class Arrangement:
     ``identity_misses`` lists the bars whose accompaniment alone lacks an
     essential tone (spec 5.4 counts them); ``final_fallback`` says the final
     chord could not be re-voiced under the final note (spec 5.3).
+    ``bar_voicings`` holds the shape of each bar, fingerstyle only (v5 spec
+    5.2); ``voicings`` is one per chord, its first bar's shape.
     """
 
     melody: tuple[Note, ...]
@@ -78,6 +81,7 @@ class Arrangement:
     accompaniment_tab: tuple[TabbedNote, ...] = ()
     identity_misses: tuple[int, ...] = ()
     final_fallback: bool = False
+    bar_voicings: tuple[VoicedChord, ...] = ()
 
 
 def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: int) -> None:
@@ -162,18 +166,19 @@ def accompany(
 def _arrange_fingerstyle(
     scale: Scale,
     progression: Sequence[ChordSymbol],
-    voicings: tuple[VoicedChord, ...],
     bars_per_chord: int,
     tempo_bpm: float,
     tuning: Tuning,
     seed: int | None,
 ) -> Arrangement:
-    """The fingerstyle arrangement: a melody drawn from the pitches each bar's
-    held chord shape can reach (spec 5.5), then the one-guitar part around it,
-    then its performance: dynamics and let-ring (v5 spec 5.1)."""
-    hands = [hand_shape(v, tuning) for v in voicings]
-    n_bars = len(voicings) * bars_per_chord
-    allowed = [hands[bar // bars_per_chord].allowed for bar in range(n_bars)]
+    """The fingerstyle arrangement: a shape per bar (v5 spec 5.2), a melody
+    drawn from the pitches each bar's shape can reach (spec 5.5), then the
+    one-guitar part around it, its identity repair (v5 spec 5.2) and its
+    performance: dynamics and let-ring (v5 spec 5.1)."""
+    bars = choose_bar_shapes(progression, bars_per_chord=bars_per_chord, tuning=tuning)
+    hands = [hand_shape(v, tuning) for v in bars]
+    n_bars = len(bars)
+    allowed = [hand.allowed for hand in hands]
     allowed[-1] = final_bar_pitches(
         hands[-1], cadence_pc(scale, progression[-1]), essential_pcs(progression[-1])
     )
@@ -190,20 +195,28 @@ def _arrange_fingerstyle(
             final_whole_note=True,
         )
     )
-    part = arrange_fingerstyle(
-        voicings, melody, hands, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm
+    # One shape and hand per bar, so the part is arranged bar by bar.
+    part = arrange_fingerstyle(bars, melody, hands, bars_per_chord=1, tempo_bpm=tempo_bpm)
+    part, bars = repair_identity(
+        part,
+        bars,
+        progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        tuning=tuning,
     )
     # v5 spec 5.1: the performance (velocities, then let-ring lengths).
     part = shape_dynamics(part, n_bars=n_bars, tempo_bpm=tempo_bpm)
     part = let_ring(part, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm)
     return Arrangement(
         melody=tuple(t.note for t in part.melody_tab),
-        voicings=voicings,
+        voicings=bars[::bars_per_chord],
         accompaniment=tuple(t.note for t in part.accompaniment_tab),
         melody_tab=part.melody_tab,
         accompaniment_tab=part.accompaniment_tab,
         identity_misses=part.identity_misses,
         final_fallback=part.final_fallback,
+        bar_voicings=bars,
     )
 
 
@@ -223,11 +236,9 @@ def arrange(
     arguments and ``COMPOSER_VERSION``.
     """
     _validate(scale, progression, bars_per_chord)
-    voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
     if style == "fingerstyle":
-        return _arrange_fingerstyle(
-            scale, progression, voicings, bars_per_chord, tempo_bpm, tuning, seed
-        )
+        return _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, seed)
+    voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
     melody = tuple(
         generate_melody(
             scale=scale,
@@ -382,10 +393,11 @@ def compose_with_options(
         render_wav(midi_path, wav_path)
 
     if style == "fingerstyle":
+        # One shape per bar, so each bar is named by its own chord.
         ascii_tab = render_fingerstyle_tab(
             [*arrangement.melody_tab, *arrangement.accompaniment_tab],
-            arrangement.voicings,
-            bars_per_chord=bars_per_chord,
+            arrangement.bar_voicings,
+            bars_per_chord=1,
             tempo_bpm=tempo_bpm,
             tuning=tuning,
         )

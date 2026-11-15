@@ -11,7 +11,7 @@ from music_decoder.compose.tabtext import (
 )
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.tabs.tuning import DADGAD, EB_HALF_STEP_DOWN, STANDARD_EADGBE
-from music_decoder.types import ChordSymbol, Note, TabbedNote, TabPosition
+from music_decoder.types import ChordSymbol, Note, TabbedNote, TabPosition, VoicedChord
 
 
 def tabbed(start_s: float, string: int, fret: int) -> TabbedNote:
@@ -156,3 +156,33 @@ def test_two_notes_on_one_string_and_column_are_rejected():
             tempo_bpm=120.0,
             tuning=STANDARD_EADGBE,
         )
+
+
+def test_fingerstyle_tab_lists_each_distinct_shape_once():
+    c = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE)[0]
+    g = voicings_for(ChordSymbol.parse("G"), STANDARD_EADGBE)[0]
+    notes = [tabbed(2.0 * b, 1, 3) for b in range(3)]
+    text = render_fingerstyle_tab(
+        notes, [c, c, g], bars_per_chord=1, tempo_bpm=120.0, tuning=STANDARD_EADGBE
+    )
+    body, chords = text.split("\n\nChords\n")
+    assert chords == render_chord_shapes([c, g], STANDARD_EADGBE)
+    assert chords.splitlines()[0].split() == ["C", "G"]
+    assert body.splitlines()[1].split() == ["C", "C", "G"]  # per-bar names stay
+
+
+def test_fingerstyle_tab_lists_two_shapes_of_one_chord_in_order_of_first_use():
+    c_open = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE)[0]
+    c_barre = VoicedChord(
+        chord=c_open.chord,
+        positions=tuple(TabPosition(string=s, fret=f) for s, f in enumerate((-1, 3, 5, 5, 5, 3))),
+    )
+    notes = [tabbed(2.0 * b, 1, 3) for b in range(3)]
+    text = render_fingerstyle_tab(
+        notes,
+        [c_barre, c_open, c_barre],
+        bars_per_chord=1,
+        tempo_bpm=120.0,
+        tuning=STANDARD_EADGBE,
+    )
+    assert text.split("\n\nChords\n")[1] == render_chord_shapes([c_barre, c_open], STANDARD_EADGBE)

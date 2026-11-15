@@ -36,6 +36,11 @@ from music_decoder.types import ChordSymbol, Scale
 
 BASELINE_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_baseline.json"
 V2_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
+V4_FS = json.loads(
+    (
+        Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v4_fingerstyle.json"
+    ).read_text()
+)
 GROUPS = ("overall", "major", "minor", "bars1", "bars2")
 
 # Higher is better / lower is better; every subgroup must beat the baseline.
@@ -308,3 +313,14 @@ def test_same_seed_same_music():
     a = arrange(Scale("A", "minor"), progression, bars_per_chord=2, seed=1003)
     b = arrange(Scale("A", "minor"), progression, bars_per_chord=2, seed=1003)
     assert a == b
+
+
+# ---- v5 feature 2: per-bar chord shapes (spec 2026-11-16 section 6) ----------
+
+
+@pytest.mark.parametrize("matrix", ALL_MATRICES)
+def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix):
+    o = {**all_reports, **reserve_report}[matrix]["overall"]
+    assert o["P3"]["mean"] >= 0.99
+    assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + 2
+    assert o["F.shape_moves"]["mean"] <= 0.5

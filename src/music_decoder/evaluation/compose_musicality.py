@@ -20,7 +20,8 @@ fingerstyle use that melody. The fingerstyle part adds ``P1`` (playability),
 ``P2`` (melody on top at every onset), ``P3`` and ``P3m`` (the share of bars
 whose accompaniment alone, or with the melody, sounds every essential tone),
 ``P3t`` (``P3`` over triad-family bars only), ``P4`` (tab = MIDI) and ``P5``
-(the final-voicing fallback).
+(the final-voicing fallback). ``F.shape_moves`` is the share of consecutive
+bars whose fingerstyle hand window moves (v5 spec 5.2).
 """
 
 from __future__ import annotations
@@ -325,6 +326,8 @@ def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
         # v5 spec 5.1: the performance (velocity spread, accompaniment ring in beats)
         "F.vel_std": metrics.velocity_spread((*fs.melody, *fs.accompaniment)),
         "F.ring": metrics.mean_length_beats(fs.accompaniment, TEMPO_BPM),
+        # v5 spec 5.2: the share of bar changes that move the hand window
+        "F.shape_moves": metrics.shape_moves(fs.bar_voicings, case.tuning),
     }
 
 

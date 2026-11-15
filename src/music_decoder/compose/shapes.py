@@ -4,21 +4,24 @@ Each bar may hold a different shape of its chord. :func:`shape_candidates`
 lists the shapes a bar may use; :func:`choose_bar_shapes` picks one per bar by
 Viterbi over the bars, scoring each shape with :func:`bar_cost` (identity
 safety, melody reach, rank, register) and each change of shape with
-:func:`move_cost` (hand movement).
+:func:`move_cost` (hand movement). After the part is arranged,
+:func:`repair_identity` re-voices the body bars that missed an essential tone.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import itertools
 import math
 import statistics
 from collections.abc import Sequence
 
-from music_decoder.compose.fingerstyle import HandShape, hand_shape
+from music_decoder.compose import metrics
+from music_decoder.compose.fingerstyle import FingerstylePart, HandShape, body_bar, hand_shape
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.voicings import ranked_shapes, voicings_for
-from music_decoder.types import ChordSymbol, TabPosition, Tuning, VoicedChord
+from music_decoder.types import ChordSymbol, TabbedNote, TabPosition, Tuning, VoicedChord
 
 MAX_CANDIDATES = 8
 W_IDENTITY = 3.0
@@ -30,6 +33,7 @@ W_REGISTER = 0.05  # per semitone the reach's median sits from REGISTER_CENTRE
 REGISTER_CENTRE = 67  # G4
 W_MOVE = 0.25  # per fret the hand window's lowest fret moves
 _TIE_EPS = 1e-9  # costs this close are a tie; the lower rank wins
+_EPS_S = 1e-4  # as in fingerstyle: a note starting this close to a bar line is in that bar
 
 
 def _hashable(tuning: Tuning) -> Tuning:
@@ -174,3 +178,92 @@ def choose_bar_shapes(
         path.append(state)
     path.reverse()
     return tuple(bars[b][s][0].voicing for b, s in enumerate(path))
+
+
+def _bar_of(t: TabbedNote, bar_s: float) -> int:
+    return int((t.note.start_s + _EPS_S) // bar_s)
+
+
+def _bar_holds(
+    melody: Sequence[TabbedNote], accompaniment: Sequence[TabbedNote], t0: float, t1: float
+) -> bool:
+    """P1 and P2 hold at every onset in ``[t0, t1)``: the sounding notes are
+    playable, and each melody note starting there is on top."""
+    part = [*melody, *accompaniment]
+    for onset in sorted({round(t.note.start_s, 6) for t in part}):
+        if not t0 - _EPS_S <= onset < t1 - _EPS_S:
+            continue
+        at = onset + _EPS_S
+        if not metrics.moment_playable(
+            [t.position for t in part if t.note.start_s <= at and t.note.end_s > at]
+        ):
+            return False
+    starting = [t.note for t in melody if t0 - _EPS_S <= t.note.start_s < t1 - _EPS_S]
+    ratio = metrics.melody_onset_on_top_ratio(starting, [t.note for t in accompaniment])
+    return ratio is None or ratio == 1.0
+
+
+def repair_identity(
+    part: FingerstylePart,
+    bar_voicings: Sequence[VoicedChord],
+    progression: Sequence[ChordSymbol],
+    *,
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+) -> tuple[FingerstylePart, tuple[VoicedChord, ...]]:
+    """Re-voice the body bars that miss an essential tone (spec 5.2, repair).
+
+    For each body bar in ``part.identity_misses``, the chord's other
+    :func:`shape_candidates` are tried in :func:`bar_cost` order. The first
+    whose hand reaches every melody pitch of the bar, whose re-arranged bar
+    meets identity and which keeps P1 and P2 for the bar replaces the bar's
+    notes and its shape. Melody pitches and timing never change, only their
+    positions. Returns the part, with ``identity_misses`` recomputed, and
+    the bar shapes.
+    """
+    beat_s = 60.0 / tempo_bpm
+    bar_s = 4.0 * beat_s
+    tuning = _hashable(tuning)
+    voicings = list(bar_voicings)
+    melody = list(part.melody_tab)
+    accompaniment = list(part.accompaniment_tab)
+    for bar in part.identity_misses:
+        if bar == len(voicings) - 1:  # the final bar is not a body bar
+            continue
+        chord = progression[bar // bars_per_chord]
+        essential = essential_pcs(chord)
+        start = bar * bar_s
+        notes = [t.note for t in melody if _bar_of(t, bar_s) == bar]
+        current = _frets(voicings[bar])
+        scored = _scored(chord, tuning)
+        for rank in sorted(range(len(scored)), key=lambda r: (scored[r][1], r)):
+            hand = scored[rank][0]
+            if _frets(hand.voicing) == current or any(n.pitch not in hand.allowed for n in notes):
+                continue
+            new = body_bar(hand, notes, bar_start_s=start, beat_s=beat_s, essential=essential)
+            if not new.identity_met:
+                continue
+            new_melody = sorted(
+                [*(t for t in melody if _bar_of(t, bar_s) != bar), *new.melody_tab],
+                key=lambda t: t.note.start_s,
+            )
+            new_accompaniment = sorted(
+                [*(t for t in accompaniment if _bar_of(t, bar_s) != bar), *new.accompaniment_tab],
+                key=lambda t: (t.note.start_s, t.position.string),
+            )
+            end = max([start + bar_s, *(t.note.end_s for t in new.melody_tab)])
+            if _bar_holds(new_melody, new_accompaniment, start, end):
+                melody, accompaniment = new_melody, new_accompaniment
+                voicings[bar] = hand.voicing
+                break
+    heard = metrics.bar_identity(
+        [t.note for t in accompaniment], progression, bars_per_chord, tempo_bpm
+    )
+    repaired = dataclasses.replace(
+        part,
+        melody_tab=tuple(melody),
+        accompaniment_tab=tuple(accompaniment),
+        identity_misses=tuple(bar for bar, ok in enumerate(heard) if not ok),
+    )
+    return repaired, tuple(voicings)
