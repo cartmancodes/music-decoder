@@ -1,0 +1,432 @@
+# Fingerstyle as one playable guitar part
+
+**Date:** 2026-11-15
+**Status:** draft for the human partner's approval
+**Base:** `master` at `c76fc35` (composer v3, `COMPOSER_VERSION = 3`)
+
+## 1. Intent and why
+
+**What was asked.** Make `compose(style="fingerstyle")` produce **one guitar
+part that a single person can play from the tab**: a melody on the top strings
+over an alternating thumb bass, all inside the chord shape the fretting hand
+is holding. This replaces today's two independent guitar parts for this one
+style.
+
+**Why.** The human partner wants the composer to make tunes a broad audience
+likes. A pilot on 488 YouTube music videos (`spikes/preference-pilot/`, not
+committed) found that the like:dislike rule (≥ 100:1 and ≥ 50,000 views)
+tracks **genre**, not tune quality:
+
+- Fingerstyle and acoustic-guitar videos pass the rule 87–90% of the time.
+- Pop, country and hip hop pass it 17–24% of the time.
+- Within a single genre, the tune features are close to chance (AUC 0.546).
+
+So the human partner chose to lean the composer into the style audiences
+reward, rather than train a scorer.
+
+Fingerstyle videos are one guitar playing bass and melody together. The
+composer's `fingerstyle` style is not that today.
+
+**Chosen how (approach 1 below):** the chord shape comes first, and the melody
+is chosen from the notes the hand can reach while holding it.
+
+## 2. What exists today (measured 2026-11-15)
+
+- **Melody (`compose/melody.py`, `rhythm.py`).** Composer v3 already has:
+  - phrase-planned rhythms on an eighth-note grid
+  - motifs, cadences and leading-tone resolution
+  - hard singability rules (`admissible`: no tritones or sevenths, leaps up
+    to an octave and only when recovered, every chord change within a fifth)
+  - a default range of D4–G5 (MIDI 62–79), centred on A#4
+  - per-chord melody floors
+
+  The research idea "add melody rules" is therefore **already done**; this
+  project reuses the generator.
+- **Accompaniment (`compose/arrangement.py`).** `_fingerstyle_bar` plays the
+  bass on beats 1 and 3 (alternating root and next string up) and a treble
+  pinch on beats 2 and 4. The pinch is thinned so nothing reaches within a
+  minor third of the melody, except the chord's essential tones.
+- **Melody tab (`compose/api.py: _melody_tab`).** An A* fingering search over
+  the melody alone, with pinned weights. It ignores the chord shape.
+- **Tab text (`compose/tabtext.py`).** One column per melody note, with no
+  rhythm. The chord shapes are listed separately under their names.
+- **Two MIDI tracks**, `melody` and `accompaniment`, both steel acoustic
+  (program 25). `productionize/song.py:220` finds them **by these names**.
+- **Playability today.** A scratchpad check over the `validation` and
+  `holdout` matrices compared each melody note with the shape held under it.
+  - **93–96%** of melody notes are out of reach of the held shape.
+  - **56–60%** of melody notes sit on a string the accompaniment is sounding
+    at the same moment.
+  - Example: `C Am F G`, seed 1. The melody E4–A4 is tabbed at frets 6–10 on
+    the G and B strings, while the shapes are open chords at frets 0–3.
+- **Gate on `master`:** 867 unit tests pass. The repo also uses
+  `ruff check src tests`, `ruff format --check src tests` and
+  `mypy --strict src`.
+
+## 3. Goals, non-goals, anti-goals
+
+**Goals**
+
+1. Every note of a fingerstyle composition (melody and accompaniment) has an
+   exact string and fret, and the whole part passes the playability check in
+   §5.1.
+2. The melody is the highest sounding note whenever a melody note starts.
+3. The ASCII tab for fingerstyle shows the whole part: every note, on its
+   string, in rhythm, bar by bar. The MIDI and the tab agree note for note.
+4. Each bar still sounds its chord: every essential tone (`harmony.essential_pcs`)
+   is heard in the bar (§5.4).
+5. The v3 melody hard rules still hold.
+
+**Non-goals**
+
+- Moving shapes up the neck for more melody range. That is approach 3, a
+  later add-on.
+- A pretrained melody model or any learned scorer; YouTube data is not used
+  here.
+- New parameters or CLI flags. The `compose()` signature is frozen by
+  `tests/unit/test_public_contract.py::test_compose_signature_is_frozen`.
+- New dependencies.
+- Changing `strum` or `arpeggio` in any way.
+
+**Anti-goals** (a failure even if the tests pass)
+
+- A playable part that sounds thin, or loses the chord.
+- A melody buried under, or tangled with, the accompaniment.
+- Quietly trading the v3 singability rules for playability.
+- Breaking `productionize` on fingerstyle compositions.
+
+## 4. Approaches considered
+
+| # | Approach | Trade-off | Decision |
+|---|---|---|---|
+| 1 | **Shape first.** The hand holds the chord shape. The thumb alternates on its lower strings, and the melody is chosen only from notes reachable on the strings above. | Always playable, and tab = MIDI exactly. The melody range shrinks to what the shape position reaches (see §7). | **Chosen** by the human partner. |
+| 2 | **Melody first, then fit.** Write the melody freely, add the bass, and let the existing A* fingering search place everything. | Freer melody, reuses tuned code. But no playability guarantee: A* was tuned for transcribing real playing, and repairing unplayable notes is fiddly. | Rejected. |
+| 3 | **Shape first, up the neck.** Like 1, but each chord may use a movable shape higher up, so the melody gets more range. | Needs a movable-shape library (the table has one shape per chord). | Deferred to a follow-up. |
+
+## 5. Design
+
+### 5.1 The playability check (the acceptance definition)
+
+Build it first, as a pure function in `compose/metrics.py` (name is the
+builder's call), and use it in tests on every evaluation matrix.
+
+A **moment** is any instant where at least one note starts. At each moment,
+take every note that is **sounding** (started and not yet ended), each with
+its string and fret. The moment is playable when all of these hold:
+
+1. **One note per string.** No two sounding notes share a string.
+2. **Fretted span.** Over the sounding notes with fret > 0, the highest fret
+   minus the lowest fret is at most 3.
+3. **Four fingers.** Those sounding fretted notes need at most four fingers,
+   under the straight-barre model of the v3 voicings spec §3.1
+   (`docs/superpowers/specs/2026-11-07-compose-voicings-leaps-design.md`).
+4. **No open string under a barre.** An open-string note may not sit between
+   two strings barred at the same fret by one finger. This follows from the
+   §3.1 rule that a barre never crosses an open or muted string.
+
+Only the **sounding** notes count, not the whole shape. A finger that no
+sounding note needs is free to move, as real players lift top-string fingers
+for melody notes.
+
+**Report** the share of playable moments.
+**Target:** 100% on every matrix (`validation`, `edge`, `tunings`, `holdout`,
+`reserve`), for all six preset tunings.
+
+### 5.2 Strings: thumb, inner, melody
+
+For each chord shape (`voicings_for(chord, tuning)[0]`, unchanged), split its
+sounding strings in pitch order:
+
+- **Thumb strings:** the lowest (root) string and the next sounding string up,
+  as `_fingerstyle_bar` alternates today.
+- **Inner strings:** the sounding strings above the thumb strings, except the
+  top two strings. If that leaves none, there are none.
+- **Melody strings:** every string above the higher thumb string. The melody
+  normally sits on the top two or three strings.
+
+Inner and melody strings overlap. A string is used by whichever voice needs it
+at a moment, and the melody takes priority.
+
+### 5.3 Accompaniment pattern (fingerstyle only)
+
+The pattern is **Travis picking**:
+
+- **Thumb:** a quarter note on every beat, alternating root (beats 1 and 3) and
+  alternate bass (beats 2 and 4). Each note is fretted as in the shape.
+  - This replaces today's bass on 1 and 3 with the pinch on 2 and 4.
+- **Fill:** on the "and" of beats 2 and 4, pluck one chord tone on a string
+  above the thumb strings, but only when:
+  - no melody note starts at that eighth,
+  - it lands on a string the melody is not sounding, and
+  - the moment stays playable (§5.1).
+
+  A fill may use the B or e string when the melody is on another string. Fills
+  are the main way the chord's identity tones are heard (§5.4), so a fill
+  chooses a missing essential tone first.
+- **Thinning:** keep the v3 rule. No accompaniment note may come within a minor
+  third under a sounding melody note (`THIN_MARGIN_SEMITONES`). The thumb's
+  root is always kept.
+- **Final bar.** In fingerstyle, the final bar's melody rhythm is always the
+  whole-note cadence `(8,)`: one held final note. It starts together with one
+  rolled chord (today's `FINAL_STAGGER_S`, 10 ms per string, at most 50 ms in
+  all), and both ring to the end. So the final bar is still a single attack,
+  and today's hard checks A4 and H2 (`tests/unit/test_compose_musicality.py`)
+  keep applying to fingerstyle unchanged.
+  - The final melody note is the tonic, at the highest reachable position.
+  - The final chord may use any voicing that meets all of these:
+    - it passes §5.1 with the final note included;
+    - its root is in the bass;
+    - every essential tone sounds below the final note;
+    - no string is shared with the final note.
+
+    Search for it with the v3 shape search in `compose/voicings.py`, starting
+    from the bar's own shape. Example: a D ending on D4 (B string, fret 3)
+    can use `x-5-4-2-3-x`, which puts F#3 under it, instead of open D, whose
+    only F# is above it.
+  - If no such voicing exists for some chord and tuning, the roll plays the
+    bar's shape without the final note's string. That case is counted and
+    listed in the spec's Results; it is not a silent pass.
+
+The builder may tune velocities and note lengths. All onsets stay on the
+eighth-note grid.
+
+### 5.4 Chord identity
+
+v3 keeps every essential tone under each melody note. In a one-guitar part
+that is impossible for some shapes. In open D (`xx0232`), for example, the
+only F# is on the top string, which the melody uses.
+
+For fingerstyle the rule is: **in every bar, the `accompaniment` track sounds
+each essential tone at least once.** It may do so at any eighth of the bar,
+from either thumb note (root or alternate bass) or a fill. A note still ringing
+from earlier in the bar counts.
+
+The rule is measured on the accompaniment track alone, not the melody, because
+`productionize` builds each bar's chord from that track (§5.7).
+
+Enforce it in this order:
+
+1. A thumb note that already supplies the tone.
+2. Otherwise, a fill on any eighth where the tone's string is free. Prefer the
+   "and" of 2 or 4, and use other eighths only if those are taken.
+3. Otherwise, string assignment (§5.5) moves one melody note in that bar to
+   another reachable position, freeing the tone's string for one eighth.
+
+The melody's pitches are **never** forced for identity. This keeps the order
+of precedence simple:
+
+- playability always holds;
+- the v3 hard melody rules hold next;
+- identity is met inside both.
+
+If all three steps fail, the bar counts as a miss.
+
+**Report** the share of bars meeting the rule, on the accompaniment track
+alone and with the melody included. **Target:** 100% on every matrix. Any miss
+is listed in the spec's Results.
+
+### 5.5 Melody: reachable pitches
+
+Add one optional argument to `generate_melody`: a per-bar set of allowed
+pitches (name is the builder's call). The candidate pool is intersected with
+it before scoring. `compose()`'s signature does not change.
+
+- **Strum and arpeggio:** the argument is never passed, so their output is
+  unchanged note for note.
+- **Fingerstyle:** for each bar, the allowed set is every pitch on a melody
+  string at:
+  - an open string, or
+  - a fret that keeps §5.1 true together with the thumb notes of that bar.
+
+  That is: fret ≥ 1 within a 3-fret span of the thumb's fretted notes, the
+  finger count still ≤ 4, and fret ≥ the barre fret when the shape is a
+  barre.
+
+  When both thumb notes are open strings, nothing fretted bounds the span, so
+  the window is the shape's own fretted frets widened to a 4-fret window. For
+  a shape with no fretted notes at all, the window is frets 0–4.
+
+- **Pitch window (fingerstyle).** The allowed set replaces `generate_melody`'s
+  D4–G5 window; it is not intersected with it. Every allowed pitch must also
+  be:
+  - at least a minor third above the bar's higher thumb pitch, and
+  - at or above G3 (MIDI 55).
+
+  This keeps the melody off the bass strings. For example, it stops a G or E
+  shape from putting the melody on the D string.
+- **Tessitura centre (fingerstyle).** The centre is the median of the whole
+  piece's allowed pitches, not A#4. This stops register gravity from pinning
+  every bar to its highest note.
+- **Muted top strings.** When a shape mutes a top string (some diminished
+  shapes), the melody may still use that string, as an open string or a fret
+  inside the window. A muted string only means the shape does not sound it.
+
+The v3 per-chord floors (`_melody_floor`) **do not apply** to fingerstyle. Two
+other rules keep the melody on top instead:
+
+- the string split (§5.2), and
+- thinning (§5.3).
+
+Leaving the floors in would make most open shapes infeasible: over D, the floor
+is A4, and A4 is the only reachable pitch at or above it.
+
+**Hard rules stay.** `admissible` (no tritones or sevenths, leap limits,
+chord-change smoothness) still applies. If a slot has no admissible reachable
+pitch, use the generator's existing weaker-rule fallback, restricted to the
+reachable set. Playability is never relaxed.
+
+The cadence target and the final note are chosen from the reachable set.
+
+**String and fret assignment.** After the melody is generated, place each note:
+
+1. Choose among its reachable positions, preferring the highest string.
+2. Then prefer the position that keeps the hand still, with the least fret
+   movement from the previous melody note.
+3. Never use a string a thumb note is sounding on at that moment.
+
+This replaces `_melody_tab`'s A* search for fingerstyle only; strum and
+arpeggio keep A*.
+
+### 5.6 Tab text (fingerstyle only)
+
+Add a combined renderer in `compose/tabtext.py`. Its layout:
+
+- one column per eighth note (8 per bar), bar lines, 4 bars per line;
+- the chord name above each bar, and a count row (`1 & 2 & 3 & 4 &`) under
+  each system;
+- every melody and accompaniment note in its column on its string, with
+  simultaneous notes stacked in one column;
+- a held note is not redrawn;
+- frets wider than one character widen that column for every string.
+
+The chord-shape list stays underneath, as today. Strum and arpeggio keep the
+current `Melody` / `Chords` text.
+
+Sketch of one bar, using the §5.3 pattern. It is open C: the thumb alternates
+A3 and D2 on every beat, fills fall on the "and" of 2 and 4, and the melody
+plays E4, G4 and F4 on the e string.
+
+```
+   C
+e|-0-------3---1---|
+B|-------1---------|
+G|---------------0-|
+D|-----2-------2---|
+A|-3-------3-------|
+E|-----------------|
+   1 & 2 & 3 & 4 &
+```
+
+Where the sketch and the text disagree, follow the text.
+
+### 5.7 MIDI and the rest of the package
+
+- **MIDI tracks.** Keep the two tracks with the same names, `melody` and
+  `accompaniment` (productionize finds them by name). Together they are the
+  one guitar part: melody notes in `melody`, thumb and fills in
+  `accompaniment`. Every MIDI note equals a tab note: same start, same pitch
+  (the string's open pitch plus the fret).
+- **Productionize.** `productionize/song.py` builds each bar's chord from the
+  `accompaniment` track. Three things depend on that:
+  - the "shapes" verse holds those pitches as piano chords;
+  - `accompaniment_only` sections play that track alone;
+  - with no progression given, the harmony is inferred from it.
+
+  §5.4 measures identity on that track for exactly this reason, so those
+  sections keep their thirds and sevenths. Productionize code does not change.
+  Add a test that productionizes a fingerstyle composition and checks that
+  every bar's chord, as productionize builds it, contains the chord's
+  essential tones. The opt-in end-to-end test checks only audio QC, so it
+  would not catch this.
+- **`Arrangement` dataclass.** Extend it (or add a fingerstyle field) so the
+  accompaniment's positions are available to the tab and the tests. Its shape
+  is the builder's call.
+- **Version.** Bump `COMPOSER_VERSION` to 4; fingerstyle output changes for a
+  given seed.
+- **Evaluation harness.** `evaluation/compose_musicality.py`'s `Case` shares
+  one melody across all styles. Fingerstyle now has its own melody, so the
+  harness must arrange fingerstyle separately. Add the §5.1 and §5.4 metrics,
+  and melody-on-top, to the report.
+- **Docs.** Update `docs/usage.md`, `docs/architecture-overview.md` and
+  `docs/architecture-technical.md` to describe the new fingerstyle style and
+  tab.
+
+## 6. Success criteria
+
+1. §5.1 playability: 100% of moments, on every matrix and every preset
+   tuning. Today it is 4–7%; that figure is the scratchpad estimate and comes
+   from a cruder check.
+2. Melody on top: 100% of melody onsets are the highest sounding pitch.
+3. Tab = MIDI: every fingerstyle MIDI note appears in the tab at its string,
+   fret and eighth column, and the tab has no note the MIDI lacks.
+4. §5.4 chord identity: 100% of bars, on the accompaniment track alone. Today's
+   hard final-bar checks A4 and H2 still pass for fingerstyle (§5.3), apart
+   from any counted final-voicing fallback, which is listed in Results.
+5. The v3 hard melody rules hold for fingerstyle on every matrix.
+6. Strum and arpeggio output (melody, accompaniment, tab text) is identical,
+   note for note, to v3 for the same inputs. Only `composer_version` in the
+   metadata changes.
+7. The v3 soft musicality metrics for the fingerstyle melody are reported
+   next to their v3 values.
+   - They may move, because the range is smaller (§7).
+   - Any metric that moves beyond the v3 spec's stated tolerance is listed in
+     the spec's Results, with the reason.
+   - None of the hard rules in item 5 may move.
+8. `productionize` works on a fingerstyle composition:
+   - its opt-in full-song test runs and passes on one;
+   - the new identity test in §5.7 passes.
+9. All gates are green: unit and integration tests, ruff check,
+   ruff format check and mypy strict.
+10. **Listening check.** Render 10 fingerstyle samples into
+    `compose-samples/<date>-fingerstyle/` (MIDI, WAV, tab, and the command
+    used for each) for the human partner to listen to. The human partner has
+    flagged defects by ear before, in the v3 spec.
+
+## 7. Known trade-off: melody range
+
+With open-position shapes, the reachable melody range is about **one octave**,
+roughly G3/B3 to A4/B4, depending on the shape and bounded below by §5.5's
+pitch window. That is lower and narrower than v3's D4–G5.
+
+This corrects the earlier estimate given in chat ("about an octave and a
+half"). Real Travis-picked arrangements commonly live in this range. Approach 3
+(shapes up the neck) is the follow-up that widens it.
+
+## 8. Calls made by the planner after the builder check
+
+The builder check raised five questions. Each was settled without the human
+partner, because none changes what was asked for:
+
+1. **Chord identity.**
+   - It is measured on the accompaniment track and may be met at any eighth.
+   - Fills may use any free string.
+   - The melody's pitches are never forced; precedence is playability, then
+     the hard rules, then identity (§5.4).
+2. **Final bar.**
+   - The final melody note is always a held whole note, starting with the roll.
+   - The final chord may be re-voiced so that every essential tone sits below
+     the final note.
+   - A4 and H2 stay in force (§5.3).
+3. **Pitch window.**
+   - Reachability replaces D4–G5, with a floor at G3 and a minor third above
+     the thumb.
+   - The tessitura centre is the median of the piece's allowed pitches (§5.5).
+4. **Productionize.** Identity on the accompaniment track keeps its piano
+   chords complete, and a new test checks this (§5.7).
+5. **Tab sketch.** It is redrawn to match the §5.3 pattern; the text wins
+   wherever they differ.
+
+## 9. Left to the builder
+
+- The names and the exact data shapes of the new functions and fields.
+- Velocities and note lengths inside the pattern.
+- How the allowed-pitch argument is represented (per bar or per slot).
+- The tie-break details in string assignment, beyond §5.5's preferences.
+- Updating existing fingerstyle-specific tests whose expectations change
+  intentionally. For example:
+  - `test_fingerstyle_alternates_the_bass`
+  - `test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass`
+  - the fingerstyle cases of `test_rendered_tab_shows_every_melody_position`
+
+  Each changed expectation must be listed in the plan with its reason. No test
+  for strum or arpeggio may change.
