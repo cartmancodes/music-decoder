@@ -1,8 +1,11 @@
 import re
 
+import pytest
+
 from music_decoder.compose.tabtext import (
     render_chord_shapes,
     render_composition_tab,
+    render_fingerstyle_tab,
     render_melody_tab,
     string_labels,
 )
@@ -73,3 +76,83 @@ def test_composition_tab_does_not_let_chords_overwrite_the_melody():
     melody_block = text.split("\n\nChords\n")[0].removeprefix("Melody\n")
     assert decode(melody_block) == [(3, 9)]
     assert text.startswith("Melody\n") and "\n\nChords\n" in text
+
+
+SKETCH = """\
+   C
+e|-0-------3---1---|
+B|-------1---------|
+G|---------------0-|
+D|-----2-------2---|
+A|-3-------3-------|
+E|-----------------|
+   1 & 2 & 3 & 4 &"""
+
+
+def _sketch_bar():  # spec 5.6: open C at 120 BPM
+    return [
+        tabbed(t, s, f)
+        for t, s, f in (
+            (0.0, 1, 3),
+            (0.5, 2, 2),
+            (1.0, 1, 3),
+            (1.5, 2, 2),  # thumb
+            (0.75, 4, 1),
+            (1.75, 3, 0),  # fills
+            (0.0, 5, 0),
+            (1.0, 5, 3),
+            (1.5, 5, 1),  # melody
+        )
+    ]
+
+
+def test_fingerstyle_tab_matches_the_spec_sketch():
+    c = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE)
+    text = render_fingerstyle_tab(
+        _sketch_bar(), c, bars_per_chord=1, tempo_bpm=120.0, tuning=STANDARD_EADGBE
+    )
+    assert text.startswith("Fingerstyle\n" + SKETCH + "\n\nChords\n")
+
+
+def test_two_digit_frets_widen_their_column_on_every_string():
+    text = render_fingerstyle_tab(
+        [tabbed(0.0, 5, 10)],
+        voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE),
+        bars_per_chord=1,
+        tempo_bpm=120.0,
+        tuning=STANDARD_EADGBE,
+    )
+    rows = text.split("\n")[2:8]
+    assert rows[0].startswith("e|-10-") and all(r.startswith(r[0] + "|----") for r in rows[1:])
+
+
+def test_fingerstyle_tab_wraps_every_four_bars():
+    notes = [tabbed(2.0 * b, 1, 3) for b in range(5)]
+    voicings = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE) * 5
+    text = render_fingerstyle_tab(
+        notes, voicings, bars_per_chord=1, tempo_bpm=120.0, tuning=STANDARD_EADGBE
+    )
+    systems = text.split("\n\nChords\n")[0].removeprefix("Fingerstyle\n").split("\n\n")
+    assert len(systems) == 2 and systems[0].count("|") == 6 * 5
+
+
+def test_final_roll_stagger_lands_in_column_zero():
+    roll = [tabbed(2.0 + 0.010 * i, i, 0) for i in range(6)]
+    c = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE) * 2
+    text = render_fingerstyle_tab(
+        roll, c, bars_per_chord=1, tempo_bpm=120.0, tuning=STANDARD_EADGBE
+    )
+    rows = text.split("\n")[2:8]
+    assert all(r.split("|")[1:3] == ["-" * 17, "-0" + "-" * 15] for r in rows)
+
+
+def test_two_notes_on_one_string_and_column_are_rejected():
+    c = voicings_for(ChordSymbol.parse("C"), STANDARD_EADGBE)
+    with pytest.raises(ValueError):
+        render_fingerstyle_tab(
+            [tabbed(0.0, 1, 3), tabbed(0.01, 1, 5)],
+            c,
+            bars_per_chord=1,
+            tempo_bpm=120.0,
+            tuning=STANDARD_EADGBE,
+        )
