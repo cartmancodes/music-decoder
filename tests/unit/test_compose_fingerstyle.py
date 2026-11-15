@@ -2,8 +2,15 @@ from collections.abc import Sequence
 
 import pytest
 
-from music_decoder.compose import metrics
-from music_decoder.compose.fingerstyle import body_bar, hand_shape
+from music_decoder.compose import fingerstyle, metrics
+from music_decoder.compose.fingerstyle import (
+    arrange_fingerstyle,
+    body_bar,
+    final_bar,
+    final_bar_pitches,
+    final_positions,
+    hand_shape,
+)
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import ChordSymbol, Note, TabPosition, VoicedChord
 
@@ -128,3 +135,42 @@ def test_with_no_melody_sounding_a_fill_takes_the_lowest_pitch():
     bar = body_bar(C_HAND, [], bar_start_s=0.0, beat_s=0.5, essential=frozenset({4}))
     fills = [(t.note.start_s, t.position) for t in bar.accompaniment_tab if t.position.string >= 3]
     assert fills == [(0.75, P(3, 0)), (1.75, P(3, 0))]  # G3
+
+
+# ---- the final bar and the whole part --------------------------------------
+
+
+def test_d_ending_is_revoiced_with_its_third_under_the_final_note():
+    part, fallback = final_bar(
+        D_HAND, note(6.0, 7.9, 62), bar_start_s=6.0, bar_s=2.0, essential=frozenset({6})
+    )
+    assert not fallback and part.melody_tab[0].position == P(4, 3)
+    acc = part.accompaniment_tab
+    assert [t.position for t in acc] == [P(1, 5), P(2, 4), P(3, 2)]  # x-5-4-2-(3)-x
+    assert [t.note.start_s for t in acc] == pytest.approx([6.0, 6.01, 6.02])
+    assert all(t.note.end_s == pytest.approx(8.0) for t in acc)
+
+
+def test_final_bar_falls_back_and_says_so(monkeypatch):
+    monkeypatch.setattr(fingerstyle, "ranked_shapes", lambda chord, tuning: ())
+    part, fallback = final_bar(
+        D_HAND, note(6.0, 7.9, 62), bar_start_s=6.0, bar_s=2.0, essential=frozenset({6})
+    )
+    assert fallback and [t.note.pitch for t in part.accompaniment_tab] == [50, 57]
+
+
+def test_final_pitches_extend_to_an_unreachable_cadence():
+    assert final_bar_pitches(D_HAND, 2) == D_HAND.allowed  # D is reachable
+    assert final_bar_pitches(D_HAND, 11) == D_HAND.allowed | {71}  # B only at B4
+    assert final_positions(D_HAND, 71) == (P(5, 7), P(4, 12))
+
+
+def test_arrange_fingerstyle_joins_body_and_final_bars():
+    voicings = [C_HAND.voicing, D_HAND.voicing]
+    melody = [*_quarters(64, 65, 67, 65), note(2.0, 3.9, 62)]
+    part = arrange_fingerstyle(
+        voicings, melody, [C_HAND, D_HAND], bars_per_chord=1, tempo_bpm=120.0
+    )
+    assert [t.note for t in part.melody_tab] == melody
+    assert part.identity_misses == () and not part.final_fallback
+    assert metrics.playable_moment_ratio([*part.melody_tab, *part.accompaniment_tab]) == 1.0

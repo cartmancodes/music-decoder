@@ -3,16 +3,20 @@
 The hand shape says what a held chord shape lets the melody reach (spec 5.5).
 A body bar puts the melody on that shape's strings and picks the accompaniment
 under it: a Travis thumb plus fills that keep the chord's identity (5.3, 5.4).
+The final bar holds the last melody note over one rolled, possibly re-voiced
+chord (5.3, final bar); :func:`arrange_fingerstyle` joins the bars.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 
-from music_decoder.compose.arrangement import THIN_MARGIN_SEMITONES
+from music_decoder.compose.arrangement import FINAL_STAGGER_S, THIN_MARGIN_SEMITONES, _thin_below
+from music_decoder.compose.harmony import chord_pcs, essential_pcs
 from music_decoder.compose.metrics import moment_playable
-from music_decoder.compose.voicings import MAX_FRETTED_SPAN
+from music_decoder.compose.voicings import MAX_FRETTED_SPAN, ranked_shapes
 from music_decoder.types import Note, TabbedNote, TabPosition, Tuning, VoicedChord
 
 MELODY_FLOOR = 55  # G3: the lowest melody pitch in the fingerstyle part
@@ -22,6 +26,8 @@ FILL_EIGHTHS = (3, 7)  # regular fills: the "and" of beats 2 and 4
 IDENTITY_EIGHTHS = (3, 7, 1, 5, 0, 2, 4, 6)  # where a missing essential tone is tried
 THUMB_VELOCITY = 72
 FILL_VELOCITY = 64
+FINAL_VELOCITY = 80  # v3's final stroke
+FINAL_MAX_FRET = 12  # highest fret for a final note outside the hand's reach
 _EPS_S = 1e-4  # notes must share more than this much time to overlap
 
 
@@ -363,4 +369,236 @@ def body_bar(
         melody_tab=tuple(mel),
         accompaniment_tab=tuple(accompaniment),
         identity_met=set(essential) <= _pitch_classes(accompaniment),
+    )
+
+
+# ---- the final bar ---------------------------------------------------------
+
+
+def _thumb_floor(hand: HandShape) -> int:
+    """The lowest melody pitch over ``hand``'s thumb notes."""
+    opens = hand.tuning.open_pitches
+    thumb_high = max(opens[p.string] + p.fret for p in (hand.root, hand.alternate))
+    return max(MELODY_FLOOR, thumb_high + THUMB_MARGIN)
+
+
+def final_bar_pitches(hand: HandShape, cadence: int) -> frozenset[int]:
+    """The pitches the final melody note may take over ``hand``. Spec 5.3.
+
+    ``hand.allowed`` when it holds a pitch of class ``cadence``; otherwise
+    also every ``cadence``-class pitch on a melody string at frets 0-12 that
+    sits at least a minor third over the thumb (and at least G3).
+    """
+    if any(p % 12 == cadence for p in hand.allowed):
+        return hand.allowed
+    opens = hand.tuning.open_pitches
+    floor = _thumb_floor(hand)
+    extra = {
+        opens[s] + f
+        for s in hand.melody_strings
+        for f in range(FINAL_MAX_FRET + 1)
+        if (opens[s] + f) % 12 == cadence and opens[s] + f >= floor
+    }
+    return hand.allowed | extra
+
+
+def final_positions(hand: HandShape, pitch: int) -> tuple[TabPosition, ...]:
+    """Where the final note ``pitch`` may sit, highest string first.
+
+    ``hand.positions(pitch)`` when the hand reaches it; otherwise every
+    position of ``pitch`` on a melody string at frets 0-12.
+    """
+    reached = hand.positions(pitch)
+    if reached:
+        return reached
+    opens = hand.tuning.open_pitches
+    return tuple(
+        TabPosition(string=s, fret=pitch - opens[s])
+        for s in reversed(hand.melody_strings)
+        if 0 <= pitch - opens[s] <= FINAL_MAX_FRET
+    )
+
+
+def _chord_under(
+    hand: HandShape,
+    frets: Sequence[int],
+    fp: TabPosition,
+    final: Note,
+    essential: frozenset[int],
+    bar_start_s: float,
+    bar_s: float,
+) -> list[TabPosition]:
+    """``frets`` on the strings below ``fp``, thinned as v3 thins the final
+    stroke against the held ``final`` note; lowest string first."""
+    opens = hand.tuning.open_pitches
+    under = [TabPosition(string=s, fret=f) for s, f in enumerate(frets) if f >= 0 and s < fp.string]
+    by_pitch = sorted(under, key=lambda p: (opens[p.string] + p.fret, p.string))
+    kept = Counter(
+        _thin_below(
+            [opens[p.string] + p.fret for p in by_pitch],
+            essential,
+            [final],
+            bar_start_s,
+            bar_start_s + bar_s,
+        )
+    )
+    chosen: list[TabPosition] = []
+    for p in by_pitch:
+        pitch = opens[p.string] + p.fret
+        if kept[pitch] > 0:
+            kept[pitch] -= 1
+            chosen.append(p)
+    return sorted(chosen, key=lambda p: p.string)
+
+
+def _final_chord_ok(
+    hand: HandShape,
+    chord: Sequence[TabPosition],
+    fp: TabPosition,
+    final: Note,
+    essential: frozenset[int],
+) -> bool:
+    """Spec 5.3: the root in the bass, every essential tone (but the final
+    note's own) under the final note, and playable with it."""
+    if not chord:
+        return False
+    opens = hand.tuning.open_pitches
+    pitches = [opens[p.string] + p.fret for p in chord]
+    if min(pitches) % 12 != chord_pcs(hand.voicing.chord)[0]:
+        return False
+    under = {q % 12 for q in pitches if q < final.pitch}
+    if not essential - {final.pitch % 12} <= under:
+        return False
+    return moment_playable([*chord, fp])
+
+
+def final_bar(
+    hand: HandShape,
+    final: Note,
+    *,
+    bar_start_s: float,
+    bar_s: float,
+    essential: frozenset[int],
+) -> tuple[BarPart, bool]:
+    """The final bar: ``final`` held over one rolled chord. Spec 5.3.
+
+    For each final position, the bar's own shape and then every other
+    :func:`ranked_shapes` shape is tried, taking its notes on the strings
+    below the final note's and thinning them as v3 does. The first chord with
+    the root in the bass, every essential tone under ``final`` and a playable
+    moment wins. Otherwise (the returned flag is ``True``) the bar's own shape
+    below the first final position is played, thinned.
+    """
+    positions = final_positions(hand, final.pitch)
+    if not positions:
+        raise ValueError(
+            f"final pitch {final.pitch} has no position over {hand.voicing.chord.to_label()}"
+        )
+    tuning = Tuning(hand.tuning.name, tuple(hand.tuning.open_pitches))
+    own = [-1] * len(tuning.open_pitches)
+    for p in hand.voicing.positions:
+        own[p.string] = p.fret
+    own_frets = tuple(own)
+    others = [f for f in ranked_shapes(hand.voicing.chord, tuning) if f != own_frets]
+
+    def under(frets: Sequence[int], fp: TabPosition) -> list[TabPosition]:
+        return _chord_under(hand, frets, fp, final, essential, bar_start_s, bar_s)
+
+    found: tuple[TabPosition, list[TabPosition]] | None = None
+    for fp in positions:
+        for frets in (own_frets, *others):
+            chord = under(frets, fp)
+            if _final_chord_ok(hand, chord, fp, final, essential):
+                found = (fp, chord)
+                break
+        if found is not None:
+            break
+    fallback = found is None
+    fp, chord = found if found is not None else (positions[0], under(own_frets, positions[0]))
+
+    end_s = bar_start_s + bar_s
+    accompaniment = tuple(
+        _tab_note(hand, p, bar_start_s + k * FINAL_STAGGER_S, end_s, FINAL_VELOCITY)
+        for k, p in enumerate(chord)
+    )
+    part = BarPart(
+        melody_tab=(TabbedNote(note=final, position=fp),),
+        accompaniment_tab=accompaniment,
+        identity_met=set(essential) <= _pitch_classes(accompaniment),
+    )
+    return part, fallback
+
+
+# ---- the whole part --------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FingerstylePart:
+    """The one-guitar part, as tab (both tuples time-sorted).
+
+    ``identity_misses`` lists the bars whose accompaniment lacks an essential
+    tone; ``final_fallback`` says the final chord could not be re-voiced.
+    """
+
+    melody_tab: tuple[TabbedNote, ...]
+    accompaniment_tab: tuple[TabbedNote, ...]
+    identity_misses: tuple[int, ...]
+    final_fallback: bool
+
+
+def arrange_fingerstyle(
+    voicings: Sequence[VoicedChord],
+    melody: Sequence[Note],
+    hands: Sequence[HandShape],
+    *,
+    bars_per_chord: int,
+    tempo_bpm: float,
+) -> FingerstylePart:
+    """Arrange the whole fingerstyle part. Spec 5.3-5.5.
+
+    ``hands[i]`` is the hand shape of ``voicings[i]``. Every bar but the last
+    is a :func:`body_bar`; the last is a :func:`final_bar` and must hold
+    exactly one melody note.
+    """
+    if len(hands) != len(voicings):
+        raise ValueError("one hand shape per voicing is needed")
+    beat_s = 60.0 / tempo_bpm
+    bar_s = 4.0 * beat_s
+    n_bars = len(voicings) * bars_per_chord
+    if n_bars == 0:
+        raise ValueError("the part needs at least one bar")
+    bars: list[list[Note]] = [[] for _ in range(n_bars)]
+    for m in melody:
+        index = int((m.start_s + _EPS_S) // bar_s)
+        if not 0 <= index < n_bars:
+            raise ValueError(f"melody note at {m.start_s:.3f}s lies outside the part")
+        bars[index].append(m)
+    if len(bars[-1]) != 1:
+        raise ValueError(f"the final bar must hold exactly one melody note, not {len(bars[-1])}")
+
+    melody_tab: list[TabbedNote] = []
+    accompaniment: list[TabbedNote] = []
+    misses: list[int] = []
+    fallback = False
+    for bar, notes in enumerate(bars):
+        chord = bar // bars_per_chord
+        hand = hands[chord]
+        essential = essential_pcs(voicings[chord].chord)
+        start = bar * bar_s
+        if bar == n_bars - 1:
+            part, fallback = final_bar(
+                hand, notes[0], bar_start_s=start, bar_s=bar_s, essential=essential
+            )
+        else:
+            part = body_bar(hand, notes, bar_start_s=start, beat_s=beat_s, essential=essential)
+        melody_tab.extend(part.melody_tab)
+        accompaniment.extend(part.accompaniment_tab)
+        if not part.identity_met:
+            misses.append(bar)
+    accompaniment.sort(key=lambda x: (x.note.start_s, x.position.string))
+    return FingerstylePart(
+        melody_tab=tuple(melody_tab),
+        accompaniment_tab=tuple(accompaniment),
+        identity_misses=tuple(misses),
+        final_fallback=fallback,
     )

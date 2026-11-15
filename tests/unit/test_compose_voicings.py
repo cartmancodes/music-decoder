@@ -6,6 +6,7 @@ from music_decoder.compose.voicings import (
     _is_playable,
     _retune,
     fingers_needed,
+    ranked_shapes,
     search_voicing,
     shape_faults,
     voicings_for,
@@ -169,3 +170,12 @@ def test_list_valued_tuning_reaches_the_cached_search():  # final review: v2 nev
     assert _frets("C7", eb_list) == _frets("C7", EB_HALF_STEP_DOWN) == (-1, 4, 3, 1, 0, 1)
     std_list = Tuning("EADGBE", list(STANDARD_EADGBE.open_pitches))  # type: ignore[arg-type]
     assert _frets("Edim", std_list) == VOICINGS["Edim"]  # the EADGBE early return still applies
+
+
+@pytest.mark.parametrize("tuning", list(PRESETS.values()), ids=list(PRESETS))
+def test_ranked_shapes_start_with_the_searched_voicing(tuning):
+    for label in ("C", "D", "F#m", "A#7", "Bdim", "G#maj7", "Esus4", "Caug"):
+        chord = ChordSymbol.parse(label)
+        ranked = ranked_shapes(chord, tuning)
+        assert (ranked[0] if ranked else None) == search_voicing(chord, tuning)
+        assert all(_is_playable(s) and not shape_faults(s, tuning, chord) for s in ranked)
