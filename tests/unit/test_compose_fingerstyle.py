@@ -11,6 +11,8 @@ from music_decoder.compose.fingerstyle import (
     final_positions,
     hand_shape,
 )
+from music_decoder.compose.harmony import essential_pcs
+from music_decoder.compose.voicings import voicings_for
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import ChordSymbol, Note, TabPosition, VoicedChord
 
@@ -160,9 +162,30 @@ def test_final_bar_falls_back_and_says_so(monkeypatch):
 
 
 def test_final_pitches_extend_to_an_unreachable_cadence():
-    assert final_bar_pitches(D_HAND, 2) == D_HAND.allowed  # D is reachable
-    assert final_bar_pitches(D_HAND, 11) == D_HAND.allowed | {71}  # B only at B4
+    d_essential = frozenset({6})
+    assert final_bar_pitches(D_HAND, 2, d_essential) == D_HAND.allowed  # D is reachable
+    assert final_bar_pitches(D_HAND, 11, d_essential) == D_HAND.allowed | {71}  # B only at B4
     assert final_positions(D_HAND, 71) == (P(5, 7), P(4, 12))
+
+
+def test_final_pitches_prefer_a_cadence_pitch_that_can_be_voiced():
+    chord = ChordSymbol.parse("A#maj7")
+    hand = hand_shape(voicings_for(chord, STANDARD_EADGBE)[0], STANDARD_EADGBE)
+    essential = essential_pcs(chord)
+    pitches = final_bar_pitches(hand, 10, essential)
+    assert {p for p in pitches if p % 12 == 10} == {70}  # A#3 (58) has no valid voicing
+    assert pitches - {70} == {p for p in hand.allowed if p % 12 != 10}
+    _, fallback = final_bar(
+        hand, note(0.0, 1.9, 70), bar_start_s=0.0, bar_s=2.0, essential=essential
+    )
+    assert not fallback
+
+
+def test_final_note_must_start_with_the_final_bar():
+    voicings = [C_HAND.voicing, D_HAND.voicing]
+    melody = [*_quarters(64, 65, 67, 65), note(2.5, 3.9, 62)]
+    with pytest.raises(ValueError, match="start"):
+        arrange_fingerstyle(voicings, melody, [C_HAND, D_HAND], bars_per_chord=1, tempo_bpm=120.0)
 
 
 def test_arrange_fingerstyle_joins_body_and_final_bars():

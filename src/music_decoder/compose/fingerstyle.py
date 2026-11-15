@@ -382,24 +382,40 @@ def _thumb_floor(hand: HandShape) -> int:
     return max(MELODY_FLOOR, thumb_high + THUMB_MARGIN)
 
 
-def final_bar_pitches(hand: HandShape, cadence: int) -> frozenset[int]:
+def final_bar_pitches(hand: HandShape, cadence: int, essential: frozenset[int]) -> frozenset[int]:
     """The pitches the final melody note may take over ``hand``. Spec 5.3.
 
-    ``hand.allowed`` when it holds a pitch of class ``cadence``; otherwise
-    also every ``cadence``-class pitch on a melody string at frets 0-12 that
-    sits at least a minor third over the thumb (and at least G3).
+    The cadence candidates are the ``cadence``-class pitches of
+    ``hand.allowed`` and, past them, the extension: ``cadence``-class pitches
+    on a melody string at frets 0-12, at least a minor third over the thumb
+    (and at least G3). A pitch works when :func:`final_bar` voices it without
+    the fallback. The chosen pitches are the reachable ones that work, else
+    the extension ones that work, else the reachable ones, else the
+    extension. Returns ``hand.allowed`` with its ``cadence``-class pitches
+    replaced by the chosen ones.
     """
-    if any(p % 12 == cadence for p in hand.allowed):
-        return hand.allowed
     opens = hand.tuning.open_pitches
     floor = _thumb_floor(hand)
-    extra = {
+    reachable = {p for p in hand.allowed if p % 12 == cadence}
+    extension = {
         opens[s] + f
         for s in hand.melody_strings
         for f in range(FINAL_MAX_FRET + 1)
         if (opens[s] + f) % 12 == cadence and opens[s] + f >= floor
-    }
-    return hand.allowed | extra
+    } - hand.allowed
+
+    def works(pitch: int) -> bool:
+        held = Note(start_s=0.0, end_s=1.0, pitch=pitch, velocity=FINAL_VELOCITY, confidence=1.0)
+        _, fallback = final_bar(hand, held, bar_start_s=0.0, bar_s=1.0, essential=essential)
+        return not fallback
+
+    chosen = (
+        {p for p in reachable if works(p)}
+        or {p for p in extension if works(p)}
+        or reachable
+        or extension
+    )
+    return frozenset({p for p in hand.allowed if p % 12 != cadence} | chosen)
 
 
 def final_positions(hand: HandShape, pitch: int) -> tuple[TabPosition, ...]:
@@ -558,7 +574,7 @@ def arrange_fingerstyle(
 
     ``hands[i]`` is the hand shape of ``voicings[i]``. Every bar but the last
     is a :func:`body_bar`; the last is a :func:`final_bar` and must hold
-    exactly one melody note.
+    exactly one melody note, starting with the bar.
     """
     if len(hands) != len(voicings):
         raise ValueError("one hand shape per voicing is needed")
@@ -575,6 +591,8 @@ def arrange_fingerstyle(
         bars[index].append(m)
     if len(bars[-1]) != 1:
         raise ValueError(f"the final bar must hold exactly one melody note, not {len(bars[-1])}")
+    if abs(bars[-1][0].start_s - (n_bars - 1) * bar_s) > 1e-6:
+        raise ValueError("the final melody note must start with the final bar")
 
     melody_tab: list[TabbedNote] = []
     accompaniment: list[TabbedNote] = []
