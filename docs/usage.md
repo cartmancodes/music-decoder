@@ -290,13 +290,15 @@ Expected pretty output (paths will differ):
 MIDI:    out/20260508T142510-7c4a3b21/composition.mid
 WAV:     out/20260508T142510-7c4a3b21/composition.wav
 ASCII tab:
-Melody
-e|-12-10----12-|-8-10---------8-|----8-------|-10----10-15-|
-B|-------12----|------12-10-8---|-10---10-12-|----12-------|
-G|-------------|----------------|------------|-------------|
-D|-------------|----------------|------------|-------------|
-A|-------------|----------------|------------|-------------|
-E|-------------|----------------|------------|-------------|
+Fingerstyle
+   Cmaj7             Am7               Dm7               G7
+e|-3---5---0---3---|-5---3-0-0---1---|-1---3---1---3---|-3---------------|
+B|-------0-------0-|-----------3---1-|-------1-------1-|-3---------------|
+G|-----------------|-------0---------|-----------------|-0---------------|
+D|-----2-------2---|-----2-------2---|-0---3---0---3---|-3---------------|
+A|-3-------3-------|-0-------0-------|-----------------|-2---------------|
+E|-----------------|-----------------|-----------------|-3---------------|
+   1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &
 
 Chords
    Cmaj7  Am7  Dm7  G7
@@ -308,10 +310,19 @@ A|-3------0----x----2--|
 E|-x------x----x----3--|
 ```
 
-The tab has two parts: **Melody** lists every melody note in playing
-order (bars separated by `|`, four bars per line), fingered by the same
-search `analyze` uses; **Chords** shows each chord shape under its name
-(`x` = muted string). Rhythm is not drawn; the MIDI file has the exact timing.
+With `--style fingerstyle` (the default) the tab is **one guitar part**:
+every note of the melody and the accompaniment, on its string, in rhythm.
+Each bar is eight columns (the count row `1 & 2 & 3 & 4 &` runs under every
+line), bars are separated by `|`, four bars sit on a line, and the chord
+name is written above its bar. A note that is still ringing is not drawn
+again, and a fret of 10 or more widens its column for every string.
+The **Chords** block under it shows each chord shape under its name
+(`x` = muted string). In the example, the bass notes on the A and D strings
+are the thumb, the notes on the top strings are the melody, and in the last
+bar a rolled G7 sits under the final melody note, a held G4 on the top string.
+`strum` and `arpeggio` still print the older two-part text: a **Melody**
+block (one column per note, no rhythm) and the **Chords** block. The MIDI
+file has the exact timing in every style.
 
 A minor blues feel with strummed chords:
 
@@ -865,7 +876,7 @@ same conventions:
 {
   "midi_path": "out/20260508T142510-7c4a3b21/composition.mid",
   "wav_path":  "out/20260508T142510-7c4a3b21/composition.wav",
-  "ascii_tab": "Melody\ne|-12-10...",
+  "ascii_tab": "Fingerstyle\n   Cmaj7 ...",
   "melody_notes": [{"start_s": 0.0, "end_s": 0.57, "pitch": 67, ...}, ...],
   "chord_voicings": [
     {
@@ -886,7 +897,7 @@ same conventions:
     "style": "fingerstyle",
     "seed": 42,
     "tuning": "EADGBE",
-    "composer_version": 3
+    "composer_version": 4
   }
 }
 ```
@@ -1182,13 +1193,36 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 
 ### Composition style choices
 
-- **`fingerstyle`** — alternating bass (the shape's lowest note on beat 1,
-  another chord tone on beat 3) with a treble pinch on beats 2 and 4 (the
-  pinch keeps the beat-3 bass string when it is the chord's only source
-  of an essential tone: third, seventh, altered fifth or suspended
-  fourth).
-  Best for ballads, folk and slow tempos. It is the default because it
-  sounds reasonable on most progressions.
+- **`fingerstyle`** — one guitar part that one person can play from the
+  tab. The fretting hand holds the chord shape (the same one the Chords
+  block shows) and everything else is picked inside it:
+  - the thumb plays a **Travis bass**, a quarter note on every beat,
+    alternating the root (beats 1 and 3) with another string of the shape
+    (beats 2 and 4);
+  - **fills** pluck a chord tone on a free string on the "and" of beats 2
+    and 4, and are how the third or seventh is heard when the melody sits
+    on the string that carries it (when a third or seventh still has no
+    place, the alternate bass on beat 2 or 4 plays it, above the root);
+  - the **melody** is chosen only from notes the held shape can reach
+    (open strings, or frets near the shape) on the top strings, always
+    the highest note when it starts and never on a string the thumb is
+    using, so its range is about one octave, narrower than strum or
+    arpeggio;
+  - the **final bar** is one held melody note over one rolled chord. The
+    roll may be voiced differently from the bar's shape so that every
+    chord tone, the third and seventh included, sounds under the held note
+    (a D ending on D4 is rolled as `x-5-4-2-3-x`, which puts F# under it).
+
+  Every note has one string and fret, the MIDI file and the tab agree note
+  for note, and the tab text is the combined tab shown above. Best for
+  ballads, folk and slow tempos. It is the default because it sounds
+  reasonable on most progressions.
+
+  One limit: the shape is fixed and the melody's pitches are never changed
+  to fit the chord. So in a bar of a seventh chord (`maj7`, `min7`, `7`)
+  the accompaniment alone occasionally lacks the seventh or the third (the
+  melody usually sounds it). Plain triads always keep every chord tone. On
+  the evaluation matrices this affects roughly 2-6% of all bars.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
   up-down-up), with strings staggered a few milliseconds like a real
   pick stroke. Best for pop and rock progressions.
@@ -1220,7 +1254,7 @@ guarantee its random streams across releases). Useful for:
   music-decoder compose --seed $s ...; done`.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `3`). Version 2 (November
+in `metadata.composer_version` (currently `4`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
 (more musical) take. Version 3 (November 2026) plays a faithful,

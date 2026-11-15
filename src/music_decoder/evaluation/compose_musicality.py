@@ -10,6 +10,17 @@ generator's weights, so the validation and edge matrices were v2 held-out data.
 They (and the tunings matrix) are v3 development data. The holdout matrix
 (seeds 3000+) is v3's acceptance data and the reserve matrix (seeds 4000+) its
 fallback; neither is evaluated unless asked for by name (spec section 6).
+
+Composer version 4 gives the ``fingerstyle`` style its own melody, so each
+:class:`Case` arranges fingerstyle separately (``Case.fingerstyle``) from the
+strum and arpeggio arrangement that shares one melody. The unprefixed melody
+keys are the shared melody's, equal to version 3; the ``F.`` keys are the same
+metrics for the fingerstyle melody. ``A1``-``A4``, ``H1`` and ``H2`` for
+fingerstyle use that melody. The fingerstyle part adds ``P1`` (playability),
+``P2`` (melody on top at every onset), ``P3`` and ``P3m`` (the share of bars
+whose accompaniment alone, or with the melody, sounds every essential tone),
+``P3t`` (``P3`` over triad-family bars only), ``P4`` (tab = MIDI) and ``P5``
+(the final-voicing fallback).
 """
 
 from __future__ import annotations
