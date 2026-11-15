@@ -1229,10 +1229,12 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 - **`arpeggio`** — bass on the downbeat, then seven eighth notes rolling
   up and down the chord. Best for delicate, classical-leaning pieces.
 
-In every style the accompaniment leaves out chord notes that would sit
-on or just under the melody (never the bass, and never the notes that
-make the chord's shape major, minor or a seventh), and the piece ends on one
-ringing chord. The melody is written in four-bar phrases with a
+In `strum` and `arpeggio` the accompaniment leaves out chord notes that
+would sit on or just under the melody (never the bass, and never the notes
+that make the chord's shape major, minor or a seventh), and the piece ends
+on one ringing chord. In `fingerstyle` nothing is left out after the fact:
+the melody is chosen to fit the held shape, and the piece ends on a held
+melody note over one rolled chord. The melody is written in four-bar phrases with a
 repeated motif, resolves leading tones, follows altered chords (G# over
 E7 in A minor), and ends on a long tonic (or on the last chord's root
 if that chord does not contain the tonic).

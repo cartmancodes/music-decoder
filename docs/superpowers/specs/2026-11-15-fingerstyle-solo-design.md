@@ -580,7 +580,7 @@ longer include fingerstyle in `A2`.
 | | edge/overall | 0.9879 | 0.9619 | v2 0.9873 - 0.02 |
 | | holdout/overall | 1.0 | 0.9471 | v2 1.0 - 0.02 |
 
-`A2.fingerstyle` is also 0.9356 on tunings (v3 1.0) and 0.9393 on reserve
+`A2.fingerstyle` is also 0.9356 on tunings (v3 1.0) and 0.933 on reserve
 (neither is gated).
 
 ### 10.6 Fingerstyle melody soft metrics against v3 (criterion 7)
