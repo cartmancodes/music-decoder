@@ -4,6 +4,7 @@ from unittest import mock
 
 import pretty_midi
 import pytest
+import soundfile
 
 from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
 from music_decoder.compose import metrics
@@ -396,9 +397,37 @@ def test_compose_renders_strum_from_composition_midi(tmp_path):
     assert rendered == [result.midi_path]
 
 
-def test_plucked_sound_is_not_available_yet(tmp_path):
-    with pytest.raises(NotImplementedError):
-        compose_with_options(Scale("C", "major"), _PROG, sound="plucked", out_dir=tmp_path)
+@pytest.mark.parametrize("tuning_name", list(PRESETS))
+def test_compose_with_plucked_sound_in_every_tuning(tmp_path, tuning_name):
+    r = compose_with_options(
+        Scale("D", "major"),
+        [ChordSymbol.parse(c) for c in ("D", "G", "A", "D")],
+        tuning=PRESETS[tuning_name],
+        seed=2,
+        out_dir=tmp_path,
+        sound="plucked",
+    )
+    y, _ = soundfile.read(r.wav_path)
+    assert len(y) > 0 and r.metadata["sound"] == "plucked"
+
+
+def test_plucked_renders_strum_from_midi(tmp_path):
+    r = compose_with_options(
+        Scale("C", "major"), _PROG, style="strum", seed=1, out_dir=tmp_path, sound="plucked"
+    )
+    assert soundfile.info(r.wav_path).duration > 0
+
+
+def test_plucked_sound_leaves_composition_midi_unchanged(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        a = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "a")
+    b = compose_with_options(
+        Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "b", sound="plucked"
+    )
+    assert a.midi_path.read_bytes() == b.midi_path.read_bytes()
+    assert a.ascii_tab == b.ascii_tab
+    assert not list(b.midi_path.parent.glob("*performance*"))
 
 
 def test_compose_delegates_to_compose_with_options(tmp_path):

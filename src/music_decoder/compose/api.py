@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import statistics
 import time
@@ -9,6 +10,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+import pretty_midi
 
 from music_decoder.compose.arrangement import (
     THIN_MARGIN_SEMITONES,
@@ -24,6 +27,7 @@ from music_decoder.compose.tabtext import render_composition_tab, render_fingers
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.synth import render_wav
+from music_decoder.synth.plucked import render_plucked, tab_for_midi_notes
 from music_decoder.tabs.assigner import assign_tab
 from music_decoder.tabs.tuning import STANDARD_EADGBE
 from music_decoder.types import (
@@ -249,6 +253,30 @@ def arrange(
     )
 
 
+def _humanized_tab(tab: Sequence[TabbedNote], seed: int) -> tuple[TabbedNote, ...]:
+    """``tab`` with its notes micro-timed by :func:`humanize`, positions kept."""
+    notes = humanize([t.note for t in tab], seed=seed)
+    return tuple(dataclasses.replace(t, note=n) for t, n in zip(tab, notes, strict=True))
+
+
+def _midi_notes(midi_path: Path) -> tuple[Note, ...]:
+    """Every note of the MIDI file, ordered by onset then pitch."""
+    pm = pretty_midi.PrettyMIDI(str(midi_path))
+    notes = sorted(
+        (n for inst in pm.instruments for n in inst.notes), key=lambda n: (n.start, n.pitch)
+    )
+    return tuple(
+        Note(
+            start_s=float(n.start),
+            end_s=float(n.end),
+            pitch=int(n.pitch),
+            velocity=int(n.velocity),
+            confidence=1.0,
+        )
+        for n in notes
+    )
+
+
 def compose(
     scale: Scale,
     progression: Sequence[ChordSymbol],
@@ -287,13 +315,14 @@ def compose_with_options(
 ) -> Composition:
     """compose() plus the choice of ``sound``.
 
-    ``composition.mid`` and the tab are the on-grid part. For fingerstyle the
-    WAV is rendered from a temporary performance MIDI whose strokes are
-    micro-timed by :func:`humanize` (v5 spec 5.1); the temporary file is
-    deleted after rendering.
+    ``composition.mid`` and the tab are the on-grid part, whatever the sound.
+    With ``sound="soundfont"`` the fingerstyle WAV is rendered from a
+    temporary performance MIDI whose strokes are micro-timed by
+    :func:`humanize` (v5 spec 5.1), deleted after rendering. With
+    ``sound="plucked"`` the WAV comes from :func:`render_plucked`: for
+    fingerstyle from the humanized tab, for strum and arpeggio from the notes
+    of ``composition.mid`` on their lowest-fret strings.
     """
-    if sound == "plucked":
-        raise NotImplementedError("the plucked sound arrives in a later task")
     arrangement = arrange(
         scale,
         progression,
@@ -323,9 +352,18 @@ def compose_with_options(
         accompaniment=arrangement.accompaniment if style == "fingerstyle" else None,
     )
     wav_path = work / "composition.wav"
-    if style == "fingerstyle":
+    humanize_seed = seed if seed is not None else 0
+    if sound == "plucked":
+        if style == "fingerstyle":
+            tabbed = [
+                *_humanized_tab(arrangement.melody_tab, humanize_seed),
+                *_humanized_tab(arrangement.accompaniment_tab, humanize_seed),
+            ]
+        else:
+            tabbed = list(tab_for_midi_notes(_midi_notes(midi_path), tuning))
+        render_plucked(tabbed, tuning, wav_path, seed=humanize_seed)
+    elif style == "fingerstyle":
         performance_path = work / "composition.performance.mid"
-        humanize_seed = seed if seed is not None else 0
         build_midi(
             melody=humanize(arrangement.melody, seed=humanize_seed),
             voicings=arrangement.voicings,
