@@ -479,6 +479,41 @@ def test_fingerstyle_in_every_preset_tuning(key, mode, labels, tuning_name, seed
     _assert_one_playable_part(arr, progression, tuning=tuning)
 
 
+@pytest.mark.parametrize(
+    ("tuning_name", "key", "labels"),
+    [("Eb", "C", ("C", "Am", "F", "G7")), ("Drop_C", "D", ("D", "G", "A7"))],
+)
+def test_every_moment_of_the_final_roll_is_playable(tuning_name, key, labels):
+    # The roll plucks lowest string first: a moment with only some strings
+    # plucked must be playable too, not just the whole chord (final review F1).
+    tuning = PRESETS[tuning_name]
+    arr, _ = _fingerstyle(key, "major", labels, 2, tempo=100.0, tuning=tuning)
+    assert metrics.playable_moment_ratio([*arr.melody_tab, *arr.accompaniment_tab]) == 1.0
+    assert not arr.final_fallback
+
+
+@pytest.mark.parametrize(
+    ("key", "mode", "labels", "seed", "bars", "tempo"),
+    [
+        # No voicing puts every essential tone of Caug under the final E4:
+        # the own shape is thinned until its roll is playable (review F2).
+        ("E", "major", ("Amaj7", "E", "Aaug", "F#m", "Caug"), 350401, 3, 66.0),
+        # The final B4 (e string, fret 9) is out of the Gaug shape's reach,
+        # even over its bass alone: another shape's root takes the bass.
+        ("B", "minor", ("Cdim", "Gaug"), 454146, 2, 148.0),
+    ],
+)
+def test_a_counted_final_fallback_is_still_playable(key, mode, labels, seed, bars, tempo):
+    tuning = PRESETS["DADGAD"]
+    arr, _ = _fingerstyle(key, mode, labels, seed, bars=bars, tempo=tempo, tuning=tuning)
+    part = [*arr.melody_tab, *arr.accompaniment_tab]
+    assert metrics.playable_moment_ratio(part) == 1.0
+    assert arr.final_fallback
+    final = arr.melody_tab[-1]
+    roll = [t for t in arr.accompaniment_tab if t.note.start_s >= final.note.start_s - 1e-9]
+    assert roll and all(t.note.pitch < final.note.pitch for t in roll)
+
+
 @pytest.mark.parametrize("seed", range(5))
 def test_single_chord_and_two_bars_per_chord(seed):
     arr, progression = _fingerstyle("D", "major", ("D",), seed)

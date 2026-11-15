@@ -103,8 +103,8 @@ def render_fingerstyle_tab(
     tuning: Tuning,
 ) -> str:
     """The fingerstyle part (melody and accompaniment together) with rhythm:
-    eight eighth-note columns per bar, a chord-name row and a count row above
-    each system. Held notes are drawn at their onset only."""
+    eight eighth-note columns per bar, a chord-name row above each system and
+    a count row under it. Held notes are drawn at their onset only."""
     labels = string_labels(tuning)
     n_strings = len(labels)
     n_bars = max(len(voicings) * bars_per_chord, 1)
@@ -144,7 +144,11 @@ def render_fingerstyle_tab(
                 offset += 1 + width
             for s in range(n_strings):
                 rows[s] += (
-                    "".join("-" + cells[bar][s][c].ljust(widths[c], "-") for c in range(8)) + "-|"
+                    "".join(
+                        "-" + cells[bar][s][c].ljust(widths[c], "-")
+                        for c in range(_COLUMNS_PER_BAR)
+                    )
+                    + "-|"
                 )
             chord_row += [" "] * (starts[0] - len(chord_row))
             chord_row += list(name)

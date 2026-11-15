@@ -566,7 +566,8 @@ def _final_chord_ok(
     essential: frozenset[int],
 ) -> bool:
     """Spec 5.3: the root in the bass, every essential tone (the final note's
-    own included, ruling R1) under the final note, and playable with it."""
+    own included, ruling R1) under the final note, and every moment of the
+    roll playable with it (:func:`_roll_playable`)."""
     if not chord:
         return False
     opens = hand.tuning.open_pitches
@@ -576,7 +577,39 @@ def _final_chord_ok(
     under = {q % 12 for q in pitches if q < final.pitch}
     if not essential <= under:
         return False
-    return moment_playable([*chord, fp])
+    return _roll_playable(chord, fp)
+
+
+def _roll_playable(chord: Sequence[TabPosition], fp: TabPosition) -> bool:
+    """Every moment of the final roll is playable: the held note at ``fp``
+    with each prefix of ``chord`` (lowest string first, the order the roll
+    plucks it), the whole chord last. A partly plucked roll counts its
+    not-yet-plucked strings as silent, which can break a barre."""
+    return all(moment_playable([fp, *chord[:k]]) for k in range(1, len(chord) + 1))
+
+
+def _playable_fallback(
+    hand: HandShape, chord: Sequence[TabPosition], fp: TabPosition, final: Note
+) -> list[TabPosition]:
+    """Repair a fallback ``chord`` (lowest string first) under ``fp``.
+
+    Notes at or above ``final`` are dropped, then fretted notes, highest pitch
+    first, until :func:`_roll_playable` holds; the bass (lowest pitch) is never
+    dropped. The result is still unplayable when the bass and ``fp`` alone are.
+    """
+    opens = hand.tuning.open_pitches
+
+    def pitch(p: TabPosition) -> int:
+        return opens[p.string] + p.fret
+
+    bass = min(chord, key=lambda p: (pitch(p), p.string))
+    kept = [p for p in chord if p == bass or pitch(p) < final.pitch]
+    while not _roll_playable(kept, fp):
+        fretted = [p for p in kept if p != bass and p.fret > 0]
+        if not fretted:
+            break
+        kept.remove(max(fretted, key=lambda p: (pitch(p), p.string)))
+    return kept
 
 
 def _own_frets(hand: HandShape) -> tuple[int, ...]:
@@ -597,15 +630,52 @@ def _voice_final(
     """The first final position and chord under it that pass
     :func:`_final_chord_ok`, trying the bar's own shape and then every other
     :func:`ranked_shapes` shape at each position in turn; ``None`` if none."""
-    own_frets = _own_frets(hand)
-    tuning = Tuning(hand.tuning.name, tuple(hand.tuning.open_pitches))
-    others = [f for f in ranked_shapes(hand.voicing.chord, tuning) if f != own_frets]
+    shapes = _final_shapes(hand)
     for fp in positions:
-        for frets in (own_frets, *others):
+        for frets in shapes:
             chord = _chord_under(hand, frets, fp, final, essential, bar_start_s, bar_s)
             if _final_chord_ok(hand, chord, fp, final, essential):
                 return fp, chord
     return None
+
+
+def _final_shapes(hand: HandShape) -> list[tuple[int, ...]]:
+    """The bar's own shape, then every other :func:`ranked_shapes` shape."""
+    own_frets = _own_frets(hand)
+    tuning = Tuning(hand.tuning.name, tuple(hand.tuning.open_pitches))
+    others = [f for f in ranked_shapes(hand.voicing.chord, tuning) if f != own_frets]
+    return [own_frets, *others]
+
+
+def _fallback_final(
+    hand: HandShape,
+    final: Note,
+    positions: Sequence[TabPosition],
+    essential: frozenset[int],
+    bar_start_s: float,
+    bar_s: float,
+) -> tuple[TabPosition, list[TabPosition]]:
+    """The counted fallback, when :func:`_voice_final` finds nothing.
+
+    In :func:`_voice_final`'s order (the bar's own shape under the first
+    final position first), the first chord under a position that, repaired by
+    :func:`_playable_fallback`, has the root in the bass and a playable roll.
+    Without one, the bar's own shape under the first position, repaired.
+    """
+    opens = hand.tuning.open_pitches
+    root = chord_pcs(hand.voicing.chord)[0]
+    shapes = _final_shapes(hand)
+    own = _chord_under(hand, shapes[0], positions[0], final, essential, bar_start_s, bar_s)
+    for fp in positions:
+        for frets in shapes:
+            chord = _chord_under(hand, frets, fp, final, essential, bar_start_s, bar_s)
+            if not chord:
+                continue
+            chord = _playable_fallback(hand, chord, fp, final)
+            bass = min(opens[p.string] + p.fret for p in chord)
+            if bass % 12 == root and _roll_playable(chord, fp):
+                return fp, chord
+    return positions[0], _playable_fallback(hand, own, positions[0], final)
 
 
 def final_bar(
@@ -622,8 +692,10 @@ def final_bar(
     other :func:`ranked_shapes` shape is tried, taking its notes on the
     strings below the final note's and thinning them as v3 does. The first
     chord with the root in the bass, every essential tone under ``final`` and
-    a playable moment wins. Otherwise (the returned flag is ``True``) the
-    bar's own shape below the first final position is played, thinned.
+    every moment of the roll playable wins. Otherwise (the returned flag is
+    ``True``) :func:`_fallback_final` plays a thinned chord, repaired to stay
+    playable: the bar's own shape below the first final position when that
+    can be made playable.
     """
     positions = final_positions(hand, final.pitch)
     if not positions:
@@ -632,11 +704,7 @@ def final_bar(
         )
     found = _voice_final(hand, final, positions, essential, bar_start_s, bar_s)
     fallback = found is None
-    if found is None:
-        fp = positions[0]
-        chord = _chord_under(hand, _own_frets(hand), fp, final, essential, bar_start_s, bar_s)
-    else:
-        fp, chord = found
+    fp, chord = found or _fallback_final(hand, final, positions, essential, bar_start_s, bar_s)
 
     end_s = bar_start_s + bar_s
     accompaniment = tuple(
