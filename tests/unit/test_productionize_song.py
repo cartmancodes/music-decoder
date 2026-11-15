@@ -5,7 +5,13 @@ import pytest
 
 from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import build_midi
-from music_decoder.productionize.config import HISAAB_GRID, ComposerArrangeConfig, PianoConfig
+from music_decoder.compose.harmony import essential_pcs
+from music_decoder.productionize.config import (
+    HISAAB_GRID,
+    ComposerArrangeConfig,
+    PianoConfig,
+    SectionSpec,
+)
 from music_decoder.productionize.instruments.piano import nearest_sample
 from music_decoder.productionize.song import (
     NoteEvent,
@@ -30,6 +36,7 @@ def composer_midi(tmp_path):
         bars_per_chord=1,
         tempo_bpm=92.0,
         style="fingerstyle",
+        accompaniment=arr.accompaniment,
         out_path=tmp_path / "composition.mid",
     )
 
@@ -283,3 +290,38 @@ def test_tail_is_voiced_like_the_verses(composer_midi):
     assert min(tail) >= cfg.lh_low
     assert 1 <= len(left) <= 2 and len(right) == cfg.rh_voices
     assert max(right) <= cfg.rh_high
+
+
+@pytest.mark.parametrize(
+    ("key", "mode", "labels", "seed"),
+    [
+        ("A", "minor", ("Am", "F", "C", "G"), 7),
+        ("D", "major", ("D", "G", "A7", "D"), 3),
+        ("C", "major", ("Cmaj7", "Am7", "Dm7", "G7"), 11),
+    ],
+)
+def test_fingerstyle_bars_keep_their_chord_tones_in_productionize(
+    tmp_path, key, mode, labels, seed
+):
+    prog = [ChordSymbol.parse(c) for c in labels]
+    arr = arrange(Scale(key, mode), prog, tempo_bpm=92.0, style="fingerstyle", seed=seed)
+    midi = build_midi(
+        melody=arr.melody,
+        voicings=arr.voicings,
+        bars_per_chord=1,
+        tempo_bpm=92.0,
+        style="fingerstyle",
+        accompaniment=arr.accompaniment,
+        out_path=tmp_path / "c.mid",
+    )
+    only = SectionSpec(
+        "Intro", "intro", drums="none", bass=False, piano_texture="accompaniment_only"
+    )
+    song = song_from_midi(midi, progression=prog, sections=(only,))
+    snap = song.grid.bar_s / 64
+    for bar, chord in enumerate(prog):
+        t0 = song.grid.time(0, bar)
+        heard = {
+            n.pitch % 12 for n in song.piano if t0 - snap <= n.start_s < t0 + song.grid.bar_s - snap
+        }
+        assert essential_pcs(chord) <= heard, (labels, bar)

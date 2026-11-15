@@ -235,21 +235,35 @@ You give the tool a scale, a chord progression, and a few options
 
 3. **Add the accompaniment**. Underneath the melody, the tool plays the
    chord on every bar in your chosen pattern. The patterns are: a pop strum
-   (down, down-up, up-down-up), an eighth-note arpeggio, or fingerstyle with
-   an alternating bass. It leaves out chord notes that would crowd the
-   melody, but it never drops the notes in the chord shape that make it
-   major, minor or a seventh. It ends with one chord left ringing.
+   (down, down-up, up-down-up), an eighth-note arpeggio, or fingerstyle.
+   The strum and the arpeggio leave out chord notes that would crowd the
+   melody, but never drop the notes in the chord shape that make it
+   major, minor or a seventh. Each ends with one chord left ringing.
+
+   Fingerstyle works differently, because it is meant to be one guitar part
+   that one person can play. The fretting hand holds the chord shape, the
+   thumb plays an alternating bass (a Travis pattern), small fills pick
+   chord tones on free strings, and the melody is chosen only from notes
+   that shape can reach on the top strings (so its range is about one
+   octave). The last bar is one held melody note over a rolled chord whose
+   notes all sound below it. The melody is written first for the other
+   styles, but for fingerstyle the shape comes first and the melody follows
+   it.
 
 4. **Render the audio**. The melody and accompaniment together get
    written to a MIDI file (a digital score) and then synthesized to a
    WAV file (actual sound). The MIDI is the master copy; the WAV is
    for instant playback.
 
-5. **Write the tab**. The melody notes get placed onto the guitar
-   neck by the same fingering search used for analysis, so the line
-   stays in one hand position where it can. The tab shows the melody
-   note by note, then the chord shapes under their names, in the kind
-   of ASCII tab you might see in any guitar magazine.
+5. **Write the tab**. For strum and arpeggio, the melody notes get
+   placed onto the guitar neck by the same fingering search used for
+   analysis, so the line stays in one hand position where it can. The tab
+   shows the melody note by note, then the chord shapes under their names,
+   in the kind of ASCII tab you might see in any guitar magazine. For
+   fingerstyle the tab shows the whole part (melody and accompaniment) in
+   rhythm, eight columns to a bar with a count row under each line, so you
+   can play it straight from the page. Each note has one string and fret,
+   and the MIDI file plays exactly those notes.
 
 6. **Save everything**. The four files (MIDI, WAV, ASCII tab, JSON
    metadata) end up in a per-take folder named with a timestamp and a

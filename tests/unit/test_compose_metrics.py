@@ -3,7 +3,14 @@ import pytest
 from music_decoder.compose import metrics as m
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.tabs.tuning import STANDARD_EADGBE
-from music_decoder.types import ChordSymbol, Note, Scale, TabPosition, VoicedChord
+from music_decoder.types import (
+    ChordSymbol,
+    Note,
+    Scale,
+    TabbedNote,
+    TabPosition,
+    VoicedChord,
+)
 
 TEMPO = 120.0  # one beat = 0.5 s, one bar = 2 s
 C = Scale("C", "major")
@@ -365,3 +372,69 @@ def test_chord_change_moves_and_bass_is_root():
         tuple(TabPosition(s, f) for s, f in enumerate((-1, 3, 3, 2, 1, 0))),
     )  # C3 F3 A3 C4 E4
     assert not m.bass_is_root(old_fmaj7, STANDARD_EADGBE)
+
+
+# ---- fingerstyle part -----------------------------------------------------
+
+
+def P(string: int, fret: int) -> TabPosition:
+    return TabPosition(string=string, fret=fret)
+
+
+def note(start_s: float, end_s: float, pitch: int) -> Note:
+    return Note(start_s=start_s, end_s=end_s, pitch=pitch, velocity=80, confidence=1.0)
+
+
+def tn(start_s: float, end_s: float, position: TabPosition) -> TabbedNote:
+    pitch = STANDARD_EADGBE.open_pitches[position.string] + position.fret
+    return TabbedNote(note=note(start_s, end_s, pitch), position=position)
+
+
+def test_moment_playable():
+    assert m.moment_playable([P(1, 3), P(2, 2), P(5, 5)])  # span 3, 3 fingers
+    assert not m.moment_playable([P(1, 3), P(5, 7)])  # span 4
+    assert not m.moment_playable([P(5, 0), P(5, 3)])  # two notes, one string
+    assert not m.moment_playable([P(s, f) for s, f in enumerate((1, 3, 2, 4, 1, 3))])  # 5 fingers
+    assert m.moment_playable([])
+
+
+def test_moment_playable_open_string_splits_a_barre():
+    # Same fretted notes (spans 3); the open string under the fret-2 barre splits it
+    # into two fingers, which takes the shape from 4 fingers to 5.
+    solid = [P(s, f) for s, f in enumerate((1, 2, 2, 2, 3, 4))]
+    split = [P(s, f) for s, f in enumerate((1, 2, 0, 2, 3, 4))]
+    assert m.moment_playable(solid)
+    assert not m.moment_playable(split)
+
+
+def test_playable_moment_ratio_counts_each_onset():
+    thumb = [tn(0.0, 0.95, P(1, 3)), tn(0.0, 0.95, P(2, 2))]
+    assert m.playable_moment_ratio([*thumb, tn(0.5, 0.9, P(5, 3))]) == 1.0
+    assert m.playable_moment_ratio([*thumb, tn(0.5, 0.9, P(5, 8))]) == 0.5
+    assert m.playable_moment_ratio([]) is None
+
+
+def test_melody_onset_on_top_ratio_checks_onsets_only():
+    melody = [note(0.0, 0.95, 64)]
+    assert m.melody_onset_on_top_ratio(melody, [note(0.0, 0.5, 60)]) == 1.0
+    assert m.melody_onset_on_top_ratio(melody, [note(0.0, 0.5, 67)]) == 0.0
+    assert (
+        m.melody_onset_on_top_ratio(melody, [note(0.25, 0.45, 67)]) == 1.0
+    )  # fill over a held note
+    assert m.melody_onset_on_top_ratio(melody, [note(0.03, 0.5, 67)]) == 0.0  # late roll string
+    assert m.melody_onset_on_top_ratio([], [note(0.0, 0.5, 60)]) is None
+
+
+def test_bar_identity_needs_every_essential_tone():
+    pr = prog("C", "G7")
+    acc = [note(0.0, 0.5, 48), note(0.5, 1.0, 52), note(2.0, 2.5, 43), note(2.5, 3.0, 47)]
+    assert m.bar_identity(acc, pr, 1, 120.0) == [True, False]  # G7 lacks F
+
+
+def test_tab_consistent():
+    tab = [tn(0.0, 0.4, P(5, 0))]
+    assert m.tab_consistent([tab[0].note], tab, STANDARD_EADGBE)
+    assert not m.tab_consistent([note(0.0, 0.4, 65)], tab, STANDARD_EADGBE)
+    # the tab's own pitch must match its string and fret
+    bad = [TabbedNote(note=note(0.0, 0.4, 65), position=P(5, 0))]
+    assert not m.tab_consistent([bad[0].note], bad, STANDARD_EADGBE)

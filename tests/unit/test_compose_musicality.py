@@ -24,7 +24,13 @@ from pathlib import Path
 import pytest
 
 from music_decoder.compose.api import arrange
-from music_decoder.evaluation.compose_musicality import ACCEPTANCE_MATRICES, STYLES, evaluate
+from music_decoder.evaluation.compose_musicality import (
+    ACCEPTANCE_MATRICES,
+    ALL_MATRICES,
+    RESERVE_MATRICES,
+    STYLES,
+    evaluate,
+)
 from music_decoder.tabs.tuning import PRESETS
 from music_decoder.types import ChordSymbol, Scale
 
@@ -65,6 +71,11 @@ def all_reports(report, acceptance_report):
 
 
 @pytest.fixture(scope="module")
+def reserve_report():
+    return evaluate(RESERVE_MATRICES)
+
+
+@pytest.fixture(scope="module")
 def baseline():
     return json.loads(BASELINE_PATH.read_text())
 
@@ -95,7 +106,9 @@ def _mean(report, metric, matrix="validation", group="overall"):
         ("M12", 0.95, None),  # long phrase-final notes; baseline 0.0
         ("M13", None, 0.04),  # exposed chromatic clashes; baseline 0.094
         ("T2", None, 0.14),  # hand shifts per note; baseline 0.171
-        *((f"A2.{s}", 0.97, None) for s in STYLES),  # melody on top; baseline 0.82-0.91
+        # melody on top; baseline 0.82-0.91. Spec §6 item 7: A2.fingerstyle is reported,
+        # not gated: 1.0 (v3) -> 0.9364 (v4), because a fill may ring above a held note (§5.4).
+        *((f"A2.{s}", 0.97, None) for s in STYLES if s != "fingerstyle"),
         *((f"A3.{s}", None, 0.10) for s in STYLES),  # exposed semitone clashes; 0.11-0.145
     ],
 )
@@ -133,7 +146,8 @@ def test_hard_invariants(report, matrix):
     for style in STYLES:
         assert o[f"A1.{style}"]["min"] == 1.0  # baseline arpeggio 0.10
         assert o[f"A4.{style}"]["min"] == 1.0  # final chord rings
-        assert o[f"H1.{style}"]["min"] == 1.0  # chord identity heard in every bar
+        if style != "fingerstyle":  # spec §5.4 / controller ruling R6, R8: P3t gates it
+            assert o[f"H1.{style}"]["min"] == 1.0  # chord identity heard in every bar
         assert o[f"H2.{style}"]["min"] == 1.0  # full harmony under the held final note
 
 
@@ -153,6 +167,10 @@ def test_every_subgroup_improves_on_the_baseline(report, baseline, group):
 def test_edge_matrix_improves_on_the_baseline(report, baseline):
     cand, base = report["edge"]["overall"], baseline["edge"]["overall"]
     for metric in (*IMPROVE_UP, *IMPROVE_DOWN):
+        if metric == "A2.fingerstyle":
+            # Spec §6 item 7: reported, not gated. 0.9879 (v3) -> 0.9619 (v4), baseline 0.9633:
+            # a fill may ring above a held melody note between onsets (§5.4).
+            continue
         c, b = cand[metric]["mean"], base[metric]["mean"]
         assert (c > b) if metric in IMPROVE_UP else (c < b), f"edge {metric}: {b} -> {c}"
 
@@ -208,6 +226,8 @@ def test_holdout_acceptance(all_reports, v2):  # spec §6.4, frozen before evalu
     assert o["M12"]["min"] == 1.0 and o["M14"]["min"] == 1.0 and o["Tcount"]["min"] == 1.0
     for style in STYLES:
         for key in ("A1", "A4", "H1", "H2"):
+            if key == "H1" and style == "fingerstyle":
+                continue  # spec §5.4 / controller ruling R6, R8: P3t gates it
             assert o[f"{key}.{style}"]["min"] == 1.0, f"{key}.{style}"
 
 
@@ -228,6 +248,8 @@ def test_tunings_matrix_keeps_every_v2_hard_invariant(report):
     assert o["M12"]["min"] == 1.0 and o["M14"]["min"] == 1.0 and o["Tcount"]["min"] == 1.0
     for style in STYLES:
         for key in ("A1", "A4", "H1", "H2"):
+            if key == "H1" and style == "fingerstyle":
+                continue  # spec §5.4 / controller ruling R6, R8: P3t gates it
             assert o[f"{key}.{style}"]["min"] == 1.0, f"{key}.{style}"
     for name, tuning in PRESETS.items():  # spec D15
         cap = 15 + (64 - tuning.open_pitches[-1])
@@ -243,6 +265,11 @@ def test_no_regression_against_v2(all_reports, v2, matrix, group):
     for metric in (*IMPROVE_UP, *IMPROVE_DOWN):
         if metric not in ref:  # e.g. M13 is undefined on validation/major in both
             continue
+        if metric == "A2.fingerstyle":
+            # Spec §6 item 7: reported, not gated (a fill may ring above a held note, §5.4).
+            # v3 -> v4: validation 1.0 -> 0.9364 (groups 0.932-0.9408), edge 0.9879 -> 0.9619,
+            # holdout 1.0 -> 0.9471.
+            continue
         assert metric in cand, f"{matrix}/{group} {metric}: missing from the candidate"
         c, r = cand[metric]["mean"], ref[metric]["mean"]
         if metric in IMPROVE_UP:
@@ -252,6 +279,28 @@ def test_no_regression_against_v2(all_reports, v2, matrix, group):
     for metric in ("M5", "M15"):
         if cand[metric]["n"] and ref[metric]["n"]:
             assert cand[metric]["pooled"] >= ref[metric]["pooled"] - TOL_POOLED, metric
+
+
+# ---- v4 fingerstyle: one playable guitar part (spec 2026-11-15 section 6) ----
+
+
+@pytest.mark.parametrize("matrix", ALL_MATRICES)
+def test_fingerstyle_part_on_every_matrix(all_reports, reserve_report, matrix):
+    o = {**all_reports, **reserve_report}[matrix]["overall"]
+    # spec §5.4 / controller ruling R6, R8: P3t (triad-family bars) is hard, P3 reported
+    for key in ("P1", "P2", "P3t", "P4"):
+        assert o[key]["min"] == 1.0, key
+    assert o["P5"]["max"] == 0.0  # no final-voicing fallback
+    assert o["F.L1"]["max"] == 0 and o["F.L3"]["max"] == 0
+    assert o["F.L2"]["n"] == 0 or o["F.L2"]["pooled"] == 1.0
+    assert o["F.L4max"]["max"] <= 7 and o["F.L5"]["max"] <= 7 and o["F.M4max"]["max"] <= 12
+    assert o["F.M7"]["min"] == 1.0 and o["F.M8"]["min"] >= 1.5
+    assert o["F.M12"]["min"] == 1.0 and o["F.M14"]["min"] == 1.0
+
+
+def test_fingerstyle_is_playable_in_every_tuning(report):
+    for name in PRESETS:
+        assert report["tunings"][f"tuning.{name}"]["P1"]["min"] == 1.0, name
 
 
 def test_same_seed_same_music():

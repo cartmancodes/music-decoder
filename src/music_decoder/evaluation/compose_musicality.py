@@ -10,6 +10,17 @@ generator's weights, so the validation and edge matrices were v2 held-out data.
 They (and the tunings matrix) are v3 development data. The holdout matrix
 (seeds 3000+) is v3's acceptance data and the reserve matrix (seeds 4000+) its
 fallback; neither is evaluated unless asked for by name (spec section 6).
+
+Composer version 4 gives the ``fingerstyle`` style its own melody, so each
+:class:`Case` arranges fingerstyle separately (``Case.fingerstyle``) from the
+strum and arpeggio arrangement that shares one melody. The unprefixed melody
+keys are the shared melody's, equal to version 3; the ``F.`` keys are the same
+metrics for the fingerstyle melody. ``A1``-``A4``, ``H1`` and ``H2`` for
+fingerstyle use that melody. The fingerstyle part adds ``P1`` (playability),
+``P2`` (melody on top at every onset), ``P3`` and ``P3m`` (the share of bars
+whose accompaniment alone, or with the melody, sounds every essential tone),
+``P3t`` (``P3`` over triad-family bars only), ``P4`` (tab = MIDI) and ``P5``
+(the final-voicing fallback).
 """
 
 from __future__ import annotations
@@ -24,7 +35,7 @@ from typing import Literal, cast
 from music_decoder.compose import metrics
 from music_decoder.compose.api import Arrangement, accompany, arrange
 from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE, Tuning
-from music_decoder.types import VALID_TONICS, ChordSymbol, Note, Scale
+from music_decoder.types import VALID_TONICS, ChordSymbol, Note, Scale, TabbedNote
 
 Style = Literal["arpeggio", "strum", "fingerstyle"]
 STYLES: tuple[Style, ...] = ("arpeggio", "strum", "fingerstyle")
@@ -127,7 +138,13 @@ def realize(scale: Scale, numeral: str) -> ChordSymbol:
 
 @dataclass(frozen=True)
 class Case:
-    """One generated composition plus its accompaniment in every style."""
+    """One generated composition plus its accompaniment in every style.
+
+    ``arrangement`` is the strum arrangement, whose melody is the shared
+    melody strum and arpeggio accompany; ``fingerstyle`` is arranged
+    separately, because the one-guitar part draws its own melody from the
+    held chord shapes (spec 5.5).
+    """
 
     scale: Scale
     progression: tuple[ChordSymbol, ...]
@@ -136,6 +153,7 @@ class Case:
     arrangement: Arrangement
     accompaniment: dict[str, tuple[Note, ...]]
     tuning: Tuning
+    fingerstyle: Arrangement
 
     @property
     def n_bars(self) -> int:
@@ -197,29 +215,30 @@ def reserve_inputs() -> list[Inputs]:
 def build_cases(inputs: Iterable[Inputs], tuning: Tuning = STANDARD_EADGBE) -> list[Case]:
     cases: list[Case] = []
     for scale, progression, bars, seed in inputs:
-        arr = arrange(
+        styled = partial(
+            arrange,
             scale,
             progression,
             bars_per_chord=bars,
             tempo_bpm=TEMPO_BPM,
-            style="fingerstyle",
             tuning=tuning,
             seed=seed,
         )
+        # The strum melody is the shared melody strum and arpeggio accompany.
+        arr, fingerstyle = styled(style="strum"), styled(style="fingerstyle")
         acc: dict[str, tuple[Note, ...]] = {
-            style: arr.accompaniment
-            if style == "fingerstyle"
-            else accompany(
+            "strum": arr.accompaniment,
+            "arpeggio": accompany(
                 arr.voicings,
                 arr.melody,
                 bars_per_chord=bars,
                 tempo_bpm=TEMPO_BPM,
-                style=style,
+                style="arpeggio",
                 tuning=tuning,
-            )
-            for style in STYLES
+            ),
+            "fingerstyle": fingerstyle.accompaniment,
         }
-        cases.append(Case(scale, progression, bars, seed, arr, acc, tuning))
+        cases.append(Case(scale, progression, bars, seed, arr, acc, tuning, fingerstyle))
     return cases
 
 
@@ -227,81 +246,135 @@ Value = float | int | bool | None
 _LARGE_LEAP = 7  # L0 counts intervals larger than a fifth
 
 
-def case_metrics(case: Case) -> dict[str, Value]:
-    """Every metric for one case; accompaniment metrics are keyed ``A2.strum`` etc."""
-    mel, prog = case.arrangement.melody, case.progression
-    bars, tempo = case.bars_per_chord, TEMPO_BPM
-    tuning = case.tuning
-    frets = [tn.position.fret for tn in case.arrangement.melody_tab]
-    ivs = metrics.intervals(mel)
+# spec §5.4 / controller ruling R6, R8: accompaniment-only identity may miss only on these.
+SEVENTH_QUALITIES = frozenset({"maj7", "min7", "7"})
+
+
+def _melody_metrics(
+    melody: Sequence[Note], melody_tab: Sequence[TabbedNote], case: Case
+) -> dict[str, Value]:
+    """The melody and melody-tab metrics (M, L, T) of one melody of ``case``."""
+    prog, bars, tempo = case.progression, case.bars_per_chord, TEMPO_BPM
+    frets = [tn.position.fret for tn in melody_tab]
+    ivs = metrics.intervals(melody)
     large = [abs(i) > _LARGE_LEAP for i in ivs]
-    moves = metrics.chord_change_moves(mel, prog, bars, tempo)
-    leaps, recovered = metrics.leap_recovery_counts(mel)
-    big_leaps, big_recovered = metrics.large_leap_recovery_counts(mel)
+    moves = metrics.chord_change_moves(melody, prog, bars, tempo)
+    leaps, recovered = metrics.leap_recovery_counts(melody)
+    big_leaps, big_recovered = metrics.large_leap_recovery_counts(melody)
     lt_eligible, lt_resolved = metrics.leading_tone_resolution_counts(
-        mel, case.scale, prog, bars, tempo
+        melody, case.scale, prog, bars, tempo
     )
-    out: dict[str, Value] = {
-        "M1": metrics.strong_beat_chord_tone_ratio(mel, prog, bars, tempo),
-        "M2": metrics.step_ratio(mel),
-        "M3": metrics.repeat_ratio(mel),
-        "M4": metrics.large_leap_ratio(mel),
-        "M4max": metrics.max_interval(mel),
+    return {
+        "M1": metrics.strong_beat_chord_tone_ratio(melody, prog, bars, tempo),
+        "M2": metrics.step_ratio(melody),
+        "M3": metrics.repeat_ratio(melody),
+        "M4": metrics.large_leap_ratio(melody),
+        "M4max": metrics.max_interval(melody),
         "M5.leaps": leaps,
         "M5.recovered": recovered,
         "L0.large": sum(large),
         "L0.intervals": len(ivs),
         "L0.any": any(large),
-        "L1": metrics.forbidden_interval_count(mel),
+        "L1": metrics.forbidden_interval_count(melody),
         "L2.leaps": big_leaps,
         "L2.recovered": big_recovered,
-        "L3": metrics.unjustified_large_leap_count(mel, prog, bars, tempo),
+        "L3": metrics.unjustified_large_leap_count(melody, prog, bars, tempo),
         "L4": sum(m <= 4 for m in moves) / len(moves) if moves else None,
         "L4max": max(moves) if moves else None,
         "L5": abs(ivs[-1]) if ivs else None,
-        "M6": metrics.ambitus(mel),
-        "M7": metrics.final_resolution(mel, case.scale, prog),
-        "M8": metrics.final_note_beats(mel, tempo),
-        "M9": metrics.distinct_durations(mel, tempo),
-        "M10": metrics.ioi_entropy(mel, tempo),
-        "M11a": metrics.motif_pair_coverage(mel, tempo, case.n_bars),
-        "M11b": metrics.motif_contour_match(mel, tempo, case.n_bars),
-        "M12": metrics.phrase_end_long_ratio(mel, tempo, case.n_bars),
-        "M13": metrics.exposed_chromatic_clash_ratio(mel, case.scale, prog, bars, tempo),
-        "M14": metrics.onset_grid_ratio([n.start_s for n in mel], tempo, 2),
+        "M6": metrics.ambitus(melody),
+        "M7": metrics.final_resolution(melody, case.scale, prog),
+        "M8": metrics.final_note_beats(melody, tempo),
+        "M9": metrics.distinct_durations(melody, tempo),
+        "M10": metrics.ioi_entropy(melody, tempo),
+        "M11a": metrics.motif_pair_coverage(melody, tempo, case.n_bars),
+        "M11b": metrics.motif_contour_match(melody, tempo, case.n_bars),
+        "M12": metrics.phrase_end_long_ratio(melody, tempo, case.n_bars),
+        "M13": metrics.exposed_chromatic_clash_ratio(melody, case.scale, prog, bars, tempo),
+        "M14": metrics.onset_grid_ratio([n.start_s for n in melody], tempo, 2),
         "M15.eligible": lt_eligible,
         "M15.resolved": lt_resolved,
         "T1": max(frets) if frets else None,
         "T2": metrics.hand_shift_rate(frets),
-        "Tcount": len(frets) == len(mel),
-        "V1": metrics.nearest_pitch_proximity(case.arrangement.voicings, tuning),
+        "Tcount": len(frets) == len(melody),
     }
-    mismatches = [metrics.shape_tone_mismatch(v, tuning) for v in case.arrangement.voicings]
-    out["S2"] = sum(not metrics.bass_is_root(v, tuning) for v in case.arrangement.voicings) / len(
-        case.arrangement.voicings
+
+
+def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
+    """P1-P5: the fingerstyle part as one guitar part (spec 5.4, 6)."""
+    fs, prog, bars = case.fingerstyle, case.progression, case.bars_per_chord
+    identity = metrics.bar_identity(fs.accompaniment, prog, bars, TEMPO_BPM)
+    with_melody = metrics.bar_identity((*fs.accompaniment, *fs.melody), prog, bars, TEMPO_BPM)
+    # spec §5.4 / controller ruling R6, R8: only triad-family bars must meet identity
+    triad = [
+        met
+        for bar, met in enumerate(identity)
+        if prog[bar // bars].quality not in SEVENTH_QUALITIES
+    ]
+    return {
+        "P1": metrics.playable_moment_ratio((*fs.melody_tab, *fs.accompaniment_tab)),
+        "P2": metrics.melody_onset_on_top_ratio(fs.melody, fs.accompaniment),
+        "P3": sum(identity) / len(identity),
+        "P3m": sum(with_melody) / len(with_melody),
+        "P3t": sum(triad) / len(triad) if triad else None,
+        "P4": metrics.tab_consistent(
+            (*fs.melody, *fs.accompaniment), (*fs.melody_tab, *fs.accompaniment_tab), case.tuning
+        ),
+        "P5": fs.final_fallback,
+    }
+
+
+def case_metrics(case: Case) -> dict[str, Value]:
+    """Every metric for one case; accompaniment metrics are keyed ``A2.strum``
+    etc., and the fingerstyle melody's metrics ``F.M1`` etc."""
+    shared = case.arrangement
+    bars, tempo, tuning = case.bars_per_chord, TEMPO_BPM, case.tuning
+    out = _melody_metrics(shared.melody, shared.melody_tab, case)
+    out["V1"] = metrics.nearest_pitch_proximity(shared.voicings, tuning)
+    mismatches = [metrics.shape_tone_mismatch(v, tuning) for v in shared.voicings]
+    out["S2"] = sum(not metrics.bass_is_root(v, tuning) for v in shared.voicings) / len(
+        shared.voicings
     )
     out["S1.missing"] = sum(bool(missing) for missing, _ in mismatches) / len(mismatches)
     out["S1.foreign"] = sum(bool(foreign) for _, foreign in mismatches) / len(mismatches)
     for style, acc in case.accompaniment.items():
-        coverage = metrics.essential_tone_coverage(
-            mel, acc, case.arrangement.voicings, bars, tempo, tuning
-        )
+        mel = case.fingerstyle.melody if style == "fingerstyle" else shared.melody
+        coverage = metrics.essential_tone_coverage(mel, acc, shared.voicings, bars, tempo, tuning)
         heads = metrics.stroke_heads([n.start_s for n in acc])
         out[f"A1.{style}"] = metrics.onset_grid_ratio(heads, tempo, 4)
         out[f"A2.{style}"] = metrics.melody_above_accompaniment_ratio(mel, acc)
         out[f"A3.{style}"] = metrics.exposed_semitone_clash_ratio(mel, acc, tempo)
         out[f"A4.{style}"] = metrics.final_chord_rings(acc, case.n_bars, tempo)
         out[f"H1.{style}"] = sum(coverage) / len(coverage)
-        out[f"H2.{style}"] = metrics.cadence_identity(mel, acc, case.arrangement.voicings, tuning)
+        out[f"H2.{style}"] = metrics.cadence_identity(mel, acc, shared.voicings, tuning)
+    fingerstyle = case.fingerstyle
+    for key, value in _melody_metrics(fingerstyle.melody, fingerstyle.melody_tab, case).items():
+        out[f"F.{key}"] = value
+    out.update(_fingerstyle_part_metrics(case))
     return out
+
+
+_POOLED = (
+    ("M5", "M5.recovered", "M5.leaps"),
+    ("M15", "M15.resolved", "M15.eligible"),
+    ("L2", "L2.recovered", "L2.leaps"),
+    ("L0", "L0.large", "L0.intervals"),
+)
+_POOLED_ALL = tuple(
+    (prefix + name, prefix + hit, prefix + total)
+    for prefix in ("", "F.")
+    for name, hit, total in _POOLED
+)
+_RAW_COUNT_KEYS = tuple(key for _, hit, total in _POOLED_ALL for key in (hit, total))
 
 
 def _aggregate(rows: Sequence[dict[str, Value]]) -> dict[str, dict[str, float]]:
     """Mean/min/max of every metric over ``rows`` (``None`` values skipped),
-    plus pooled ratios for the count-based M5, M15, L2 and L0."""
+    plus pooled ratios for the count-based M5, M15, L2 and L0 (and their
+    fingerstyle-melody ``F.`` versions)."""
     out: dict[str, dict[str, float]] = {}
     for key in rows[0]:
-        if key.startswith(("M5.", "M15.", "L2.", "L0.large", "L0.intervals")):
+        if key in _RAW_COUNT_KEYS:
             continue
         values = [float(r[key]) for r in rows if r[key] is not None]  # type: ignore[arg-type]
         if values:
@@ -310,12 +383,7 @@ def _aggregate(rows: Sequence[dict[str, Value]]) -> dict[str, dict[str, float]]:
                 "min": round(min(values), 4),
                 "max": round(max(values), 4),
             }
-    for name, hit_key, total_key in (
-        ("M5", "M5.recovered", "M5.leaps"),
-        ("M15", "M15.resolved", "M15.eligible"),
-        ("L2", "L2.recovered", "L2.leaps"),
-        ("L0", "L0.large", "L0.intervals"),
-    ):
+    for name, hit_key, total_key in _POOLED_ALL:
         if total_key not in rows[0]:
             continue
         total = sum(int(r[total_key] or 0) for r in rows)
@@ -351,6 +419,20 @@ def summarize(cases: Sequence[Case]) -> dict[str, dict[str, dict[str, float]]]:
     return out
 
 
+def matrix_cases(name: str) -> list[Case]:
+    """The cases of one named matrix (see ``ALL_MATRICES``), built on demand."""
+    builders: dict[str, Callable[[], list[Case]]] = {
+        "validation": lambda: build_cases(validation_inputs()),
+        "edge": lambda: build_cases(edge_inputs()),
+        "tunings": lambda: [c for t in PRESETS.values() for c in build_cases(tunings_inputs(), t)],
+        "holdout": lambda: build_cases(holdout_inputs()),
+        "reserve": lambda: build_cases(reserve_inputs()),
+    }
+    if name not in builders:
+        raise ValueError(f"unknown matrix {name!r}; choose from {list(builders)}")
+    return builders[name]()
+
+
 Report = Mapping[str, Mapping[str, Mapping[str, Mapping[str, float]]]]
 
 
@@ -362,17 +444,10 @@ def evaluate(
     The default is the development matrices; the acceptance matrices are
     only built when named.
     """
-    builders: dict[str, Callable[[], list[Case]]] = {
-        "validation": lambda: build_cases(validation_inputs()),
-        "edge": lambda: build_cases(edge_inputs()),
-        "tunings": lambda: [c for t in PRESETS.values() for c in build_cases(tunings_inputs(), t)],
-        "holdout": lambda: build_cases(holdout_inputs()),
-        "reserve": lambda: build_cases(reserve_inputs()),
-    }
-    unknown = [m for m in matrices if m not in builders]
+    unknown = [m for m in matrices if m not in ALL_MATRICES]
     if unknown:
-        raise ValueError(f"unknown matrices {unknown}; choose from {list(builders)}")
-    return {name: summarize(builders[name]()) for name in matrices}
+        raise ValueError(f"unknown matrices {unknown}; choose from {list(ALL_MATRICES)}")
+    return {name: summarize(matrix_cases(name)) for name in matrices}
 
 
 def format_report(report: Report) -> str:

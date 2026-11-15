@@ -142,6 +142,6 @@ def test_sample_commands_are_deterministic(name: str, tmp_path: Path) -> None:
     assert a["melody_notes"] == b["melody_notes"] and a["chord_voicings"] == b["chord_voicings"]
 
 
-def test_sample_metadata_reports_composer_version_3(tmp_path: Path) -> None:
+def test_sample_metadata_reports_composer_version_4(tmp_path: Path) -> None:
     out = _run(SAMPLES["minor-10-B"], tmp_path)
-    assert out["metadata"]["composer_version"] == 3
+    assert out["metadata"]["composer_version"] == 4

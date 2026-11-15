@@ -27,6 +27,7 @@ def composition_dir(tmp_path):
         bars_per_chord=1,
         tempo_bpm=92.0,
         style="fingerstyle",
+        accompaniment=arr.accompaniment,
         out_path=folder / "composition.mid",
     )
     return folder

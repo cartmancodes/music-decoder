@@ -6,6 +6,11 @@ melody are dropped so the tune stays on top, except that the bass is always
 kept and a chord's defining tones (third, seventh, altered fifth, fourth)
 are never lost unless the melody itself is sounding them. The last bar is
 always a single strummed chord ringing to the end.
+
+This module generates the strum and arpeggio patterns only. The fingerstyle
+part is arranged together with its melody by :mod:`music_decoder.compose.fingerstyle`
+(through ``api.arrange``); :func:`build_midi` writes it when given as
+``accompaniment``.
 """
 
 from __future__ import annotations
@@ -36,6 +41,9 @@ STRUM_STROKES: tuple[tuple[int, Literal["down", "up"]], ...] = (
     (7, "up"),
 )
 UP_STROKE_STRINGS = 3
+FINGERSTYLE_NEEDS_ARRANGE = (
+    "fingerstyle accompaniment is built with its melody by compose.fingerstyle; use arrange()"
+)
 
 
 def _voiced_pitches(voicing: VoicedChord, tuning: Tuning) -> list[int]:
@@ -126,32 +134,6 @@ def _strum_bar(
     return out
 
 
-def _fingerstyle_bar(
-    pitches: list[int], essential: Collection[int], melody: Sequence[Note], t: float, beat: float
-) -> list[pretty_midi.Note]:
-    """Alternating bass on beats 1 and 3, treble pinch on beats 2 and 4."""
-    alternate = len(pitches) >= 4
-    alt_bass = pitches[1] if alternate else pitches[0]
-    out: list[pretty_midi.Note] = []
-    for k in range(4):
-        start = t + k * beat
-        end = start + 0.95 * beat
-        if k % 2 == 0:
-            bass = pitches[0] if k == 0 else alt_bass
-            out.append(pretty_midi.Note(velocity=72, pitch=int(bass), start=start, end=end))
-            continue
-        pinch = _thin_below(pitches[1:] or pitches, essential, melody, start, start + beat)
-        # The alternate bass is played on beats 1 and 3, so it is left out of the
-        # pinch unless it is an essential tone that nothing else in the pinch has.
-        alt_pc = alt_bass % 12
-        keep_alt = alt_pc in essential and all(p % 12 != alt_pc for p in pinch if p != alt_bass)
-        for p in pinch:
-            if alternate and p == alt_bass and not keep_alt:
-                continue
-            out.append(pretty_midi.Note(velocity=64, pitch=int(p), start=start, end=end))
-    return out
-
-
 def _accompaniment_notes(
     voicings: Sequence[VoicedChord],
     bars_per_chord: int,
@@ -160,6 +142,8 @@ def _accompaniment_notes(
     tuning: Tuning,
     melody: Sequence[Note] = (),
 ) -> list[pretty_midi.Note]:
+    if style == "fingerstyle":
+        raise ValueError(FINGERSTYLE_NEEDS_ARRANGE)
     seconds_per_beat = 60.0 / tempo_bpm
     seconds_per_bar = seconds_per_beat * 4.0
     eighth = seconds_per_beat / 2.0
@@ -179,8 +163,6 @@ def _accompaniment_notes(
             out.extend(_arpeggio_bar(pitches, essential, melody, t, eighth))
         elif style == "strum":
             out.extend(_strum_bar(pitches, essential, melody, t, eighth))
-        elif style == "fingerstyle":
-            out.extend(_fingerstyle_bar(pitches, essential, melody, t, seconds_per_beat))
     return out
 
 
@@ -193,7 +175,14 @@ def build_midi(
     style: Style,
     out_path: Path,
     tuning: Tuning = STANDARD_EADGBE,
+    accompaniment: Sequence[Note] | None = None,
 ) -> Path:
+    """Write the melody and accompaniment tracks to ``out_path``.
+
+    ``accompaniment`` is written as given when supplied (fingerstyle, whose
+    part :func:`~music_decoder.compose.api.arrange` builds with its melody);
+    otherwise the ``style`` pattern is generated around ``melody``.
+    """
     pm = pretty_midi.PrettyMIDI(initial_tempo=tempo_bpm)
     melody_inst = pretty_midi.Instrument(program=GUITAR_PROGRAM, name="melody")
     for n in melody:
@@ -206,16 +195,27 @@ def build_midi(
             )
         )
     accomp_inst = pretty_midi.Instrument(program=GUITAR_PROGRAM, name="accompaniment")
-    accomp_inst.notes.extend(
-        _accompaniment_notes(
-            voicings,
-            bars_per_chord,
-            tempo_bpm,
-            style,
-            tuning,
-            melody=melody,
+    if accompaniment is not None:
+        accomp_inst.notes.extend(
+            pretty_midi.Note(
+                velocity=int(n.velocity),
+                pitch=int(n.pitch),
+                start=float(n.start_s),
+                end=float(n.end_s),
+            )
+            for n in accompaniment
         )
-    )
+    else:
+        accomp_inst.notes.extend(
+            _accompaniment_notes(
+                voicings,
+                bars_per_chord,
+                tempo_bpm,
+                style,
+                tuning,
+                melody=melody,
+            )
+        )
     pm.instruments.extend([melody_inst, accomp_inst])
     pm.write(str(out_path))
     return out_path

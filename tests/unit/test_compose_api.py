@@ -118,7 +118,7 @@ def test_compose_returns_the_arrangement_and_version(tmp_path):
     arr = arrange(Scale("C", "major"), _PROG, seed=1)
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
-    assert result.metadata["composer_version"] == COMPOSER_VERSION == 3
+    assert result.metadata["composer_version"] == COMPOSER_VERSION == 4
 
 
 def test_arrange_tabs_every_melody_note_in_a_playable_register():
@@ -186,11 +186,17 @@ def test_rendered_tab_shows_every_melody_position(tmp_path, key, labels, bars, s
             progression=_chords(*labels),
             bars_per_chord=bars,
             tempo_bpm=120.0,
+            style="strum",
             seed=seed,
             out_dir=tmp_path,
         )
     arr = arrange(
-        Scale(key, "major"), _chords(*labels), bars_per_chord=bars, tempo_bpm=120.0, seed=seed
+        Scale(key, "major"),
+        _chords(*labels),
+        bars_per_chord=bars,
+        tempo_bpm=120.0,
+        style="strum",
+        seed=seed,
     )
     melody_block = result.ascii_tab.split("\n\nChords\n")[0].removeprefix("Melody\n")
     expected = [(tn.position.string, tn.position.fret) for tn in arr.melody_tab]
@@ -241,6 +247,11 @@ def test_floor_coupled_sweep_keeps_the_octave_limit(labels):
 
 _QUALITY_SUFFIXES = ("", "m", "7", "maj7", "m7", "dim", "sus4", "aug")
 
+# Spec 5.3 allows a counted, listed final-voicing fallback when no voicing
+# exists. (key, mode, labels, seed, tuning) of the one such case: no shape the
+# design allows voices D#dim's F# and A under a D# on the B or e string.
+FINAL_FALLBACK_CASES = frozenset({("C", "major", ("C", "D#dim"), 7, "EADGBE")})
+
 
 @pytest.mark.parametrize(("key", "mode", "home"), [("C", "major", "C"), ("A", "minor", "Am")])
 def test_every_chord_quality_on_every_root_composes(key, mode, home):
@@ -252,6 +263,10 @@ def test_every_chord_quality_on_every_root_composes(key, mode, home):
             label = root + suffix
             assert metrics.max_interval(arr.melody) <= MAX_INTERVAL, label
             assert metrics.final_resolution(arr.melody, scale, progression), label
+            fallback = (key, mode, (home, label), 7, STANDARD_EADGBE.name) in FINAL_FALLBACK_CASES
+            assert arr.final_fallback is fallback, label
+            if fallback:
+                continue  # the counted fallback: H1 is not checked (spec 5.3)
             coverage = metrics.essential_tone_coverage(
                 arr.melody, arr.accompaniment, arr.voicings, 1, 120.0, STANDARD_EADGBE
             )

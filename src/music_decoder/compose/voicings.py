@@ -118,21 +118,21 @@ def _retune(frets: Sequence[int], tuning: Tuning, chord: ChordSymbol) -> tuple[i
 
 
 @functools.cache  # lru_cache(maxsize=None); both arguments are frozen dataclasses
-def search_voicing(chord: ChordSymbol, tuning: Tuning) -> tuple[int, ...] | None:
-    """The best faithful, playable shape for ``chord`` in ``tuning`` (spec 5.2).
+def ranked_shapes(chord: ChordSymbol, tuning: Tuning) -> tuple[tuple[int, ...], ...]:
+    """Every faithful, playable shape the spec 5.2 search finds, best first.
 
     For each base fret the hand covers the open strings plus frets
     ``base .. base+3``. The root is the bass on one of the three lowest
     strings, and every string from there up to the highest sounding one
-    plays a chord tone (at least ``SEARCH_MIN_STRINGS``, no gaps). The
-    smallest (omitted tones, lowest fret, -strings, frets) wins; ``None``
-    when nothing qualifies.
+    plays a chord tone (at least ``SEARCH_MIN_STRINGS``, no gaps). Shapes are
+    sorted by (omitted tones, lowest fret, -strings, frets), without
+    duplicates; empty when nothing qualifies.
     """
     pcs = harmony.chord_pcs(chord)
     tones = set(pcs)
     opens = tuning.open_pitches
     n = len(opens)
-    best: tuple[tuple[int, int, int, tuple[int, ...]], tuple[int, ...]] | None = None
+    keys: dict[tuple[int, ...], tuple[int, int, int, tuple[int, ...]]] = {}
     for base in range(SEARCH_MAX_BASE_FRET + 1):
         window = sorted({0, *range(max(base, 1), base + MAX_FRETTED_SPAN + 1)})
         options = [[f for f in window if (opens[s] + f) % 12 in tones] for s in range(n)]
@@ -141,18 +141,26 @@ def search_voicing(chord: ChordSymbol, tuning: Tuning) -> tuple[int, ...] | None
             for top in range(bass + SEARCH_MIN_STRINGS - 1, n):
                 for combo in itertools.product(bass_frets, *options[bass + 1 : top + 1]):
                     frets = (-1,) * bass + combo + (-1,) * (n - top - 1)
+                    if frets in keys:
+                        continue
                     if not _is_playable(frets) or shape_faults(frets, tuning, chord):
                         continue
                     fretted = [f for f in combo if f > 0]
-                    key = (
+                    keys[frets] = (
                         len(tones - {(opens[s] + f) % 12 for s, f in enumerate(frets) if f >= 0}),
                         min(fretted, default=0),
                         -len(combo),
                         frets,
                     )
-                    if best is None or key < best[0]:
-                        best = (key, frets)
-    return None if best is None else best[1]
+    return tuple(sorted(keys, key=keys.__getitem__))
+
+
+@functools.cache  # lru_cache(maxsize=None); both arguments are frozen dataclasses
+def search_voicing(chord: ChordSymbol, tuning: Tuning) -> tuple[int, ...] | None:
+    """The best faithful, playable shape for ``chord`` in ``tuning`` (spec 5.2):
+    the first of :func:`ranked_shapes`, or ``None`` when there is none."""
+    ranked = ranked_shapes(chord, tuning)
+    return ranked[0] if ranked else None
 
 
 def _root_fallback(chord: ChordSymbol, tuning: Tuning) -> VoicedChord:

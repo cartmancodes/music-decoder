@@ -660,34 +660,57 @@ arrange(...)                                   # pure: no files, no YAML
   │   mode ∈ {major, minor}; progression non-empty; bars_per_chord ≥ 1.
   │   Otherwise raises InvalidScaleError / InvalidProgressionError.
   │ compose.voicings.voicings_for(chord, tuning)[0] for each chord
-  │ _melody_floor(voicing) for each chord     # keep the tune above the third/seventh
-  │ compose.melody.generate_melody(..., chord_floors=...)
-  │ accompany(voicings, melody, ...)           # melody-aware accompaniment
-  │ _melody_tab(melody, tuning)                # A* with pinned weights + fallback
+  │
+  │ strum / arpeggio:
+  │   _melody_floor(voicing) for each chord   # keep the tune above the third/seventh
+  │   compose.melody.generate_melody(..., chord_floors=...)
+  │   accompany(voicings, melody, ...)         # melody-aware accompaniment
+  │   _melody_tab(melody, tuning)              # A* with pinned weights + fallback
+  │
+  │ fingerstyle (one playable part, §5.3.1):
+  │   hand_shape(voicing, tuning) for each chord      # what the held shape can reach
+  │   generate_melody(..., allowed_pitches=, tessitura_center=, final_whole_note=True)
+  │   arrange_fingerstyle(...)                 # melody tab + accompaniment tab, bar by bar
   ▼
-Arrangement(melody, voicings, accompaniment, melody_tab)
+Arrangement(melody, voicings, accompaniment, melody_tab,
+            accompaniment_tab, identity_misses, final_fallback)
   │
   ▼
 work = out_dir / f"{ts}-{payload_hash}"        # per-call directory
   │   payload_hash = sha1(scale|progression|tempo|style|seed)[:8]
   ▼
-compose.arrangement.build_midi(...)            → composition.mid
+compose.arrangement.build_midi(..., accompaniment=)  → composition.mid
   │
   ▼
 synth.render_wav(...)                          → composition.wav
   │
   ▼
-compose.tabtext.render_composition_tab(...)    → ASCII string
+compose.tabtext.render_composition_tab(...)    → ASCII string  (strum, arpeggio)
+compose.tabtext.render_fingerstyle_tab(...)    → ASCII string  (fingerstyle)
   │
   ▼
 Composition(midi_path, wav_path, ascii_tab, melody_notes, chord_voicings, metadata)
 ```
 
+The three new `Arrangement` fields are filled for fingerstyle only (they keep
+their defaults for strum and arpeggio, so those results are unchanged):
+`accompaniment_tab` is the accompaniment as `TabbedNote`s (the `accompaniment`
+field is exactly its notes), `identity_misses` lists the bars whose
+accompaniment alone lacks an essential tone, and `final_fallback` says the
+final chord could not be re-voiced under the held final note. `accompany()`
+raises `ValueError` for `style="fingerstyle"`, because that accompaniment
+depends on its own melody; call `arrange()`. `build_midi(accompaniment=...)`
+writes the accompaniment notes it is given instead of generating the pattern
+for `style`, and `compose()` passes `arrangement.accompaniment` for
+fingerstyle (fingerstyle without it raises).
+
 `compose()` is fully synchronous. Determinism: the only source of randomness
 is `numpy.random.default_rng(seed)` inside the melody generator. It drives
 both the rhythm plan and the pitch choices, so the same seed gives the same
-music. `metadata["composer_version"]` (currently `3`) is bumped whenever the
-composer changes what a given seed produces. Seeds from before version 2
+music. `metadata["composer_version"]` (currently `4`) is bumped whenever the
+composer changes what a given seed produces. Version 4 changes only
+`style="fingerstyle"` (§5.3.1); strum and arpeggio output is unchanged from
+version 3 for the same inputs (`tests/unit/test_compose_frozen.py`). Seeds from before version 2
 (the uniform quarter-note generator) give different melodies now, and so do
 version-2 seeds: version 3 changed the chord shapes in every tuning and the
 melody's leap rules. The melody
@@ -888,14 +911,11 @@ always uses the phrase planner.
   - `strum`: strokes on eighths 0, 2, 3, 5, 6, 7 ("D · D U · U D U"). Down
     strokes play the voicing low→high with 8 ms between strings. Up strokes
     play the top 3 strings high→low. Each stroke rings until the next one.
-  - `fingerstyle`: alternating bass. The bass note (the lowest string of
-    the shape) goes on beat 1 and the
-    second-lowest voicing note on beat 3 (when the voicing has ≥ 4 notes).
-    The treble pinch plays on beats 2 and 4. It leaves out the
-    alternate-bass string, unless that string is the chord's only source
-    of an essential tone (for example the third of open C), in which
-    case it stays in the pinch.
-  - **Final bar (every style):** one down stroke (10 ms per string) that
+  - `fingerstyle`: not generated here. `build_midi` writes the
+    `accompaniment=` notes it is given, which `arrange()` builds together
+    with the melody (§5.3.1). Without them, `style="fingerstyle"` raises
+    `ValueError`.
+  - **Final bar (strum and arpeggio):** one down stroke (10 ms per string) that
     rings to the end of the bar.
 - **Melody-aware thinning** (`_thin_below`): at each attack, voicing pitches
   that come within a minor third of the lowest melody note sounding over
@@ -921,15 +941,97 @@ always uses the phrase planner.
 Accompaniment pitches come from `_voiced_pitches(voicing, tuning) =
 sorted(open_pitches[s] + fret for fretted strings)`.
 
+### 5.3.1 Fingerstyle: one playable guitar part
+
+For `style="fingerstyle"` the composer builds the whole part as tab, so every
+note has one string and fret and the part passes the playability check
+(`metrics.moment_playable`: one note per string, a fretted span of at most 3
+frets, and at most 4 fingers, a barre counting as one) at every moment. The pieces
+live in [compose/fingerstyle.py](../src/music_decoder/compose/fingerstyle.py):
+
+- **`hand_shape(voicing, tuning)` → `HandShape`.** The shape is the first
+  `voicings_for` shape, held for the whole chord. Its lowest sounding string
+  is the thumb's root string and the next one up is the alternate-bass string;
+  every string above those is a melody string. `HandShape.allowed` is the set
+  of melody pitches the held hand can reach: an open string, or a fret inside
+  the shape's fret window (at or above the barre fret for a barre), at least a
+  minor third above the higher thumb pitch (`THIN_MARGIN_SEMITONES = 3`) and at
+  or above G3 (MIDI 55). This is about one octave, so the v3 per-chord melody
+  floors do not apply to fingerstyle.
+- **Melody.** `generate_melody` gets `allowed_pitches=` (one set per bar),
+  `tessitura_center=` (the median of the piece's allowed pitches) and
+  `final_whole_note=True` (the last bar is one held note). Strum and arpeggio
+  never pass them, so their melody is unchanged. Each note is then placed on
+  its highest reachable string.
+- **Body bar** (`body_bar`). The thumb plays a quarter note on every beat
+  (eighths 0, 2, 4, 6): the root on beats 1 and 3 and the alternate bass on
+  beats 2 and 4. Fills go on the "and" of beats 2 and 4 (eighths 3 and 7) when
+  no melody note starts there and a free string stays playable. A chord's
+  essential tones (third, seventh, altered fifth or suspended fourth) are
+  placed in four steps, in order:
+  1. a thumb note already supplies the tone;
+  2. a fill on a free string, preferring the "and" of 2 or 4;
+  3. one melody note is moved to another reachable position to free the
+     tone's string;
+  4. the alternate bass on beats 2 and 4 plays the missing tone on a string at
+     or below the alternate-bass string, strictly above the root and at least
+     `THIN_MARGIN_SEMITONES` under every melody note sounding at the time. The
+     root on beats 1 and 3 never changes, so the root stays the bar's lowest
+     note (productionize reads the bass root from the lowest accompaniment
+     note).
+
+  The melody's pitches are never forced for identity. If all four steps fail,
+  the bar is a counted miss.
+- **Final bar** (`final_bar`). One held melody note starts together with one
+  rolled chord (`FINAL_STAGGER_S` = 10 ms per string, at most 50 ms), both
+  ring to the end. The chord is the first voicing that has the root in the
+  bass, sounds every essential tone below the final note (the final note's own
+  pitch class included), shares no string with the final note and is
+  playable at every moment of the roll: the held note with each set of
+  strings plucked so far, lowest string first, and then the whole chord (a
+  partly plucked roll can break a barre). The bar's own shape is tried first,
+  then every other `ranked_shapes` shape. `final_bar_pitches` steers the final
+  note to a cadence pitch that can be voiced like that, in tiers: a cadence
+  pitch inside the hand's reach; else one on a melody string at frets 0 to 12
+  (out of the hand position); else the counted fallback, where
+  `Arrangement.final_fallback` is `True`. The fallback roll is the bar's own
+  shape under the final note, thinned, with every note at or above the final
+  note dropped and then fretted notes, highest first (never the bass), until
+  every moment of the roll is playable; if even its bass is out of reach of
+  the final note, the first other position and shape that can be made
+  playable that way, root in the bass, is used.
+- **`arrange_fingerstyle(...)` → `FingerstylePart`.** Joins the bars:
+  `melody_tab`, `accompaniment_tab`, `identity_misses` and `final_fallback`.
+
+Identity (spec §5.4) is measured on the accompaniment track alone, because
+productionize builds each bar's chord from it. On the five evaluation
+matrices, every bar of a triad-family chord (major, minor, diminished,
+augmented, suspended) meets it, and the misses are all on seventh-chord bars
+(`maj7`, `min7`, `7`), which can lack the third or seventh when the shape is
+fixed and the melody is never forced. Off the matrices a triad bar can miss
+for the same reason, when the melody holds the only string the tone can go on
+(a random sweep found such bars, mostly augmented). Every miss is listed in
+`identity_misses`, and the melody sounds the missing tone in almost all of
+them. Closing the rest would need identity-aware re-voicing of body bars with
+moving shapes. No matrix case falls back on the final voicing, but fallbacks
+are a class, not one case: diminished endings, and rarely augmented ones, can
+have no final voicing among the allowed candidates (`C → D#dim` with seed 7 in
+EADGBE is the one the tests list); each is counted in `final_fallback`, and
+the fallback roll stays playable.
+
+`compose/tabtext.py: render_fingerstyle_tab(part, voicings, *, bars_per_chord,
+tempo_bpm, tuning)` draws the combined tab (§5.4).
+
 ### 5.4 ASCII tab for the composition
 
-`arrange()` fingers the melody with the A\* search that `analyze()` also uses
-(`music_decoder.tabs.assigner.assign_tab`). The weights and fret cap are
-pinned in `compose/api.py` rather than read from YAML. A note A\* cannot
-place falls back to its lowest-fret position, so no note is lost.
+For strum and arpeggio, `arrange()` fingers the melody with the A\* search that
+`analyze()` also uses (`music_decoder.tabs.assigner.assign_tab`). The weights
+and fret cap are pinned in `compose/api.py` rather than read from YAML. A note
+A\* cannot place falls back to its lowest-fret position, so no note is lost.
+(Fingerstyle does not use A\*: its notes are placed by `fingerstyle.py`, §5.3.1.)
 
 [compose/tabtext.py](../src/music_decoder/compose/tabtext.py)
-`render_composition_tab` prints two labelled blocks:
+`render_composition_tab` (strum, arpeggio) prints two labelled blocks:
 
 - **`Melody`:** one column per note, in playing order, with bars separated
   by `|` and four bars per line. No note can overwrite another.
@@ -938,6 +1040,28 @@ place falls back to its lowest-fret position, so no note is lost.
 String labels follow the tuning (`E A D G B e`, `D A D G A d`, …). Rhythm is
 not drawn; the MIDI file is the source of truth for timing. (The shared
 `tabs.render.render_ascii_tab` used by `analyze` is unchanged.)
+
+`render_fingerstyle_tab` (fingerstyle) prints a `Fingerstyle` block and then
+the same `Chords` block. The block has one column per eighth note (eight per
+bar), bar lines, four bars per line, the chord name above each bar and a count
+row (`1 & 2 & 3 & 4 &`) under each line. Every melody and accompaniment note
+sits in its column on its string, simultaneous notes stack in one column, a
+held note is drawn at its onset only, and a fret of two digits widens its
+column for every string. It raises `ValueError` if two notes would share a
+string and column. One bar, open C (thumb on the A string fret 3 and the D
+string fret 2 on every beat, fills on the "and" of 2 and 4, melody on the e
+string):
+
+```text
+   C
+e|-0-------3---1---|
+B|-------1---------|
+G|---------------0-|
+D|-----2-------2---|
+A|-3-------3-------|
+E|-----------------|
+   1 & 2 & 3 & 4 &
+```
 
 ### 5.4.1 Musicality metrics and evaluation
 
@@ -953,6 +1077,12 @@ typed metric functions:
   interval), final-chord ring, essential-tone coverage per bar, and cadence
   identity (the full harmony under the held final note)
 - tab: hand-position shifts
+- fingerstyle part (composer version 4): `moment_playable` and
+  `playable_moment_ratio` (the playability check of §5.3.1), the share of
+  melody onsets that are the highest sounding note
+  (`melody_onset_on_top_ratio`), `bar_identity` (every essential tone of the
+  bar's chord heard in the given notes) and `tab_consistent` (every MIDI note
+  equals a tab note and the reverse)
 - voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
   score), shape defects (essential tones missing from, or foreign tones in,
   each shape played) and non-root bass (S2)
@@ -989,6 +1119,21 @@ asserts two things:
 
 - absolute targets
 - that every subgroup improves on that baseline
+
+Composer version 4 gives fingerstyle its own melody, so `Case` carries a
+second arrangement (`Case.fingerstyle`, from `arrange(style="fingerstyle")`)
+beside the shared strum/arpeggio one. The report keys are:
+
+- the unprefixed melody, voicing and strum/arpeggio keys are the v3 values,
+  unchanged;
+- `F.`-prefixed keys (`F.M1` ...) are the melody metrics of the fingerstyle
+  melody, reported next to the unprefixed v3 values and not gated;
+- `A1`-`A4`, `H1` and `H2` for `fingerstyle` use the fingerstyle melody;
+- `P1` playability of every melody and accompaniment moment, `P2` melody on
+  top at every onset, `P3` and `P3m` the share of bars whose accompaniment
+  alone (`P3m`: with the melody) sounds every essential tone, `P3t` the same
+  as `P3` over triad-family bars only (hard, always 1.0), `P4` tab = MIDI and
+  `P5` the final-voicing fallback (hard, 0 on every matrix).
 
 The definitions, numbers and reasons are in
 [the design spec](superpowers/specs/2026-11-06-compose-improvements-design.md),

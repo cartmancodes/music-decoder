@@ -2,6 +2,7 @@ import pretty_midi
 import pytest
 
 from music_decoder.compose import metrics
+from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import _accompaniment_notes, _thin_below, build_midi
 from music_decoder.compose.melody import generate_melody
 from music_decoder.compose.voicings import voicings_for
@@ -44,7 +45,7 @@ def test_build_midi_styles_run(tmp_path):
         tempo_bpm=120.0,
         seed=42,
     )
-    for style in ("strum", "arpeggio", "fingerstyle"):
+    for style in ("strum", "arpeggio"):
         out = tmp_path / f"{style}.mid"
         build_midi(
             melody=melody,
@@ -55,6 +56,18 @@ def test_build_midi_styles_run(tmp_path):
             out_path=out,
         )
         assert out.exists()
+    arr = arrange(Scale("C", "major"), progression, tempo_bpm=120.0, style="fingerstyle", seed=42)
+    out = tmp_path / "fingerstyle.mid"
+    build_midi(
+        melody=arr.melody,
+        voicings=arr.voicings,
+        bars_per_chord=1,
+        tempo_bpm=120.0,
+        style="fingerstyle",
+        accompaniment=arr.accompaniment,
+        out_path=out,
+    )
+    assert out.exists()
 
 
 # ---- melody-aware, on-grid accompaniment (compose improvements) ------------
@@ -106,7 +119,7 @@ def test_thin_below_keeps_minor_thirds_and_sevenths():
     assert {p % 12 for p in kept} >= {11, 5}  # B and F both still heard
 
 
-@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize("style", ["arpeggio", "strum"])
 def test_stroke_heads_sit_on_the_sixteenth_grid(style):
     acc = _acc(["C", "Am", "F", "G7"], style)
     heads = metrics.stroke_heads([a.start_s for a in acc])
@@ -130,14 +143,7 @@ def test_strum_pattern_and_up_strokes():
     assert up[0].pitch > up[-1].pitch  # up stroke goes high -> low
 
 
-def test_fingerstyle_alternates_the_bass():
-    acc = _acc(["C", "G"], "fingerstyle")  # open C: C3 E3 G3 C4 E4
-    beat1 = [a.pitch for a in acc if abs(a.start_s - 0.0) < 1e-9]
-    beat3 = [a.pitch for a in acc if abs(a.start_s - 1.0) < 1e-9]
-    assert beat1 == [48] and beat3 == [52]
-
-
-@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize("style", ["arpeggio", "strum"])
 def test_final_bar_is_one_ringing_chord(style):
     acc = _acc(["C", "G", "C"], style)
     assert metrics.final_chord_rings(acc, 3, 120.0)
@@ -150,13 +156,13 @@ def test_melody_stays_on_top_of_the_strum():
     assert max(sounding) <= 64  # E4 is a minor third under G4
 
 
-@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize("style", ["arpeggio", "strum"])
 def test_single_bar_accompaniment_is_the_final_chord(style):
     acc = _acc(["C"], style)
     assert acc and metrics.final_chord_rings(acc, 1, 120.0)
 
 
-@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize("style", ["arpeggio", "strum"])
 def test_d_major_cadence_keeps_its_third(style):
     # review reproduction: D G A D, seed 9 used to end on bare D3 A3 D4
     progression = [ChordSymbol.parse(c) for c in ("D", "G", "A", "D")]
@@ -185,7 +191,7 @@ def test_the_held_final_melody_note_may_supply_an_essential_tone():
     assert 65 not in _thin_below(G7_SHAPE, G7_ESSENTIAL, melody, 6.0, 8.0)
 
 
-@pytest.mark.parametrize("style", ["arpeggio", "strum", "fingerstyle"])
+@pytest.mark.parametrize("style", ["arpeggio", "strum"])
 def test_final_stroke_keeps_the_seventh_under_the_cadence(style):
     voicings = [voicings_for(ChordSymbol.parse(c), STANDARD_EADGBE)[0] for c in ("C", "G7")]
     melody = [_note(2.0, 2.475, 67), _note(2.5, 2.975, 65), _note(3.0, 3.95, 67)]
@@ -193,12 +199,3 @@ def test_final_stroke_keeps_the_seventh_under_the_cadence(style):
     acc = [_note(n.start, n.end, n.pitch) for n in notes]
     assert metrics.cadence_identity(melody, acc, voicings, STANDARD_EADGBE) is True
     assert metrics.final_chord_rings(acc, 2, 120.0)
-
-
-def test_fingerstyle_pinch_keeps_the_third_when_it_is_the_alternate_bass():
-    # open C is C3 E3 G3 C4 E4: E3 is the alternate bass, and also the chord's third.
-    # Under an F4 on beat 2 the pinch used to skip E3 and thin E4 away, leaving no E.
-    melody = [_note(0.5, 1.0, 65)]
-    acc = _acc(["C", "G"], "fingerstyle", melody=melody)
-    beat2 = [a for a in acc if a.start_s < 1.0 and a.end_s > 0.5]
-    assert 4 in {a.pitch % 12 for a in beat2}
