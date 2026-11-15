@@ -43,6 +43,11 @@ def test_case_metrics_cover_every_style():
     assert {"M1", "M7", "M11a", "M12", "M13", "T1", "T2", "V1", "S1.missing"} <= set(row)
 
 
+def test_case_metrics_report_hook_peak_arch():
+    (case,) = ev.build_cases(ev.validation_inputs()[:1])
+    assert {"F.hook", "F.peak", "F.arch"} <= set(ev.case_metrics(case))
+
+
 def test_cases_carry_a_separate_fingerstyle_arrangement():
     (case,) = ev.build_cases(ev.edge_inputs()[:1])
     scale, prog, bars, seed = ev.edge_inputs()[0]

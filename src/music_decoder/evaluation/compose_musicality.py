@@ -21,7 +21,9 @@ fingerstyle use that melody. The fingerstyle part adds ``P1`` (playability),
 whose accompaniment alone, or with the melody, sounds every essential tone),
 ``P3t`` (``P3`` over triad-family bars only), ``P4`` (tab = MIDI) and ``P5``
 (the final-voicing fallback). ``F.shape_moves`` is the share of consecutive
-bars whose fingerstyle hand window moves (v5 spec 5.2).
+bars whose fingerstyle hand window moves (v5 spec 5.2). ``F.hook``, ``F.peak``
+and ``F.arch`` score the fingerstyle melody's hook restatement, unique phrase
+peak and rise-then-fall contour (v5 spec 5.3).
 """
 
 from __future__ import annotations
@@ -328,6 +330,10 @@ def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
         "F.ring": metrics.mean_length_beats(fs.accompaniment, TEMPO_BPM),
         # v5 spec 5.2: the share of bar changes that move the hand window
         "F.shape_moves": metrics.shape_moves(fs.bar_voicings, case.tuning),
+        # v5 spec 5.3: the hook's restatements, the unique mid-late peak, the arch contour
+        "F.hook": metrics.hook_restatements(fs.melody, TEMPO_BPM, case.n_bars),
+        "F.peak": metrics.peak_uniqueness(fs.melody, TEMPO_BPM, case.n_bars),
+        "F.arch": metrics.contour_arch(fs.melody, TEMPO_BPM, case.n_bars),
     }
 
 
