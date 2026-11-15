@@ -301,7 +301,8 @@ def _melody_metrics(
 
 
 def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
-    """P1-P5: the fingerstyle part as one guitar part (spec 5.4, 6)."""
+    """P1-P5: the fingerstyle part as one guitar part (spec 5.4, 6); F.vel_std and
+    F.ring: its performance (v5 spec 5.1)."""
     fs, prog, bars = case.fingerstyle, case.progression, case.bars_per_chord
     identity = metrics.bar_identity(fs.accompaniment, prog, bars, TEMPO_BPM)
     with_melody = metrics.bar_identity((*fs.accompaniment, *fs.melody), prog, bars, TEMPO_BPM)
@@ -321,6 +322,9 @@ def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
             (*fs.melody, *fs.accompaniment), (*fs.melody_tab, *fs.accompaniment_tab), case.tuning
         ),
         "P5": fs.final_fallback,
+        # v5 spec 5.1: the performance (velocity spread, accompaniment ring in beats)
+        "F.vel_std": metrics.velocity_spread((*fs.melody, *fs.accompaniment)),
+        "F.ring": metrics.mean_length_beats(fs.accompaniment, TEMPO_BPM),
     }
 
 

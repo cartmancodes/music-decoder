@@ -19,6 +19,7 @@ from music_decoder.compose.arrangement import (
 from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pitches, hand_shape
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
+from music_decoder.compose.performance import let_ring, shape_dynamics
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
@@ -37,7 +38,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 4
+COMPOSER_VERSION = 5
 
 # A* fingering parameters for the melody tab. Pinned here (values as tuned on
 # GuitarSet dev for analyze(), 2026-10) rather than read from
@@ -164,7 +165,8 @@ def _arrange_fingerstyle(
     seed: int | None,
 ) -> Arrangement:
     """The fingerstyle arrangement: a melody drawn from the pitches each bar's
-    held chord shape can reach (spec 5.5), then the one-guitar part around it."""
+    held chord shape can reach (spec 5.5), then the one-guitar part around it,
+    then its performance: dynamics and let-ring (v5 spec 5.1)."""
     hands = [hand_shape(v, tuning) for v in voicings]
     n_bars = len(voicings) * bars_per_chord
     allowed = [hands[bar // bars_per_chord].allowed for bar in range(n_bars)]
@@ -187,8 +189,11 @@ def _arrange_fingerstyle(
     part = arrange_fingerstyle(
         voicings, melody, hands, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm
     )
+    # v5 spec 5.1: the performance (velocities, then let-ring lengths).
+    part = shape_dynamics(part, n_bars=n_bars, tempo_bpm=tempo_bpm)
+    part = let_ring(part, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm)
     return Arrangement(
-        melody=melody,
+        melody=tuple(t.note for t in part.melody_tab),
         voicings=voicings,
         accompaniment=tuple(t.note for t in part.accompaniment_tab),
         melody_tab=part.melody_tab,

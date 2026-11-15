@@ -118,7 +118,7 @@ def test_compose_returns_the_arrangement_and_version(tmp_path):
     arr = arrange(Scale("C", "major"), _PROG, seed=1)
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
-    assert result.metadata["composer_version"] == COMPOSER_VERSION == 4
+    assert result.metadata["composer_version"] == COMPOSER_VERSION == 5
 
 
 def test_arrange_tabs_every_melody_note_in_a_playable_register():

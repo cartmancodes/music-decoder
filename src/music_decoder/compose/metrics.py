@@ -636,3 +636,22 @@ def tab_consistent(notes: Sequence[Note], tab: Sequence[TabbedNote], tuning: Tun
     return all(
         t.note.pitch == tuning.open_pitches[t.position.string] + t.position.fret for t in tab
     )
+
+
+# ---- performance (v5 spec 5.1) ----------------------------------------------
+
+
+def velocity_spread(notes: Sequence[Note]) -> float | None:
+    """F.vel_std: population standard deviation of the notes' velocities.
+    ``None`` without notes."""
+    if not notes:
+        return None
+    mean = sum(n.velocity for n in notes) / len(notes)
+    return math.sqrt(sum((n.velocity - mean) ** 2 for n in notes) / len(notes))
+
+
+def mean_length_beats(notes: Sequence[Note], tempo_bpm: float) -> float | None:
+    """F.ring: mean sounding length of the notes, in beats. ``None`` without notes."""
+    if not notes:
+        return None
+    return sum(n.end_s - n.start_s for n in notes) / len(notes) / _beat_s(tempo_bpm)
