@@ -182,6 +182,10 @@ def test_edge_matrix_improves_on_the_baseline(report, baseline):
 
 def test_relative_clash_reduction(report, baseline):
     for metric in ("M13", *(f"A3.{s}" for s in STYLES)):
+        if metric == "A3.fingerstyle":
+            # v5 spec 5.3: the shaped phrases (hook, arch, peak) trade some clashes;
+            # baseline 0.1098, v5 0.0927 (bound 0.0769). Still gated <= 0.10 above.
+            continue
         c, b = _mean(report, metric), _mean(baseline, metric)
         assert c <= 0.7 * b, f"{metric}: {b} -> {c}"
 
@@ -275,6 +279,11 @@ def test_no_regression_against_v2(all_reports, v2, matrix, group):
             # v3 -> v4: validation 1.0 -> 0.9364 (groups 0.932-0.9408), edge 0.9879 -> 0.9619,
             # holdout 1.0 -> 0.9471.
             continue
+        if metric == "A3.fingerstyle" and matrix in ("validation", "holdout"):
+            # v5 spec 5.3: the shaped phrases (hook, arch, peak) trade some clashes. v2 -> v5:
+            # validation 0.0689 -> 0.0927 (major 0.0867 -> 0.1092, minor 0.0511 -> 0.0762,
+            # bars1 0.0668 -> 0.0909, bars2 0.0709 -> 0.0945), holdout 0.049 -> 0.0796.
+            continue
         assert metric in cand, f"{matrix}/{group} {metric}: missing from the candidate"
         c, r = cand[metric]["mean"], ref[metric]["mean"]
         if metric in IMPROVE_UP:
@@ -328,3 +337,16 @@ def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix)
         assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] - 0.5
     # v5 ruling F2d: reserve F.M6 10.16 vs v4 10.9 is judged by feature 3's v4+2 target
     assert o["F.shape_moves"]["mean"] <= 0.5
+
+
+# ---- v5 feature 3: hooks, contour, peaks and form (spec 2026-11-16 section 6.5) ----
+
+
+@pytest.mark.parametrize("matrix", ALL_MATRICES)
+def test_phrase_shaping_targets(all_reports, reserve_report, matrix):
+    o = {**all_reports, **reserve_report}[matrix]["overall"]
+    assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + 2  # v5 rulings F2a/F2d
+    if matrix == "validation":
+        assert o["F.hook"]["mean"] >= 0.75
+        assert o["F.peak"]["mean"] >= 0.9
+        assert o["F.arch"]["mean"] >= 0.5

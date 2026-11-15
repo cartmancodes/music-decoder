@@ -100,3 +100,23 @@ def test_plan_bars_follows_the_layout(n_bars):
 
 def test_plan_bars_is_deterministic_per_seed():
     assert plan_bars(8, np.random.default_rng(11)) == plan_bars(8, np.random.default_rng(11))
+
+
+def test_plan_bars_contrast_b_default_is_unchanged():
+    a = plan_bars(16, np.random.default_rng(3))
+    b = plan_bars(16, np.random.default_rng(3), contrast_b=False)
+    assert a == b
+
+
+def test_plan_bars_contrast_b_gives_the_b_phrase_its_own_rhythms():
+    def bodies(plans, start):
+        return {p.rhythm for p in plans[start : start + 3]}
+
+    plain = contrasted = 0
+    for seed in range(40):
+        a = plan_bars(16, np.random.default_rng(seed))
+        b = plan_bars(16, np.random.default_rng(seed), contrast_b=True)
+        plain += not (bodies(a, 0) & bodies(a, 8))
+        contrasted += not (bodies(b, 0) & bodies(b, 8))
+        assert [p.motif_from for p in a] == [p.motif_from for p in b]
+    assert contrasted == 40 and plain < 40

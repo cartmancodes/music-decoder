@@ -172,7 +172,8 @@ def _arrange_fingerstyle(
     seed: int | None,
 ) -> Arrangement:
     """The fingerstyle arrangement: a shape per bar (v5 spec 5.2), a melody
-    drawn from the pitches each bar's shape can reach (spec 5.5), then the
+    drawn from the pitches each bar's shape can reach (spec 5.5) and shaped
+    into hooked, arched phrases (v5 spec 5.3), then the
     one-guitar part around it, its identity repair (v5 spec 5.2) and its
     performance: dynamics and let-ring (v5 spec 5.1)."""
     bars = choose_bar_shapes(progression, bars_per_chord=bars_per_chord, tuning=tuning)
@@ -193,6 +194,7 @@ def _arrange_fingerstyle(
             tessitura_center=center,
             allowed_pitches=allowed,
             final_whole_note=True,
+            phrase_shaping=True,
         )
     )
     # One shape and hand per bar, so the part is arranged bar by bar.

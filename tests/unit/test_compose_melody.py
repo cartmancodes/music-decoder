@@ -1,4 +1,5 @@
 import math
+import statistics
 
 import pytest
 
@@ -14,6 +15,7 @@ from music_decoder.compose.melody import (
     ranked_scores,
     score_pitch,
 )
+from music_decoder.compose.rhythm import form_labels, phrase_layout
 from music_decoder.types import ChordSymbol, Scale
 
 C_MAJOR_PCS = {0, 2, 4, 5, 7, 9, 11}
@@ -476,3 +478,89 @@ def test_allowed_pitches_argument_checks():
             notes_per_bar=4,
             final_whole_note=True,
         )
+
+
+# ---- v5 feature 3: phrase shaping (spec 2026-11-16 section 5.3) --------------
+
+PROG8 = [ChordSymbol.parse(c) for c in ("C", "Am", "F", "G", "C", "F", "G", "C")]
+
+
+def test_score_pitch_phrase_shaping_terms():
+    def s(candidate, **kw):
+        return score_pitch(candidate, _ctx(**kw), 72)
+
+    # the hook: an exact restatement beats a near one, which beats none
+    assert s(74, hook_interval=2) > s(75, hook_interval=2) + 1 > s(76, hook_interval=2) + 2
+    # the arch target replaces the register gravity
+    assert s(76, contour_target=76.0) > s(72, contour_target=76.0)
+    assert s(76) < s(72)
+    # peak guard: before the window a new high is penalised, inside it rewarded,
+    # a tie inside it or a high after it penalised
+    assert s(76, phrase_max=74, peak_phase="before") < s(76)
+    assert s(76, phrase_max=74, peak_phase="inside") > s(76)
+    assert s(74, phrase_max=74, peak_phase="inside") < s(74)
+    assert s(76, phrase_max=74, peak_phase="after") < s(76)
+    # the forced final note would tie the phrase's peak
+    tie = s(74, phrase_max=76, peak_phase="before", final_choices=(76,))
+    assert tie < s(74, phrase_max=76, peak_phase="before")
+
+
+def test_phrase_shaping_off_is_unchanged():
+    kw = dict(scale=Scale("C", "major"), progression=PROG8, tempo_bpm=120.0, seed=5)
+    assert generate_melody(**kw) == generate_melody(**kw, phrase_shaping=False)
+
+
+def test_phrase_shaping_meets_the_melody_targets():
+    rows = []
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        rows.append(
+            (
+                metrics.hook_restatements(mel, 120.0, 8),
+                metrics.peak_uniqueness(mel, 120.0, 8),
+                metrics.contour_arch(mel, 120.0, 8),
+            )
+        )
+        assert metrics.forbidden_interval_count(mel) == 0
+        assert max(metrics.chord_change_moves(mel, PROG8, 1, 120.0)) <= 7
+    hook = [r[0] for r in rows]
+    peak = [r[1] for r in rows]
+    arch = [r[2] for r in rows]
+    assert statistics.fmean(hook) >= 0.75
+    assert statistics.fmean(peak) >= 0.9
+    assert statistics.fmean(arch) >= 0.5
+
+
+def test_phrase_shaping_with_a_one_note_first_bar():
+    mel = generate_melody(
+        scale=Scale("C", "major"),
+        progression=[ChordSymbol.parse("C")],
+        seed=1,
+        phrase_shaping=True,
+        final_whole_note=True,
+    )
+    assert len(mel) == 1
+
+
+def test_phrase_shaping_needs_phrase_rhythms():
+    with pytest.raises(ValueError):
+        generate_melody(
+            scale=Scale("C", "major"), progression=PROG8, notes_per_bar=4, phrase_shaping=True
+        )
+
+
+def test_form_labels_follow_the_phrase_layout():
+    for n in (1, 2, 3, 4, 5, 7, 8, 9, 16):
+        labels = form_labels(n)
+        assert len(labels) == len(phrase_layout(n).phrase_lengths) and labels[0] == "A"
+    assert form_labels(16)[:4] == ("A", "A'", "B", "A'")
+    assert form_labels(8) == ("A", "A'")
+    assert form_labels(9) == ("A", "A'", "B")
+    assert form_labels(4) == ("A",)

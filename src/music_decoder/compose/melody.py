@@ -5,7 +5,10 @@ templates arranged in antecedent/consequent phrases that end on cadences).
 Each pitch is sampled from a softmax over musical scores: interval size,
 chord fit weighted by metric position, leap recovery, leading-tone
 resolution, motif echo, register gravity and, in the final bar, a pull
-toward the cadence target. Hard rules keep the line singable (no tritones
+toward the cadence target. With ``phrase_shaping`` (v5 spec 5.3) each phrase
+also restates the opening hook, follows a rise-and-fall arch in place of the
+register gravity and saves its unique high note for the peak window, in an
+A A' B A' form. Hard rules keep the line singable (no tritones
 or sevenths, large leaps only as recovered arpeggiations, every chord change
 and the final approach within a fifth); see :func:`admissible`. The only
 randomness is ``numpy.random.default_rng(seed)``, so output is deterministic
@@ -17,6 +20,7 @@ from __future__ import annotations
 import math
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
+from typing import Literal
 
 import numpy as np
 
@@ -27,7 +31,8 @@ from music_decoder.compose.harmony import (
     scale_pcs,
     tonic_pc,
 )
-from music_decoder.compose.rhythm import plan_bars
+from music_decoder.compose.metrics import ARCH_PEAK, PEAK_WINDOW, hook_cell
+from music_decoder.compose.rhythm import form_labels, phrase_layout, plan_bars
 from music_decoder.types import ChordSymbol, Note, Scale
 
 # Log-weight by interval size in semitones: steps preferred, repeats and wide
@@ -70,6 +75,26 @@ MIN_FLOOR_CANDIDATES = 5  # a chord floor applies only if it leaves this many pi
 SMOOTH_LIMIT = 7  # largest interval allowed without justification: a perfect fifth
 FORBIDDEN_INTERVALS = frozenset({6, 10, 11})  # tritone, minor and major seventh
 CHORD_CHANGE_STEP_BONUS = 1.0  # step (1-2 semitones) into a new chord
+# Phrase shaping (v5 spec 5.3), only with generate_melody(phrase_shaping=True).
+# Tuned from the plan's starting values (hook 3.0/1.5, variation 2, contour
+# 0.8, span 7, foot -3, peak -1.5/+1.0/-2.0) to meet the feature-3 targets.
+HOOK_EXACT = 12.0  # a phrase opening restates the hook interval exactly
+HOOK_NEAR = 9.0  # ... or within a semitone of it
+# The varied interval of an A' restatement widens by this much; 1 keeps the
+# restatement within metrics.hook_restatements' semitone tolerance.
+HOOK_VARIATION = 1
+CONTOUR_WEIGHT = 1.2  # pull toward the phrase's arch (replaces register gravity)
+CONTOUR_WIDTH = 4.0
+ARCH_SPAN = 14  # semitones from the arch's foot to its apex
+ARCH_BASE_OFFSET = -4  # the arch's foot, relative to the tessitura centre
+B_REGISTER_LIFT = 2  # the B phrase's arch sits this much higher
+PEAK_TIE = -6.0  # reaching the phrase's running maximum before the peak window
+PEAK_BONUS = 8.0  # a new phrase maximum inside the peak window
+# Tying the phrase maximum inside the window (the final note included), or
+# reaching it after the window.
+PEAK_AFTER = -9.0
+
+PeakPhase = Literal["before", "inside", "after"]
 
 
 def _scale_pitches_in_range(pcs: Collection[int], low: int, high: int) -> list[int]:
@@ -114,6 +139,17 @@ class NoteContext:
     recovery_pool: frozenset[int] | None = None
     # Constrained bar: the pitches from which it can still finish smoothly.
     allowed: frozenset[int] | None = None
+    # Phrase shaping (all None without it): the hook interval this note's
+    # interval restates, the arch's target pitch (replacing register gravity),
+    # and the phrase's highest pitch so far with where this note falls
+    # relative to the peak window.
+    hook_interval: int | None = None
+    contour_target: float | None = None
+    phrase_max: int | None = None
+    peak_phase: PeakPhase | None = None
+    # The next note is the one-note final bar: the cadence pitches it takes,
+    # the one nearest this note.
+    final_choices: tuple[int, ...] | None = None
 
 
 def _sign(x: int) -> int:
@@ -146,6 +182,11 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
                 score += MOTIF_SIGN_BONUS
             if abs(interval - ctx.motif_interval) <= 1:
                 score += MOTIF_SIZE_BONUS
+        if ctx.hook_interval is not None:
+            if interval == ctx.hook_interval:
+                score += HOOK_EXACT
+            elif abs(interval - ctx.hook_interval) <= 1:
+                score += HOOK_NEAR
     if ctx.strong:
         score += STRONG_CHORD_TONE if is_chord_tone else STRONG_NON_CHORD_TONE
     elif ctx.eighths >= LONG_EIGHTHS:
@@ -158,7 +199,22 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
         score += QUARTER_SEMITONE_CLASH
     elif is_chord_tone:
         score += WEAK_CHORD_TONE
-    score -= GRAVITY_WEIGHT * ((candidate - tessitura_center) / GRAVITY_WIDTH) ** 2
+    if ctx.contour_target is None:
+        score -= GRAVITY_WEIGHT * ((candidate - tessitura_center) / GRAVITY_WIDTH) ** 2
+    else:
+        score -= CONTOUR_WEIGHT * ((candidate - ctx.contour_target) / CONTOUR_WIDTH) ** 2
+    if ctx.phrase_max is not None:
+        if ctx.peak_phase == "inside":
+            if candidate > ctx.phrase_max:
+                score += PEAK_BONUS
+            elif candidate == ctx.phrase_max:
+                score += PEAK_AFTER  # a tie would share the peak
+        elif candidate >= ctx.phrase_max:
+            score += PEAK_TIE if ctx.peak_phase == "before" else PEAK_AFTER
+        if ctx.final_choices:
+            final = min(ctx.final_choices, key=lambda p: (abs(p - candidate), p))
+            if final == max(ctx.phrase_max, candidate):
+                score += PEAK_AFTER  # the final note would tie the phrase's peak
     if ctx.target is not None:
         score -= CADENCE_PULL * abs(candidate - ctx.target)
     if ctx.cadence_end and not is_chord_tone:
@@ -277,11 +333,17 @@ class _Bar:
 
 
 def _phrase_bars(
-    n_bars: int, beat_s: float, rng: np.random.Generator, v_strong: int, v_mid: int, v_weak: int
+    n_bars: int,
+    beat_s: float,
+    rng: np.random.Generator,
+    v_strong: int,
+    v_mid: int,
+    v_weak: int,
+    contrast_b: bool = False,
 ) -> list[_Bar]:
     eighth = beat_s / 2.0
     bars: list[_Bar] = []
-    for plan in plan_bars(n_bars, rng):
+    for plan in plan_bars(n_bars, rng, contrast_b=contrast_b):
         slots: list[_Slot] = []
         pos = 0
         for value in plan.rhythm:
@@ -385,6 +447,47 @@ def _plan_bar(
     return None
 
 
+@dataclass(frozen=True)
+class _Phrase:
+    """Where a bar sits in the phrase layout, for phrase shaping."""
+
+    start: int  # first bar of the phrase
+    length: int  # bars
+    label: str  # "A", "A'" or "B" (see rhythm.form_labels)
+
+
+def _phrase_of_bar(n_bars: int) -> list[_Phrase]:
+    phrases: list[_Phrase] = []
+    start = 0
+    for length, label in zip(
+        phrase_layout(n_bars).phrase_lengths, form_labels(n_bars), strict=True
+    ):
+        phrases.extend([_Phrase(start, length, label)] * length)
+        start += length
+    return phrases
+
+
+def _arch(x: float) -> float:
+    """The arch's height (0 to 1) at ``x``, a fraction of the phrase: a straight
+    rise to ``ARCH_PEAK`` and a straight fall to the phrase's end."""
+    return x / ARCH_PEAK if x <= ARCH_PEAK else (1.0 - x) / (1.0 - ARCH_PEAK)
+
+
+def _peak_phase(x: float) -> PeakPhase:
+    if x < PEAK_WINDOW[0]:
+        return "before"
+    return "inside" if x <= PEAK_WINDOW[1] else "after"
+
+
+def _shaped(
+    ctx: NoteContext, phrase: _Phrase, bar_idx: int, bar_fraction: float, tessitura_center: int
+) -> NoteContext:
+    """``ctx`` with the arch target and the peak-window phase of this note."""
+    x = (bar_idx - phrase.start + bar_fraction) / phrase.length
+    base = tessitura_center + ARCH_BASE_OFFSET + (B_REGISTER_LIFT if phrase.label == "B" else 0)
+    return replace(ctx, contour_target=base + ARCH_SPAN * _arch(x), peak_phase=_peak_phase(x))
+
+
 def generate_melody(
     *,
     scale: Scale,
@@ -401,6 +504,7 @@ def generate_melody(
     chord_floors: Sequence[int | None] | None = None,
     allowed_pitches: Sequence[frozenset[int]] | None = None,
     final_whole_note: bool = False,
+    phrase_shaping: bool = False,
 ) -> list[Note]:
     """Generate a list of Notes spanning the given progression.
 
@@ -414,6 +518,12 @@ def generate_melody(
     narrowed to the chord's scale when that leaves any; the pitch range and
     ``chord_floors`` then play no part and the latter may not be given.
     ``final_whole_note`` makes the last bar one held note (phrase rhythms only).
+    ``phrase_shaping`` (phrase rhythms only; v5 spec 5.3) shapes every phrase:
+    after the first, each opens by restating the hook (bar 0's first
+    intervals; an A' phrase varies one of them by ``HOOK_VARIATION``), pitches
+    follow the phrase's arch instead of the register gravity (the B phrase's
+    sits ``B_REGISTER_LIFT`` higher, and it draws rhythms of its own), and the
+    phrase's high note is saved for the peak window. The hard rules still win.
     """
     rng = np.random.default_rng(seed)
     n_bars = len(progression) * bars_per_chord
@@ -431,12 +541,16 @@ def generate_melody(
         raise ValueError("chord_floors needs one entry per chord.")
     if final_whole_note and notes_per_bar is not None:
         raise ValueError("final_whole_note needs phrase rhythms, not notes_per_bar.")
+    if phrase_shaping and notes_per_bar is not None:
+        raise ValueError("phrase_shaping needs phrase rhythms, not notes_per_bar.")
 
     beat_s = 60.0 / tempo_bpm
     bar_s = 4.0 * beat_s
     v_mid = (velocity_strong + velocity_weak) // 2
     if notes_per_bar is None:
-        bars = _phrase_bars(n_bars, beat_s, rng, velocity_strong, v_mid, velocity_weak)
+        bars = _phrase_bars(
+            n_bars, beat_s, rng, velocity_strong, v_mid, velocity_weak, contrast_b=phrase_shaping
+        )
         if final_whole_note and bars:
             whole = _Slot(0.0, 8 * beat_s / 2.0, 8, True, velocity_strong)
             bars[-1] = replace(bars[-1], slots=(whole,), motif_from=None)
@@ -462,6 +576,9 @@ def generate_melody(
     prev_interval = 0
     prev_chord: ChordSymbol | None = None
     bar_intervals: list[list[int]] = []
+    phrases = _phrase_of_bar(n_bars) if phrase_shaping else []
+    hook: list[int] = []  # bar 0's opening intervals (metrics.hook_cell)
+    phrase_max: int | None = None
     for bar_idx, bar in enumerate(bars):
         chord_idx = min(bar_idx // bars_per_chord, len(progression) - 1)
         chord = progression[chord_idx]
@@ -491,6 +608,15 @@ def generate_melody(
             )
         candidates, target, feas = choice
         motif = bar_intervals[bar.motif_from] if bar.motif_from is not None else None
+        phrase = phrases[bar_idx] if phrase_shaping else None
+        hook_here: list[int] = []
+        if phrase is not None and phrase.start == bar_idx:
+            phrase_max = None
+            if bar_idx > 0 and hook:
+                hook_here = list(hook)
+                if phrase.label == "A'":
+                    varied = int(rng.integers(len(hook)))
+                    hook_here[varied] += HOOK_VARIATION * (_sign(hook[varied]) or 1)
         here: list[int] = []
         for k, slot in enumerate(bar.slots):
             last = k == len(bar.slots) - 1
@@ -524,6 +650,14 @@ def generate_melody(
                     ),
                     allowed=feas[k] if feas else None,
                 )
+                if phrase is not None:
+                    ctx = _shaped(ctx, phrase, bar_idx, slot.offset_s / bar_s, tessitura_center)
+                    ctx = replace(
+                        ctx,
+                        hook_interval=hook_here[k - 1] if 0 < k <= len(hook_here) else None,
+                        phrase_max=phrase_max,
+                        final_choices=(tuple(final_approach) if approach_bar and last else None),
+                    )
                 scores, _ = ranked_scores(candidates, ctx, tessitura_center)
                 pitch = _sample(candidates, scores, rng, prev)
             interval = pitch - prev if prev is not None else 0
@@ -541,5 +675,8 @@ def generate_melody(
             prev_interval = interval
             prev = pitch
             prev_chord = chord
+            phrase_max = pitch if phrase_max is None else max(phrase_max, pitch)
         bar_intervals.append(here)
+        if phrase_shaping and bar_idx == 0:
+            hook = list(hook_cell(out, tempo_bpm))
     return out
