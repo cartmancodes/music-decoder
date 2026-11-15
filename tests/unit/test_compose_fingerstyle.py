@@ -3,6 +3,7 @@ import re
 from collections.abc import Sequence
 from unittest import mock
 
+import numpy as np
 import pretty_midi
 import pytest
 
@@ -512,6 +513,44 @@ def test_a_counted_final_fallback_is_still_playable(key, mode, labels, seed, bar
     final = arr.melody_tab[-1]
     roll = [t for t in arr.accompaniment_tab if t.note.start_s >= final.note.start_s - 1e-9]
     assert roll and all(t.note.pitch < final.note.pitch for t in roll)
+
+
+def _random_cases(n: int) -> list[tuple[str, str, str, tuple[str, ...], int, float, int]]:
+    """``n`` seeded random fingerstyle inputs: (tuning name, key, mode,
+    labels, bars per chord, tempo, seed)."""
+    rng = np.random.default_rng(20261116)
+    tunings = sorted(PRESETS)
+    cases = []
+    for _ in range(n):
+        labels = tuple(
+            str(rng.choice(VALID_TONICS)) + str(rng.choice(_QUALITY_SUFFIXES))
+            for _ in range(int(rng.integers(2, 7)))
+        )
+        cases.append(
+            (
+                str(rng.choice(tunings)),
+                str(rng.choice(VALID_TONICS)),
+                str(rng.choice(["major", "minor"])),
+                labels,
+                int(rng.integers(1, 4)),
+                float(rng.integers(60, 201)),
+                int(rng.integers(0, 1_000_000)),
+            )
+        )
+    return cases
+
+
+def test_random_progressions_are_playable_parts_with_the_melody_on_top():
+    # Off the evaluation matrices (final review F3): P1, P2 and tab = MIDI
+    # are hard on every input, not just the matrices' progressions.
+    for tuning_name, key, mode, labels, bars, tempo, seed in _random_cases(300):
+        tuning = PRESETS[tuning_name]
+        arr, _ = _fingerstyle(key, mode, labels, seed, bars=bars, tempo=tempo, tuning=tuning)
+        part = [*arr.melody_tab, *arr.accompaniment_tab]
+        case = (tuning_name, key, mode, labels, bars, tempo, seed)
+        assert metrics.playable_moment_ratio(part) == 1.0, case
+        assert metrics.melody_onset_on_top_ratio(arr.melody, arr.accompaniment) == 1.0, case
+        assert metrics.tab_consistent([*arr.melody, *arr.accompaniment], part, tuning), case
 
 
 @pytest.mark.parametrize("seed", range(5))
