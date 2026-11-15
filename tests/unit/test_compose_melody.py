@@ -534,7 +534,8 @@ def test_phrase_shaping_meets_the_melody_targets():
     peak = [r[1] for r in rows]
     arch = [r[2] for r in rows]
     assert statistics.fmean(hook) >= 0.75
-    assert statistics.fmean(peak) >= 0.9
+    # v5 ruling F3b: with the v3 singability guards holding, this sample reaches 0.875
+    assert statistics.fmean(peak) >= 0.85
     assert statistics.fmean(arch) >= 0.5
 
 

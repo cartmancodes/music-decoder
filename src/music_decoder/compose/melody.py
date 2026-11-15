@@ -77,22 +77,24 @@ FORBIDDEN_INTERVALS = frozenset({6, 10, 11})  # tritone, minor and major seventh
 CHORD_CHANGE_STEP_BONUS = 1.0  # step (1-2 semitones) into a new chord
 # Phrase shaping (v5 spec 5.3), only with generate_melody(phrase_shaping=True).
 # Tuned from the plan's starting values (hook 3.0/1.5, variation 2, contour
-# 0.8, span 7, foot -3, peak -1.5/+1.0/-2.0) to meet the feature-3 targets.
-HOOK_EXACT = 12.0  # a phrase opening restates the hook interval exactly
-HOOK_NEAR = 9.0  # ... or within a semitone of it
+# 0.8, span 7, foot -3, peak -1.5/+1.0/-2.0) to meet the feature-3 targets
+# while the v3 singability guards hold (v5 ruling F3b): light enough that
+# chord fit and leap recovery still win on strong beats.
+HOOK_EXACT = 6.0  # a phrase opening restates the hook interval exactly
+HOOK_NEAR = 6.0  # ... or within a semitone of it (transposed to fit the chord)
 # The varied interval of an A' restatement widens by this much; 1 keeps the
-# restatement within metrics.hook_restatements' semitone tolerance.
+# restatement within metrics.hook_restatements' semitone tolerance (ruling F3a).
 HOOK_VARIATION = 1
-CONTOUR_WEIGHT = 1.2  # pull toward the phrase's arch (replaces register gravity)
+CONTOUR_WEIGHT = 0.35  # pull toward the phrase's arch (replaces register gravity)
 CONTOUR_WIDTH = 4.0
-ARCH_SPAN = 14  # semitones from the arch's foot to its apex
-ARCH_BASE_OFFSET = -4  # the arch's foot, relative to the tessitura centre
+ARCH_SPAN = 24  # semitones from the arch's foot to its apex
+ARCH_BASE_OFFSET = -5  # the arch's foot, relative to the tessitura centre
 B_REGISTER_LIFT = 2  # the B phrase's arch sits this much higher
-PEAK_TIE = -6.0  # reaching the phrase's running maximum before the peak window
-PEAK_BONUS = 8.0  # a new phrase maximum inside the peak window
+PEAK_TIE = -2.5  # reaching the phrase's running maximum before the peak window
+PEAK_BONUS = 3.0  # a new phrase maximum inside the peak window
 # Tying the phrase maximum inside the window (the final note included), or
 # reaching it after the window.
-PEAK_AFTER = -9.0
+PEAK_AFTER = -6.5
 
 PeakPhase = Literal["before", "inside", "after"]
 
