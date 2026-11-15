@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -399,6 +399,8 @@ def generate_melody(
     velocity_weak: int = 70,
     tessitura_center: int = 70,  # A#4
     chord_floors: Sequence[int | None] | None = None,
+    allowed_pitches: Sequence[frozenset[int]] | None = None,
+    final_whole_note: bool = False,
 ) -> list[Note]:
     """Generate a list of Notes spanning the given progression.
 
@@ -408,19 +410,36 @@ def generate_melody(
     over that chord, so the melody can sit above the accompaniment's
     defining tones; it yields to the octave limit and the cadence (see
     ``_candidates``).
+    ``allowed_pitches`` (one set per bar) limits each bar to those pitches,
+    narrowed to the chord's scale when that leaves any; the pitch range and
+    ``chord_floors`` then play no part and the latter may not be given.
+    ``final_whole_note`` makes the last bar one held note (phrase rhythms only).
     """
     rng = np.random.default_rng(seed)
-    if not _scale_pitches_in_range(scale_pcs(scale), pitch_low, pitch_high):
-        raise ValueError("Scale has no pitches in the requested range.")
+    n_bars = len(progression) * bars_per_chord
+    if allowed_pitches is None:
+        if not _scale_pitches_in_range(scale_pcs(scale), pitch_low, pitch_high):
+            raise ValueError("Scale has no pitches in the requested range.")
+    else:
+        if len(allowed_pitches) != n_bars:
+            raise ValueError("allowed_pitches needs one set per bar.")
+        if any(not pitches for pitches in allowed_pitches):
+            raise ValueError("allowed_pitches has an empty set.")
+        if chord_floors is not None:
+            raise ValueError("allowed_pitches and chord_floors cannot be combined.")
     if chord_floors is not None and len(chord_floors) != len(progression):
         raise ValueError("chord_floors needs one entry per chord.")
+    if final_whole_note and notes_per_bar is not None:
+        raise ValueError("final_whole_note needs phrase rhythms, not notes_per_bar.")
 
     beat_s = 60.0 / tempo_bpm
     bar_s = 4.0 * beat_s
-    n_bars = len(progression) * bars_per_chord
     v_mid = (velocity_strong + velocity_weak) // 2
     if notes_per_bar is None:
         bars = _phrase_bars(n_bars, beat_s, rng, velocity_strong, v_mid, velocity_weak)
+        if final_whole_note and bars:
+            whole = _Slot(0.0, 8 * beat_s / 2.0, 8, True, velocity_strong)
+            bars[-1] = replace(bars[-1], slots=(whole,), motif_from=None)
     else:
         bars = _grid_bars(n_bars, beat_s, notes_per_bar, velocity_strong, v_mid, velocity_weak)
     if not bars:  # legacy grid over no bars: nothing to play, as in v2
@@ -429,10 +448,13 @@ def generate_melody(
     # A one-note final bar is entered from the bar before it, so that bar
     # aims at the final chord's cadence pitches, at or above its floor if any.
     final_pc = cadence_pc(scale, progression[-1])
-    final_approach = [p for p in range(pitch_low, pitch_high + 1) if p % 12 == final_pc]
-    final_floor = chord_floors[-1] if chord_floors is not None else None
-    if final_floor is not None and any(p >= final_floor for p in final_approach):
-        final_approach = [p for p in final_approach if p >= final_floor]
+    if allowed_pitches is not None:
+        final_approach = sorted(p for p in allowed_pitches[-1] if p % 12 == final_pc)
+    else:
+        final_approach = [p for p in range(pitch_low, pitch_high + 1) if p % 12 == final_pc]
+        final_floor = chord_floors[-1] if chord_floors is not None else None
+        if final_floor is not None and any(p >= final_floor for p in final_approach):
+            final_approach = [p for p in final_approach if p >= final_floor]
     one_note_final = len(bars[-1].slots) == 1
 
     out: list[Note] = []
@@ -448,11 +470,17 @@ def generate_melody(
         n = len(bar.slots)
         approach_bar = one_note_final and bar_idx == len(bars) - 2
         cadence = cadence_pc(scale, chord) if bar.final else None
-        floored = _candidates(scale, chord, pitch_low, pitch_high, floor, prev, cadence)
-        if not floored:
-            raise ValueError("Scale has no pitches in the requested range.")
-        unfloored = _candidates(scale, chord, pitch_low, pitch_high, None, prev, cadence)
-        options = [floored] if unfloored == floored else [floored, unfloored]
+        if allowed_pitches is not None:
+            in_scale = chord_scale_pcs(scale, chord)
+            floored = sorted(p for p in allowed_pitches[bar_idx] if p % 12 in in_scale)
+            floored = floored or sorted(allowed_pitches[bar_idx])
+            options = [floored]
+        else:
+            floored = _candidates(scale, chord, pitch_low, pitch_high, floor, prev, cadence)
+            if not floored:
+                raise ValueError("Scale has no pitches in the requested range.")
+            unfloored = _candidates(scale, chord, pitch_low, pitch_high, None, prev, cadence)
+            options = [floored] if unfloored == floored else [floored, unfloored]
         ref = prev if prev is not None else tessitura_center
         choice = _plan_bar(options, bar.final, approach_bar, n, prev, ref, cadence, final_approach)
         if choice is None:  # no smooth way through: v2's bar, and the ladder per note

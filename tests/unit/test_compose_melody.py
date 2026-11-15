@@ -423,3 +423,56 @@ def test_short_pieces_obey_the_leap_rules():  # Review Focus 4
 
 def test_legacy_grid_over_no_bars_is_empty():  # v2 accepted this; v3 must not raise
     assert _gen(Scale("C", "major"), (), notes_per_bar=2) == []
+
+
+PROG = [ChordSymbol.parse(c) for c in ("C", "Am", "G", "C")]  # ends on C, so the cadence is C
+ALLOWED = [
+    frozenset(range(60, 70)),
+    frozenset(range(57, 69)),
+    frozenset(range(59, 70)),
+    frozenset(range(55, 70)),
+]
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_allowed_pitches_bound_every_note(seed):
+    mel = generate_melody(
+        scale=Scale("C", "major"),
+        progression=PROG,
+        tempo_bpm=120.0,
+        seed=seed,
+        allowed_pitches=ALLOWED,
+        final_whole_note=True,
+        tessitura_center=64,
+    )
+    for n in mel:
+        assert n.pitch in ALLOWED[min(int(n.start_s // 2.0), 3)]
+    assert mel[-1].start_s == pytest.approx(6.0) and mel[-1].pitch % 12 == 0  # one held C
+    assert metrics.forbidden_interval_count(mel) == 0
+    assert max(metrics.chord_change_moves(mel, PROG, 1, 120.0)) <= 7
+    assert abs(mel[-1].pitch - mel[-2].pitch) <= 7
+
+
+def test_allowed_pitches_argument_checks():
+    with pytest.raises(ValueError):
+        generate_melody(scale=Scale("C", "major"), progression=PROG, allowed_pitches=ALLOWED[:3])
+    with pytest.raises(ValueError):
+        generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG,
+            allowed_pitches=[frozenset(), *ALLOWED[1:]],
+        )
+    with pytest.raises(ValueError):
+        generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG,
+            allowed_pitches=ALLOWED,
+            chord_floors=[None] * 4,
+        )
+    with pytest.raises(ValueError):
+        generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG,
+            notes_per_bar=4,
+            final_whole_note=True,
+        )
