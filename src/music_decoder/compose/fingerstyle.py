@@ -24,6 +24,10 @@ THUMB_MARGIN = 3  # the melody sits at least a minor third over the thumb notes
 THUMB_EIGHTHS = (0, 2, 4, 6)  # root on beats 1 and 3, alternate bass on 2 and 4
 FILL_EIGHTHS = (3, 7)  # regular fills: the "and" of beats 2 and 4
 IDENTITY_EIGHTHS = (3, 7, 1, 5, 0, 2, 4, 6)  # where a missing essential tone is tried
+# Identity, step 4: the alternate-bass eighths that may take a missing tone,
+# in the order tried (both beats 2 and 4, then beat 2 alone, then beat 4).
+SUBSTITUTE_EIGHTHS = ((2, 6), (2,), (6,))
+SUBSTITUTE_MAX_FRET = 12  # highest fret for an alternate-bass substitute
 THUMB_VELOCITY = 72
 FILL_VELOCITY = 64
 FINAL_VELOCITY = 80  # v3's final stroke
@@ -285,6 +289,79 @@ def _fill_by_moving(
     return None
 
 
+def _substitute_fits(
+    sub: TabbedNote,
+    melody: Sequence[TabbedNote],
+    thumb: Sequence[TabbedNote],
+    fills: Sequence[TabbedNote],
+) -> bool:
+    """May ``sub`` (already in ``thumb``) replace an alternate-bass note?
+
+    It shares no string with a note sounding with it, sits at least a minor
+    third under every melody note sounding with it, and every moment it
+    sounds in stays playable.
+    """
+    t0, t1 = sub.note.start_s, sub.note.end_s
+    others = [x for x in _overlapping([*melody, *thumb, *fills], t0, t1) if x is not sub]
+    if any(x.position.string == sub.position.string for x in others):
+        return False
+    if any(
+        sub.note.pitch > m.note.pitch - THIN_MARGIN_SEMITONES for m in _overlapping(melody, t0, t1)
+    ):
+        return False
+    return _held_playable(sub, [*melody, *thumb, *fills])
+
+
+def _substitute_alternate(
+    tone: int,
+    hand: HandShape,
+    melody: Sequence[TabbedNote],
+    thumb: Sequence[TabbedNote],
+    fills: Sequence[TabbedNote],
+    essential: Collection[int],
+) -> list[TabbedNote] | None:
+    """Spec 5.4, step 4 (ruling R3): the alternate bass plays ``tone``.
+
+    The alternate-bass notes of :data:`SUBSTITUTE_EIGHTHS` are replaced, each
+    by the lowest-fret (then lowest-string) position of ``tone`` on a string
+    at or below the alternate's that is strictly above the root's pitch and
+    :func:`_substitute_fits`. The substitute keeps the replaced note's timing,
+    length and velocity; the root is never changed. An option is taken only
+    if every essential tone the accompaniment sounded before still sounds.
+    Returns the new thumb, or ``None``.
+    """
+    opens = hand.tuning.open_pitches
+    root_pitch = opens[hand.root.string] + hand.root.fret
+    candidates = sorted(
+        (
+            TabPosition(string=s, fret=f)
+            for s in range(hand.alternate.string + 1)
+            for f in range(SUBSTITUTE_MAX_FRET + 1)
+            if (opens[s] + f) % 12 == tone and opens[s] + f > root_pitch
+        ),
+        key=lambda p: (p.fret, p.string),
+    )
+
+    def place(trial: list[TabbedNote], i: int) -> bool:
+        """Put the best fitting substitute at ``trial[i]``; ``False`` if none fits."""
+        old = trial[i]
+        for pos in candidates:
+            trial[i] = _tab_note(hand, pos, old.note.start_s, old.note.end_s, old.note.velocity)
+            if _substitute_fits(trial[i], melody, trial, fills):
+                return True
+        trial[i] = old
+        return False
+
+    heard = set(essential) & _pitch_classes([*thumb, *fills])
+    for option in SUBSTITUTE_EIGHTHS:
+        trial = list(thumb)
+        if all(place(trial, THUMB_EIGHTHS.index(k)) for k in option) and heard <= _pitch_classes(
+            [*trial, *fills]
+        ):
+            return trial
+    return None
+
+
 def body_bar(
     hand: HandShape,
     melody: Sequence[Note],
@@ -364,6 +441,12 @@ def body_bar(
                 fills.append(fill)
                 break
 
+    # Identity, step 4: the alternate bass takes a tone still missing.
+    for tone in sorted(missing()):
+        swapped = _substitute_alternate(tone, hand, mel, thumb, fills, essential)
+        if swapped is not None:
+            thumb = swapped
+
     accompaniment = sorted([*thumb, *fills], key=lambda x: (x.note.start_s, x.position.string))
     return BarPart(
         melody_tab=tuple(mel),
@@ -385,54 +468,59 @@ def _thumb_floor(hand: HandShape) -> int:
 def final_bar_pitches(hand: HandShape, cadence: int, essential: frozenset[int]) -> frozenset[int]:
     """The pitches the final melody note may take over ``hand``. Spec 5.3.
 
-    The cadence candidates are the ``cadence``-class pitches of
-    ``hand.allowed`` and, past them, the extension: ``cadence``-class pitches
-    on a melody string at frets 0-12, at least a minor third over the thumb
-    (and at least G3). A pitch works when :func:`final_bar` voices it without
-    the fallback. The chosen pitches are the reachable ones that work, else
-    the extension ones that work, else the reachable ones, else the
-    extension. Returns ``hand.allowed`` with its ``cadence``-class pitches
-    replaced by the chosen ones.
+    The cadence candidates come in tiers (ruling R2); the first non-empty
+    one is chosen:
+
+    (a) the ``cadence``-class pitches of ``hand.allowed`` that
+        :func:`final_bar` voices without the fallback at a position of
+        ``hand.positions``;
+    (b) the ``cadence``-class pitches on a melody string at frets 0-12, at
+        least a minor third over the thumb (and at least G3), that it voices
+        without the fallback at any of their :func:`final_positions`;
+    (c) the counted fallback: the reachable ``cadence``-class pitches, else
+        those of (b)'s range outside ``hand.allowed``.
+
+    Returns ``hand.allowed`` with its ``cadence``-class pitches replaced by
+    the chosen ones.
     """
     opens = hand.tuning.open_pitches
     floor = _thumb_floor(hand)
     reachable = {p for p in hand.allowed if p % 12 == cadence}
-    extension = {
+    on_strings = {
         opens[s] + f
         for s in hand.melody_strings
         for f in range(FINAL_MAX_FRET + 1)
         if (opens[s] + f) % 12 == cadence and opens[s] + f >= floor
-    } - hand.allowed
+    }
 
-    def works(pitch: int) -> bool:
+    def voiced(pitch: int, positions: Sequence[TabPosition]) -> bool:
         held = Note(start_s=0.0, end_s=1.0, pitch=pitch, velocity=FINAL_VELOCITY, confidence=1.0)
-        _, fallback = final_bar(hand, held, bar_start_s=0.0, bar_s=1.0, essential=essential)
-        return not fallback
+        return _voice_final(hand, held, positions, essential, 0.0, 1.0) is not None
 
     chosen = (
-        {p for p in reachable if works(p)}
-        or {p for p in extension if works(p)}
+        {p for p in reachable if voiced(p, hand.positions(p))}
+        or {p for p in on_strings if voiced(p, final_positions(hand, p))}
         or reachable
-        or extension
+        or on_strings - hand.allowed
     )
     return frozenset({p for p in hand.allowed if p % 12 != cadence} | chosen)
 
 
 def final_positions(hand: HandShape, pitch: int) -> tuple[TabPosition, ...]:
-    """Where the final note ``pitch`` may sit, highest string first.
+    """Where the final note ``pitch`` may sit (ruling R2).
 
-    ``hand.positions(pitch)`` when the hand reaches it; otherwise every
-    position of ``pitch`` on a melody string at frets 0-12.
+    ``hand.positions(pitch)`` first, then every other position of ``pitch``
+    on a melody string at frets 0-12; each group highest string first.
     """
     reached = hand.positions(pitch)
-    if reached:
-        return reached
     opens = hand.tuning.open_pitches
-    return tuple(
+    beyond = tuple(
         TabPosition(string=s, fret=pitch - opens[s])
         for s in reversed(hand.melody_strings)
         if 0 <= pitch - opens[s] <= FINAL_MAX_FRET
+        and TabPosition(string=s, fret=pitch - opens[s]) not in reached
     )
+    return (*reached, *beyond)
 
 
 def _chord_under(
@@ -445,19 +533,22 @@ def _chord_under(
     bar_s: float,
 ) -> list[TabPosition]:
     """``frets`` on the strings below ``fp``, thinned as v3 thins the final
-    stroke against the held ``final`` note; lowest string first."""
+    stroke against the held ``final`` note; lowest string first.
+
+    v3's thinning counts the held note as supplying its own pitch class; each
+    essential pitch class still missing is then put back at its lowest
+    candidate pitch under ``final``, if it has one (ruling R1).
+    """
     opens = hand.tuning.open_pitches
     under = [TabPosition(string=s, fret=f) for s, f in enumerate(frets) if f >= 0 and s < fp.string]
     by_pitch = sorted(under, key=lambda p: (opens[p.string] + p.fret, p.string))
-    kept = Counter(
-        _thin_below(
-            [opens[p.string] + p.fret for p in by_pitch],
-            essential,
-            [final],
-            bar_start_s,
-            bar_start_s + bar_s,
-        )
-    )
+    pitches = [opens[p.string] + p.fret for p in by_pitch]
+    thinned = _thin_below(pitches, essential, [final], bar_start_s, bar_start_s + bar_s)
+    for pc in sorted(essential - {q % 12 for q in thinned}):
+        below = [q for q in pitches if q % 12 == pc and q < final.pitch]
+        if below:
+            thinned.append(min(below))
+    kept = Counter(thinned)
     chosen: list[TabPosition] = []
     for p in by_pitch:
         pitch = opens[p.string] + p.fret
@@ -474,8 +565,8 @@ def _final_chord_ok(
     final: Note,
     essential: frozenset[int],
 ) -> bool:
-    """Spec 5.3: the root in the bass, every essential tone (but the final
-    note's own) under the final note, and playable with it."""
+    """Spec 5.3: the root in the bass, every essential tone (the final note's
+    own included, ruling R1) under the final note, and playable with it."""
     if not chord:
         return False
     opens = hand.tuning.open_pitches
@@ -483,9 +574,38 @@ def _final_chord_ok(
     if min(pitches) % 12 != chord_pcs(hand.voicing.chord)[0]:
         return False
     under = {q % 12 for q in pitches if q < final.pitch}
-    if not essential - {final.pitch % 12} <= under:
+    if not essential <= under:
         return False
     return moment_playable([*chord, fp])
+
+
+def _own_frets(hand: HandShape) -> tuple[int, ...]:
+    own = [-1] * len(hand.tuning.open_pitches)
+    for p in hand.voicing.positions:
+        own[p.string] = p.fret
+    return tuple(own)
+
+
+def _voice_final(
+    hand: HandShape,
+    final: Note,
+    positions: Sequence[TabPosition],
+    essential: frozenset[int],
+    bar_start_s: float,
+    bar_s: float,
+) -> tuple[TabPosition, list[TabPosition]] | None:
+    """The first final position and chord under it that pass
+    :func:`_final_chord_ok`, trying the bar's own shape and then every other
+    :func:`ranked_shapes` shape at each position in turn; ``None`` if none."""
+    own_frets = _own_frets(hand)
+    tuning = Tuning(hand.tuning.name, tuple(hand.tuning.open_pitches))
+    others = [f for f in ranked_shapes(hand.voicing.chord, tuning) if f != own_frets]
+    for fp in positions:
+        for frets in (own_frets, *others):
+            chord = _chord_under(hand, frets, fp, final, essential, bar_start_s, bar_s)
+            if _final_chord_ok(hand, chord, fp, final, essential):
+                return fp, chord
+    return None
 
 
 def final_bar(
@@ -498,39 +618,25 @@ def final_bar(
 ) -> tuple[BarPart, bool]:
     """The final bar: ``final`` held over one rolled chord. Spec 5.3.
 
-    For each final position, the bar's own shape and then every other
-    :func:`ranked_shapes` shape is tried, taking its notes on the strings
-    below the final note's and thinning them as v3 does. The first chord with
-    the root in the bass, every essential tone under ``final`` and a playable
-    moment wins. Otherwise (the returned flag is ``True``) the bar's own shape
-    below the first final position is played, thinned.
+    For each of :func:`final_positions`, the bar's own shape and then every
+    other :func:`ranked_shapes` shape is tried, taking its notes on the
+    strings below the final note's and thinning them as v3 does. The first
+    chord with the root in the bass, every essential tone under ``final`` and
+    a playable moment wins. Otherwise (the returned flag is ``True``) the
+    bar's own shape below the first final position is played, thinned.
     """
     positions = final_positions(hand, final.pitch)
     if not positions:
         raise ValueError(
             f"final pitch {final.pitch} has no position over {hand.voicing.chord.to_label()}"
         )
-    tuning = Tuning(hand.tuning.name, tuple(hand.tuning.open_pitches))
-    own = [-1] * len(tuning.open_pitches)
-    for p in hand.voicing.positions:
-        own[p.string] = p.fret
-    own_frets = tuple(own)
-    others = [f for f in ranked_shapes(hand.voicing.chord, tuning) if f != own_frets]
-
-    def under(frets: Sequence[int], fp: TabPosition) -> list[TabPosition]:
-        return _chord_under(hand, frets, fp, final, essential, bar_start_s, bar_s)
-
-    found: tuple[TabPosition, list[TabPosition]] | None = None
-    for fp in positions:
-        for frets in (own_frets, *others):
-            chord = under(frets, fp)
-            if _final_chord_ok(hand, chord, fp, final, essential):
-                found = (fp, chord)
-                break
-        if found is not None:
-            break
+    found = _voice_final(hand, final, positions, essential, bar_start_s, bar_s)
     fallback = found is None
-    fp, chord = found if found is not None else (positions[0], under(own_frets, positions[0]))
+    if found is None:
+        fp = positions[0]
+        chord = _chord_under(hand, _own_frets(hand), fp, final, essential, bar_start_s, bar_s)
+    else:
+        fp, chord = found
 
     end_s = bar_start_s + bar_s
     accompaniment = tuple(
