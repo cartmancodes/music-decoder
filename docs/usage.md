@@ -1211,7 +1211,8 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   - the **final bar** is one held melody note over one rolled chord. The
     roll may be voiced differently from the bar's shape so that every
     chord tone, the third and seventh included, sounds under the held note
-    (a D ending on D4 is rolled as `x-5-4-2-3-x`, which puts F# under it).
+    (a D ending on D4 is rolled as `x-5-4-2-(3)-x`, where the `(3)` is the
+    held melody note, which puts F# under it).
 
   Every note has one string and fret, the MIDI file and the tab agree note
   for note, and the tab text is the combined tab shown above. Best for
@@ -1221,8 +1222,14 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   One limit: the shape is fixed and the melody's pitches are never changed
   to fit the chord. So in a bar of a seventh chord (`maj7`, `min7`, `7`)
   the accompaniment alone occasionally lacks the seventh or the third (the
-  melody usually sounds it). Plain triads always keep every chord tone. On
-  the evaluation matrices this affects roughly 2-6% of all bars.
+  melody usually sounds it). On the evaluation matrices this affects
+  roughly 2-6% of all bars, and every plain triad bar there keeps every
+  chord tone. A triad bar can also miss, when the melody holds the only
+  string the missing tone can go on; this is rare, and mostly augmented
+  chords. And for a few endings, mostly diminished (and rarely augmented)
+  chords, no roll can put every chord tone under the held note: the piece
+  then ends on a thinned, still playable roll of the bar's shape, and
+  `final_fallback` in the arrangement says so.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
   up-down-up), with strings staggered a few milliseconds like a real
   pick stroke. Best for pop and rock progressions.
@@ -1263,7 +1270,10 @@ melodies, so a seed saved from an older version now gives a different
 root-position chord shape that needs at most four fingers in every
 tuning, and its melodies never leap by a tritone or a seventh (a leap
 wider than a fifth is rare, arpeggiates one chord and steps back), so
-a seed saved from version 2 also gives a different take. Compose
+a seed saved from version 2 also gives a different take. Version 4
+(November 2026) makes `fingerstyle` one playable guitar part, so a
+seed gives a different `fingerstyle` take than in version 3; `strum`
+and `arpeggio` output is unchanged from version 3. Compose
 output does not depend on `config/hyperparameters.yaml` or
 `MUSIC_DECODER_HYPERPARAMETERS`.
 

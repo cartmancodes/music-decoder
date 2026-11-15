@@ -181,8 +181,8 @@ The pattern is **Travis picking**:
 
     Search for it with the v3 shape search in `compose/voicings.py`, starting
     from the bar's own shape. Example: a D ending on D4 (B string, fret 3)
-    can use `x-5-4-2-3-x`, which puts F#3 under it, instead of open D, whose
-    only F# is above it.
+    can use `x-5-4-2-(3)-x`, where the `(3)` is the held melody note, which
+    puts F#3 under it, instead of open D, whose only F# is above it.
   - If no such voicing exists for some chord and tuning, the roll plays the
     bar's shape without the final note's string. That case is counted and
     listed in the spec's Results; it is not a silent pass.
@@ -303,8 +303,8 @@ The chord-shape list stays underneath, as today. Strum and arpeggio keep the
 current `Melody` / `Chords` text.
 
 Sketch of one bar, using the §5.3 pattern. It is open C: the thumb alternates
-A3 and D2 on every beat, fills fall on the "and" of 2 and 4, and the melody
-plays E4, G4 and F4 on the e string.
+the A string fret 3 and the D string fret 2 on every beat, fills fall on the
+"and" of 2 and 4, and the melody plays E4, G4 and F4 on the e string.
 
 ```
    C
@@ -437,7 +437,9 @@ Measured on 2026-11-16 at `847c857` on branch `feat/fingerstyle-solo`
 (`COMPOSER_VERSION = 4`). The numbers come from
 `python scripts/compose_musicality_report.py --matrices all` (kept in the
 git-ignored `out/fingerstyle-report.txt` and `.json`) and from the v3 run of
-the same harness at `c76fc35`.
+the same harness at `c76fc35`. After the final-review fixes to the final roll
+(§10.2 item 8) the report was regenerated with all five matrices; no number in
+it changed.
 
 ### 10.1 Success criteria
 
@@ -448,7 +450,7 @@ the same harness at `c76fc35`.
 | 3 | Tab = MIDI | Met. `P4` is true in every case. |
 | 4 | Chord identity 100% on the accompaniment alone | **Met for triad-family bars, not for seventh-chord bars** (§10.4). |
 | 5 | v3 hard melody rules | Met. Every hard assertion of the harness passes on all matrices. |
-| 6 | Strum and arpeggio unchanged | Met. `test_compose_frozen.py` passes, and every key of the harness that does not contain `fingerstyle` equals its v3 value in all five matrices (0 differences). |
+| 6 | Strum and arpeggio unchanged | Met. `test_compose_frozen.py` passes, and every pre-existing unprefixed key of the harness equals its v3 value in all five matrices (0 differences). |
 | 7 | Soft metrics reported against v3 | Done (§10.6). |
 | 8 | Productionize | Met. The opt-in full-song test (`MUSIC_DECODER_PRODUCTION_E2E=1 pytest -q tests/integration/test_productionize_e2e.py`) passed, `2 passed in 39.17s`, with a fingerstyle composition. `test_fingerstyle_bars_keep_their_chord_tones_in_productionize` passes. |
 | 9 | Gates | Green (§10.7). |
@@ -491,12 +493,15 @@ the v3 hard melody rules, then chord identity) rather than to loosen it.
    `identity_misses` lists exactly the measured misses. The harness gained
    `P3t` (the hard triad-family share) beside the reported `P3` and `P3m`;
    fingerstyle left the `H1` hard loops, and `A1`, `A4` and `H2` stay hard.
-5. **One counted final-voicing fallback is allowed (§5.3).** `C → D#dim`,
-   seed 7, EADGBE has no final voicing among the candidates the design allows.
-   It is a sweep case (`test_every_root_and_quality_ends_playably`) and is in
-   no matrix. Both tests that sweep it list it explicitly, assert that
-   `final_fallback` is true for it and false for every other case, and skip
-   only the final-bar identity, `H1` and `H2` checks for it.
+5. **Counted final-voicing fallbacks are allowed (§5.3).** No case of the
+   five evaluation matrices falls back. Off the matrices, fallbacks are a
+   class, not one case: diminished endings, and rarely augmented ones, can
+   have no final voicing among the candidates the design allows (§10.4, off
+   the matrices). The tests list one: `C → D#dim`, seed 7, EADGBE, a sweep
+   case (`test_every_root_and_quality_ends_playably`). Both tests that sweep
+   it list it explicitly, assert that `final_fallback` is true for it and
+   false for every other case, and skip only the final-bar identity, `H1` and
+   `H2` checks for it. A fallback is counted but still playable (item 8).
 6. **Fingerstyle's `A2` is no longer gated as a soft metric (§10.5).** An
    essential-tone fill may ring above a held melody note between onsets, by
    design, so `A2.fingerstyle` fell below its v3 targets. Melody on top at
@@ -504,6 +509,19 @@ the v3 hard melody rules, then chord identity) rather than to loosen it.
 7. **Smaller test changes.** The pinned seed-42 guide-line note names in
    `test_productionize_verse.py` changed because v4 changes the fingerstyle
    melody on purpose (§5.7); its structural assertion is unchanged.
+8. **The final roll is playable at every moment, the fallback included
+   (§5.1, §5.3).** The roll plucks its strings lowest first, 10 ms apart, so
+   for up to 50 ms only some of them sound; a string not yet plucked counts as
+   silent and can break a barre. The final chord is now accepted only if the
+   held note is playable with every prefix of the roll, not only with the whole
+   chord (the final review found 29 of 1,440 common in-key arrangements off
+   the matrices with an unplayable moment at +30 ms, for example Eb tuning,
+   C major, `C Am F G7`, seed 2). The counted fallback was not checked for
+   playability at all. It now drops every note at or above the final note,
+   then fretted notes, highest pitch first (never the bass), until every
+   moment of its roll is playable; if even the bass is out of the final note's
+   reach, the first other position and shape that can be made playable that
+   way, root in the bass, is used. No matrix number moved.
 
 ### 10.3 The fingerstyle part per matrix (`P1`-`P5`)
 
@@ -524,9 +542,12 @@ differs; `P3` and `P3m` are also given pooled over all bars.
 ### 10.4 Chord identity (success criterion 4)
 
 Stated plainly: **criterion 4, 100% identity on the accompaniment track alone,
-is met for every triad-family bar and is not met for seventh-chord bars.**
-`P3t` is 1.0 in every case of every matrix, so major, minor, diminished,
-augmented and suspended bars always sound every essential tone. Seventh-chord
+is met for every triad-family bar of the five matrices and is not met for
+seventh-chord bars.** `P3t` is 1.0 in every case of every matrix, so on these
+matrices every major, minor, diminished, augmented and suspended bar sounds
+every essential tone. That is measured, not guaranteed: off the matrices a
+triad bar can also miss, when the melody holds the only string the tone can go
+on (below). Seventh-chord
 bars (`maj7`, `min7`, `7`) can lack the third or the seventh on the
 accompaniment alone. All 106 misses over the five matrices are on seventh-chord
 bars:
@@ -551,11 +572,32 @@ neck, so the missing tone has a free string. That is approach 3 territory
 (§4, deferred), because a fixed shape and an unforced melody leave no free
 string in these bars. Nothing in this branch depends on it.
 
-The final-voicing fallback (§5.3): none in any matrix (`P5` = 0). The one known
-case is `C → D#dim`, seed 7, EADGBE (§10.2 item 5), found by the all-roots,
-all-qualities sweep. The final-bar hard checks `A4` (the final chord rings) and
-`H2` (the full harmony under the held final note) pass for fingerstyle on every
-matrix.
+The final-voicing fallback (§5.3): none in any matrix (`P5` = 0). The tests
+list one case, `C → D#dim`, seed 7, EADGBE (§10.2 item 5), found by the
+all-roots, all-qualities sweep; off the matrices there are more (below). The
+final-bar hard checks `A4` (the final chord rings) and `H2` (the full harmony
+under the held final note) pass for fingerstyle on every matrix.
+
+**Off the matrices (random sweep).** The final whole-branch review ran random
+progressions (any preset tuning, key, mode, roots and qualities) at `e3bb5c7`:
+
+- 76 triad-family body bars missed accompaniment-only identity (augmented 64,
+  diminished 6, minor 4, major 2). One was on a common input: Drop C, `F G C`,
+  seed 20, bar 0. The mechanism is the one of the seventh-chord misses: the
+  melody holds the only string the tone can go on.
+- 23 of 2,400 random arrangements fell back on the final voicing, almost all
+  on diminished endings, plus one `Caug` in DADGAD. Each was counted.
+- `P1` was below 1.0 in 29 of 1,440 common in-key arrangements (the final
+  roll, §10.2 item 8), and the fallback was not checked for playability.
+
+After the fix, the seeded property test
+`test_random_progressions_are_playable_parts_with_the_melody_on_top` (300
+random inputs: preset tuning, key and mode, 2-6 chords of every root and
+quality, 1-3 bars per chord, 60-200 BPM) gives `P1` = 1.0, `P2` = 1.0 and
+tab = MIDI on every input. A wider run of the same generator on 9,000 more
+inputs (other generator seeds) also gave `P1` = `P2` = 1.0 and tab = MIDI on
+every input; before the fix, 23 of its first 3,000 had `P1` below 1.0. The
+identity misses and fallbacks stay counted, not failed.
 
 ### 10.5 Soft metrics that moved in the harness rework
 
@@ -614,9 +656,11 @@ reported, not gated. The hard melody rules did not move.
 
 Why they moved: the melody's pool is only what the held shape reaches, about
 one octave (§7), against D4-G5 in v3, and the last bar is always one held
-note. That fits lower rhythm entropy `M10`, fewer distinct durations `M9`, a
-lower step ratio `M2`, and, over a smaller pool, larger chord-change moves
-(`L4`) and fewer leaps to recover (`M5`, lower n). `M13`, the exposed
+note. That fits lower rhythm entropy `M10` and, over a smaller pool, larger
+chord-change moves (`L4`) and fewer leaps to recover (`M5`, lower n). `M2` and
+`M9` move both ways (`M2` falls on edge, holdout and reserve but rises on
+validation; `M9` rises on validation and falls on edge), so the narrower pool
+does not explain them on its own. `M13`, the exposed
 chromatic clash ratio, moves from 0.0 to 0.0403 on the tunings matrix only;
 the melody cannot always reach a borrowed note's replacement, and this was not
 investigated further. None of the rule-level checks (`M7`, `M11a`, `M12`,
@@ -629,7 +673,9 @@ tests/integration` gave 1119 passed and 4 skipped (the two opt-in productionize
 tests, run separately in §10.1, and two regression fixtures with no tab
 ground truth); `ruff check src tests` passed; `ruff format --check src tests`
 reported 198 files already formatted; `mypy --strict src` found no issues in
-98 source files.
+98 source files. After the final-review fixes (§10.2 item 8) the same gates
+gave 1124 passed and 4 skipped, and the opt-in productionize test gave
+`2 passed in 36.44s`.
 
 ### 10.8 Listening samples
 

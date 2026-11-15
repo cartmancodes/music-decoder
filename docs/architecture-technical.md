@@ -987,26 +987,37 @@ live in [compose/fingerstyle.py](../src/music_decoder/compose/fingerstyle.py):
   ring to the end. The chord is the first voicing that has the root in the
   bass, sounds every essential tone below the final note (the final note's own
   pitch class included), shares no string with the final note and is
-  playable. The bar's own shape is tried first, then every other
-  `ranked_shapes` shape. `final_bar_pitches` steers the final note to a
-  cadence pitch that can be voiced like that, in tiers: a cadence pitch inside
-  the hand's reach; else one on a melody string at frets 0 to 12 (out of the
-  hand position); else the counted fallback, where the roll plays the bar's
-  own shape without the final note's string and `Arrangement.final_fallback`
-  is `True`.
+  playable at every moment of the roll: the held note with each set of
+  strings plucked so far, lowest string first, and then the whole chord (a
+  partly plucked roll can break a barre). The bar's own shape is tried first,
+  then every other `ranked_shapes` shape. `final_bar_pitches` steers the final
+  note to a cadence pitch that can be voiced like that, in tiers: a cadence
+  pitch inside the hand's reach; else one on a melody string at frets 0 to 12
+  (out of the hand position); else the counted fallback, where
+  `Arrangement.final_fallback` is `True`. The fallback roll is the bar's own
+  shape under the final note, thinned, with every note at or above the final
+  note dropped and then fretted notes, highest first (never the bass), until
+  every moment of the roll is playable; if even its bass is out of reach of
+  the final note, the first other position and shape that can be made
+  playable that way, root in the bass, is used.
 - **`arrange_fingerstyle(...)` → `FingerstylePart`.** Joins the bars:
   `melody_tab`, `accompaniment_tab`, `identity_misses` and `final_fallback`.
 
 Identity (spec §5.4) is measured on the accompaniment track alone, because
-productionize builds each bar's chord from it. Every bar of a triad-family
-chord (major, minor, diminished, augmented, suspended) always meets it. A bar
-of a seventh chord (`maj7`, `min7`, `7`) can still lack the third or seventh
-when the shape is fixed and the melody is never forced; those bars are listed
-in `identity_misses`, and the melody sounds the missing tone in almost all of
+productionize builds each bar's chord from it. On the five evaluation
+matrices, every bar of a triad-family chord (major, minor, diminished,
+augmented, suspended) meets it, and the misses are all on seventh-chord bars
+(`maj7`, `min7`, `7`), which can lack the third or seventh when the shape is
+fixed and the melody is never forced. Off the matrices a triad bar can miss
+for the same reason, when the melody holds the only string the tone can go on
+(a random sweep found such bars, mostly augmented). Every miss is listed in
+`identity_misses`, and the melody sounds the missing tone in almost all of
 them. Closing the rest would need identity-aware re-voicing of body bars with
-moving shapes. One sweep case, `C → D#dim` with seed 7 in EADGBE, has no final
-voicing among the allowed candidates and is the known counted fallback; it is in
-no evaluation matrix.
+moving shapes. No matrix case falls back on the final voicing, but fallbacks
+are a class, not one case: diminished endings, and rarely augmented ones, can
+have no final voicing among the allowed candidates (`C → D#dim` with seed 7 in
+EADGBE is the one the tests list); each is counted in `final_fallback`, and
+the fallback roll stays playable.
 
 `compose/tabtext.py: render_fingerstyle_tab(part, voicings, *, bars_per_chord,
 tempo_bpm, tuning)` draws the combined tab (§5.4).
@@ -1037,8 +1048,9 @@ row (`1 & 2 & 3 & 4 &`) under each line. Every melody and accompaniment note
 sits in its column on its string, simultaneous notes stack in one column, a
 held note is drawn at its onset only, and a fret of two digits widens its
 column for every string. It raises `ValueError` if two notes would share a
-string and column. One bar, open C (thumb A3 and D2 on every beat, fills on
-the "and" of 2 and 4, melody on the e string):
+string and column. One bar, open C (thumb on the A string fret 3 and the D
+string fret 2 on every beat, fills on the "and" of 2 and 4, melody on the e
+string):
 
 ```text
    C
