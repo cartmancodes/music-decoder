@@ -242,28 +242,25 @@ def test_a_repeat_keeps_the_move_rows_share():
     row = {0: 25, 1: 50, -1: 25}  # repeats are a quarter of this row
     pool = [60, 62, 64, 65]
     # Factors that favour the repeat no more than the other candidates (here all 3, the
-    # repeat's own move weight inflated to 4) may not raise its share above the row's.
+    # repeat's own weight inflated to 12) may not raise its share above the row's.
     weights = [3.0, 12.0, 3.0, 3.0]
-    _hold_repeat_share(weights, [1.0, 4.0, 1.0, 1.0], [3.0] * 4, pool, 62, row)
+    _hold_repeat_share(weights, [3.0] * 4, pool, 62, row)
     assert weights[1] / sum(weights) == pytest.approx(0.25)
     weights = [2.0, 1.0]
-    _hold_repeat_share(weights, [2.0, 1.0], [1.0, 1.0], [60, 62], 62, row)  # moves out of reach
+    _hold_repeat_share(weights, [1.0, 1.0], [60, 62], 62, row)  # moves out of reach
     assert weights[1] / sum(weights) == pytest.approx(0.25)
-    # Rulings R11, R11a: the repeat's own factors still count, against the other candidates'
-    # factors weighted by their moves: (2 x 1 + 1 x 4 + 1 x 1) / 4 = 1.75 here (the plain mean
-    # would be 2). Twice that doubles the odds of repeating (1/3 -> 2/3, a share of 0.4),
-    # half of it halves them (a share of 1/7).
-    moves, others = [2.0, 1.0, 1.0, 1.0], [1.0, 4.0, 1.0]
-    for repeat_factor, expected in ((3.5, 0.4), (0.875, 1 / 7)):
-        factors = [others[0], repeat_factor, others[1], others[2]]
-        weights = [m * f for m, f in zip(moves, factors, strict=True)]
-        _hold_repeat_share(weights, moves, factors, pool, 62, row)
+    # Ruling R11b: against the plain mean of the others' factors (here 2), a repeat that fits
+    # better still gets exactly the row's share, never more; one that fits worse is scaled down
+    # (half the mean halves the odds of repeating, 1/3 -> 1/6, a share of 1/7).
+    for repeat_factor, expected in ((4.0, 0.25), (2.0, 0.25), (1.0, 1 / 7)):
+        weights = [2.0, 1.0, 1.0, 1.0]
+        _hold_repeat_share(weights, [1.5, repeat_factor, 3.5, 1.0], pool, 62, row)
         assert weights[1] / sum(weights) == pytest.approx(expected)
     weights = [1.0, 1.0]
-    _hold_repeat_share(weights, [1.0, 1.0], [1.0, 1.0], [60, 64], 62, {0: 25, 1: 75})
+    _hold_repeat_share(weights, [1.0, 1.0], [60, 64], 62, {0: 25, 1: 75})
     assert weights == [1.0, 1.0]  # no repeat in the pool
     weights = [1.0, 3.0]
-    _hold_repeat_share(weights, [1.0, 1.0], [1.0, 3.0], [60, 62], 62, {0: 25})
+    _hold_repeat_share(weights, [1.0, 3.0], [60, 62], 62, {0: 25})
     assert weights == [1.0, 3.0]  # a row of repeats only
 
 

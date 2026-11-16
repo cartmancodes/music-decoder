@@ -49,9 +49,9 @@ DENSITY_SIGMA = 2.5  # width of the onsets-per-bar preference, in onsets (tuned,
 DENSITY_MIN, DENSITY_MAX = 3.0, 6.5  # clamp on the target onsets per bar
 PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row to count
 
-P_RESTATE_CELL = 0.5  # chance a bar with a used pattern replays that bar's moves
-DEGREE_EXPONENT = 0.7  # tuned (v6 spec 5.5)
-REGISTER_SIGMA = 8.0  # semitones (tuned, v6 spec 5.5)
+P_RESTATE_CELL = 0.75  # chance a bar with a used pattern replays that bar's moves (tuned)
+DEGREE_EXPONENT = 0.8  # tuned (v6 spec 5.5)
+REGISTER_SIGMA = 6.0  # semitones (tuned, v6 spec 5.5)
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
 
@@ -287,7 +287,7 @@ def _degree_factors(shares: Sequence[float]) -> list[float]:
 
 def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> list[float]:
     """Move x harmony x degree x register x prior, per candidate (spec 5.2). The
-    repeat's weight is set per rulings R11 and R11a (:func:`_hold_repeat_share`)."""
+    repeat's weight is set per rulings R11 and R11b (:func:`_hold_repeat_share`)."""
     stats, mode = piece.stats, piece.scale.mode
     tones = chord_pcs(spot.chord)
     n_tones = sum(c % 12 in tones for c in pool)
@@ -301,7 +301,6 @@ def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> 
     if piece.prior is not None:
         target = _prior_target(piece.prior, spot.onset_s, piece.eighth_s)
     weights: list[float] = []
-    moves: list[float] = []
     factors: list[float] = []  # the non-move factors: harmony x degree x register x prior
     for c in pool:
         f = share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
@@ -313,47 +312,45 @@ def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> 
         move = 1.0
         if row is not None and voice.prev is not None:
             move = row.get(scale_steps(voice.prev, c, spot.ladder)) or MISSING_COUNT
-        moves.append(move)
         factors.append(f)
         weights.append(move * f)
     if row is not None and voice.prev is not None:
-        _hold_repeat_share(weights, moves, factors, pool, voice.prev, row)
+        _hold_repeat_share(weights, factors, pool, voice.prev, row)
     return weights
 
 
 def _hold_repeat_share(
     weights: list[float],
-    moves: Sequence[float],
     factors: Sequence[float],
     pool: Sequence[int],
     prev: int,
     row: Mapping[int, int],
 ) -> None:
-    """Set the weight of repeating ``prev``, in place (rulings R11, R11a).
+    """Set the weight of repeating ``prev``, in place (rulings R11, R11b).
 
     The harmony, degree and register factors favour the pitch the line is on
     (usually a chord tone on a common degree near the centre), and dropping
     the moves the pool cannot make leaves their share to the rest; together
     they inflated repeats far past real tunes'. So the repeat starts from the
     move row's own repeat odds against the other candidates' total weight,
-    and its non-move factors (``factors``) count relative to the other
-    candidates' factors averaged by their ``moves``, the moves the line would
-    likely make instead: with equal factors it repeats exactly as often as the
-    row says, and a repeat its factors judge worse than the likely moves (a
-    non-chord tone on a new chord's downbeat) repeats less.
+    and its non-move factors (``factors``) may only lower that: by their ratio
+    to the plain mean of the others' when it is below one (a non-chord tone on
+    a new chord's downbeat repeats less), never raising it above the row's
+    share (the line already sits on pitches the factors favour).
     """
     if prev not in pool:
         return
     i = pool.index(prev)
     others = sum(weights) - weights[i]
-    other_moves = sum(moves) - moves[i]
-    if others <= 0.0 or other_moves <= 0.0:
+    n_others = len(pool) - 1
+    if others <= 0.0 or n_others == 0:
         return
     share = (row.get(0) or MISSING_COUNT) / sum(row.values())
     if share >= 1.0:  # a row of repeats only leaves the weights as they are
         return
-    reference = others / other_moves  # the others' factors, weighted by their moves
-    weights[i] = others * share / (1.0 - share) * factors[i] / reference
+    mean_factor = (sum(factors) - factors[i]) / n_others
+    fit = min(1.0, factors[i] / mean_factor)
+    weights[i] = others * share / (1.0 - share) * fit
 
 
 def _sample(rng: np.random.Generator, pool: Sequence[int], weights: Sequence[float]) -> int:
