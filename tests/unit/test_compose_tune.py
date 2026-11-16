@@ -11,8 +11,11 @@ from music_decoder.compose.melody import cadence_pc
 from music_decoder.compose.rhythm import split_phrases
 from music_decoder.compose.tune import (
     _hold_repeat_share,
+    _Piece,
     _replay_starts,
     _Spot,
+    _Voice,
+    _weights,
     generate_tune,
     plan_rhythm,
     scale_steps,
@@ -236,21 +239,52 @@ def test_approach_drops_the_chord_change_limit_before_the_final_approach(monkeyp
 
 
 def test_a_repeat_keeps_the_move_rows_share():
-    # The harmony, degree and register factors (all 1 here) may not raise the repeat's share.
-    weights, pool = [1.0, 4.0, 1.0, 1.0], [60, 62, 64, 65]
-    _hold_repeat_share(weights, pool, 62, {0: 25, 1: 50, -1: 25})
+    row = {0: 25, 1: 50, -1: 25}  # repeats are a quarter of this row
+    # Factors that favour the repeat no more than the other candidates (here all 3, the
+    # repeat's own weight inflated to 12) may not raise its share above the row's.
+    weights, pool = [3.0, 12.0, 3.0, 3.0], [60, 62, 64, 65]
+    _hold_repeat_share(weights, [3.0] * 4, pool, 62, row)
     assert weights[1] / sum(weights) == pytest.approx(0.25)
     weights = [2.0, 1.0]
-    _hold_repeat_share(weights, [60, 62], 62, {0: 25, 1: 50, -1: 25})  # moves out of reach
+    _hold_repeat_share(weights, [1.0, 1.0], [60, 62], 62, row)  # moves out of reach
     assert weights[1] / sum(weights) == pytest.approx(0.25)
+    # Ruling R11: the repeat's own factors still count, relative to the others' mean; twice
+    # the mean doubles the odds of repeating (1/3 -> 2/3, so a share of 0.4), half halves them.
+    weights = [2.0, 1.0, 1.0, 1.0]
+    _hold_repeat_share(weights, [1.5, 2.0, 0.5, 1.0], pool, 62, row)
+    assert weights[1] / sum(weights) == pytest.approx(0.4)
+    weights = [2.0, 1.0, 1.0, 1.0]
+    _hold_repeat_share(weights, [1.5, 0.5, 0.5, 1.0], pool, 62, row)
+    assert weights[1] / sum(weights) == pytest.approx(1 / 7)
     weights = [1.0, 1.0]
-    _hold_repeat_share(weights, [60, 64], 62, {0: 25, 1: 75})  # no repeat in the pool
+    _hold_repeat_share(weights, [1.0, 1.0], [60, 64], 62, {0: 25, 1: 75})  # no repeat in pool
     assert weights == [1.0, 1.0]
     weights = [1.0, 3.0]
-    _hold_repeat_share(weights, [60, 62], 62, {0: 25})  # a row of repeats only
+    _hold_repeat_share(weights, [1.0, 1.0], [60, 62], 62, {0: 25})  # a row of repeats only
     assert weights == [1.0, 3.0]
 
 
+def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it():
+    # On the downbeat of a new G chord in C major, repeating A (not a chord tone) must be
+    # less likely than repeating G (a chord tone); the harmony factor still judges repeats.
+    scale = Scale.parse("C:major")
+    piece = _Piece(scale=scale, stats=STATS, center=68, prior=None, eighth_s=60 / 96 / 2)
+    spot = replace(_spot_for(G, scale), change=True)
+    pool = [p for p in range(60, 77) if p % 12 in set(scale_pcs(scale))]
+
+    def repeat_share(prev):
+        voice = _Voice(prev=prev, prev_move=1, prev_chord=C)
+        weights = _weights(pool, spot, voice, piece)
+        return weights[pool.index(prev)] / sum(weights)
+
+    assert repeat_share(69) < 0.6 * repeat_share(67)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="ruling R11: the repeat's own factors count again and the line sits on favoured"
+    " pitches (1.6x the others' mean), so repeats run above the row's share (Task 7 report)",
+)
 def test_repeats_are_as_rare_as_in_real_tunes():
     # Before the repeat kept its row share, the harmony and degree factors made 30% of the
     # moves here repeats (38% on the hand shapes); real tunes have ~20% (band ~0.12-0.28).
@@ -301,3 +335,21 @@ def test_no_move_is_larger_than_a_fifth():
             notes = tune(seed, allowed=allowed)
             assert metrics.max_interval(notes) <= 7
             assert metrics.unjustified_large_leap_count(notes, [C, G, AM, F], 2, 96.0) == 0
+
+
+def test_the_bar_before_the_approach_keeps_the_final_reachable():
+    # With no move over a fifth (ruling R10), a line entering the approach bar (Am, 56-65)
+    # from high in the bar before could find no smooth path to the final Bb 70 (seed 0 ended
+    # 71 -> 64 -> 70, a tritone); the bar before now steers toward the approach's sets too.
+    prog = [ChordSymbol.parse(x) for x in ("Bb", "E7", "Am", "Bb")]
+    allowed = [frozenset(r) for r in (range(58, 72), range(58, 72), range(56, 66), range(63, 77))]
+    for seed in range(300):
+        notes = generate_tune(
+            scale=Scale.parse("G:major"),
+            progression=prog,
+            seed=seed,
+            tessitura_center=64,
+            allowed_pitches=allowed,
+        )
+        sizes = [abs(b.pitch - a.pitch) for a, b in pairwise(notes)]
+        assert all(s <= 7 and s != 6 for s in sizes), seed

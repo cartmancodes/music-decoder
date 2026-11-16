@@ -49,9 +49,9 @@ DENSITY_SIGMA = 2.5  # width of the onsets-per-bar preference, in onsets (tuned,
 DENSITY_MIN, DENSITY_MAX = 3.0, 6.5  # clamp on the target onsets per bar
 PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row to count
 
-P_RESTATE_CELL = 0.75  # chance a bar with a used pattern replays that bar's moves (tuned)
-DEGREE_EXPONENT = 1.0  # tuned (v6 spec 5.5): the degree shares as they are
-REGISTER_SIGMA = 6.0  # semitones (tuned, v6 spec 5.5)
+P_RESTATE_CELL = 0.5  # chance a bar with a used pattern replays that bar's moves
+DEGREE_EXPONENT = 0.7  # tuned (v6 spec 5.5)
+REGISTER_SIGMA = 8.0  # semitones (tuned, v6 spec 5.5)
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
 
@@ -250,14 +250,17 @@ def _phrase_end_pool(pool: list[int], scale: Scale, chord: ChordSymbol) -> list[
 
 def _pool(spot: _Spot, allowed: Collection[int], prev: int | None, scale: Scale) -> list[int]:
     """Candidates after the hard filters. The chord-scale restriction is dropped
-    first, then the chord-change limit, then the approach to the final note; the
-    interval sizes give way only when nothing at all fits, to the pitch nearest ``prev``."""
+    first, then the chord-change limit, then the approach to the final note. When
+    nothing at all fits, the last resort is the allowed pitch nearest ``prev`` with
+    the interval limits dropped: ``allowed_pitches`` (what the hand can reach)
+    outranks the interval rules (ruling R12)."""
     on_ladder = _bar_candidates(scale, spot.chord, allowed)
     everything = sorted(allowed)
     change = CHANGE_LEAP if spot.change else MAX_LEAP
     tiers = (
         (on_ladder, change, spot.feasible),
         (everything, change, spot.feasible_wide),
+        # Inert while MAX_LEAP == CHANGE_LEAP (ruling R10); kept for a wider MAX_LEAP.
         (everything, MAX_LEAP, spot.feasible_wide),
         (everything, MAX_LEAP, None),
     )
@@ -283,8 +286,8 @@ def _degree_factors(shares: Sequence[float]) -> list[float]:
 
 
 def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> list[float]:
-    """Move x harmony x degree x register x prior, per candidate (spec 5.2), with
-    the repeat held at the move row's share (:func:`_hold_repeat_share`)."""
+    """Move x harmony x degree x register x prior, per candidate (spec 5.2). The
+    repeat's weight is set per ruling R11 (:func:`_hold_repeat_share`)."""
     stats, mode = piece.stats, piece.scale.mode
     tones = chord_pcs(spot.chord)
     n_tones = sum(c % 12 in tones for c in pool)
@@ -298,43 +301,55 @@ def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> 
     if piece.prior is not None:
         target = _prior_target(piece.prior, spot.onset_s, piece.eighth_s)
     weights: list[float] = []
+    factors: list[float] = []  # the non-move factors: harmony x degree x register x prior
     for c in pool:
-        w = 1.0
-        if row is not None and voice.prev is not None:
-            w *= row.get(scale_steps(voice.prev, c, spot.ladder)) or MISSING_COUNT
-        w *= share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
-        w *= degrees[(c - tonic) % 12]
-        w *= math.exp(-((c - piece.center) ** 2) / (2.0 * REGISTER_SIGMA**2))
-        weights.append(w)
-    if row is not None and voice.prev is not None:
-        _hold_repeat_share(weights, pool, voice.prev, row)
-    if target is not None:
-        for i, c in enumerate(pool):
+        f = share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
+        f *= degrees[(c - tonic) % 12]
+        f *= math.exp(-((c - piece.center) ** 2) / (2.0 * REGISTER_SIGMA**2))
+        if target is not None:
             r = (c - target) % 12
-            weights[i] *= math.exp(PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH))
+            f *= math.exp(PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH))
+        move = 1.0
+        if row is not None and voice.prev is not None:
+            move = row.get(scale_steps(voice.prev, c, spot.ladder)) or MISSING_COUNT
+        factors.append(f)
+        weights.append(move * f)
+    if row is not None and voice.prev is not None:
+        _hold_repeat_share(weights, factors, pool, voice.prev, row)
     return weights
 
 
 def _hold_repeat_share(
-    weights: list[float], pool: Sequence[int], prev: int, row: Mapping[int, int]
+    weights: list[float],
+    factors: Sequence[float],
+    pool: Sequence[int],
+    prev: int,
+    row: Mapping[int, int],
 ) -> None:
-    """Give repeating ``prev`` the move row's own repeat share, in place.
+    """Set the weight of repeating ``prev``, in place (ruling R11).
 
     The harmony, degree and register factors favour the pitch the line is on
-    (a chord tone on a common degree near the centre), and dropping the moves
-    the pool cannot make leaves their share to the rest; both inflate repeats
-    far past real tunes'. So the repeat keeps its real share of the row, and
-    the factors only choose among the moves.
+    (usually a chord tone on a common degree near the centre), and dropping
+    the moves the pool cannot make leaves their share to the rest; together
+    they inflated repeats far past real tunes'. So the repeat starts from the
+    move row's own repeat share against the other candidates' total weight,
+    and its non-move factors (``factors``) count relative to the mean of the
+    others': with equal factors it repeats exactly as often as the row says,
+    and a repeat its factors judge worse (a non-chord tone on a new chord's
+    downbeat) repeats less.
     """
     if prev not in pool:
         return
     i = pool.index(prev)
     others = sum(weights) - weights[i]
-    if others <= 0.0:
+    n_others = len(pool) - 1
+    if others <= 0.0 or n_others == 0:
         return
     share = (row.get(0) or MISSING_COUNT) / sum(row.values())
-    if share < 1.0:  # a row of repeats only leaves the weights as they are
-        weights[i] = others * share / (1.0 - share)
+    if share >= 1.0:  # a row of repeats only leaves the weights as they are
+        return
+    mean_factor = (sum(factors) - factors[i]) / n_others
+    weights[i] = others * share / (1.0 - share) * factors[i] / mean_factor
 
 
 def _sample(rng: np.random.Generator, pool: Sequence[int], weights: Sequence[float]) -> int:
@@ -373,7 +388,10 @@ def _approach_sets(
 ) -> dict[tuple[int, int], tuple[frozenset[int], frozenset[int]]]:
     """Per (bar, note) leading into the final note, the pitches from which it
     stays reachable by smooth moves (as v5's approach bar): over the chord-scale
-    candidates, and over all allowed pitches for when the chord scale cannot."""
+    candidates, and over all allowed pitches for when the chord scale cannot.
+    The bar before the approach bar gets sets too, leading into the approach
+    bar's first note: with no move over a fifth (ruling R10) a line could
+    otherwise enter the approach bar where no smooth path to the final is left."""
     last = len(plan) - 1
     n_last = len(plan[last].pattern)
     bar, n_free = (last, n_last - 1) if n_last > 1 else (last - 1, len(plan[last - 1].pattern))
@@ -381,7 +399,13 @@ def _approach_sets(
         return {}
     narrow = feasible_sets(candidates[bar], n_free, goal)
     wide = feasible_sets(sorted(allowed[bar]), n_free, goal)
-    return {(bar, k): pair for k, pair in enumerate(zip(narrow, wide, strict=True))}
+    out = {(bar, k): pair for k, pair in enumerate(zip(narrow, wide, strict=True))}
+    if bar >= 1:
+        before, n_before = bar - 1, len(plan[bar - 1].pattern)
+        narrow = feasible_sets(candidates[before], n_before, narrow[0])
+        wide = feasible_sets(sorted(allowed[before]), n_before, wide[0])
+        out.update({(before, k): pair for k, pair in enumerate(zip(narrow, wide, strict=True))})
+    return out
 
 
 def _replay_moves(

@@ -5,10 +5,8 @@ the pieces as ``compose()`` writes them (best of 12); T4 checks determinism
 and T5 that every key, mode, edge input and tuning composes.
 
 ``KNOWN_MISSES`` holds the controller's rulings on bands that cannot be met
-together with a guitar guarantee; only the controller adds to it.
-``PENDING_TUNING`` holds the dev-matrix misses left after the tuning of Task 7
-part B, awaiting a ruling, each value naming the gate it misses; such a gate
-is an expected failure, and passes normally once met.
+together with a guitar guarantee; only the controller adds to it, and it is
+the only way a gate may be excused.
 """
 
 import pytest
@@ -32,18 +30,7 @@ from music_decoder.types import VALID_TONICS, Scale
 STATS = load_tune_stats()
 SPREAD_FEATURES = ("repeat", "notes_per_second", "rhythm_variety", "figure_recurrence")
 KNOWN_MISSES: dict[tuple[str, str], str] = {}
-PENDING_REASON = "pending tuning (Task 7 part B)"
-# Dev-matrix misses awaiting a ruling (none since round 2 of Task 7 part B); the value
-# starts with the gate it misses.
-PENDING_TUNING: dict[tuple[str, str], str] = {}
 MIN_TRIAD_IDENTITY = 0.99
-
-
-def _check(ok: bool, gate: str, mode: str, feature: str, detail: str) -> None:
-    pending = PENDING_TUNING.get((mode, feature), "")
-    if not ok and gate in pending.split(":")[0].split("+"):
-        pytest.xfail(PENDING_REASON)
-    assert ok, detail
 
 
 @pytest.fixture(scope="module")
@@ -63,12 +50,8 @@ def test_t1_medians_sit_in_the_real_melody_bands(dev_report, mode, feature):
         pytest.xfail(KNOWN_MISSES[(mode, feature)])
     band = STATS.bands[mode][feature]
     median = dev_report[mode][feature]["median"]
-    _check(
-        band.low <= median <= band.high,
-        "T1",
-        mode,
-        feature,
-        f"{mode} {feature}: median {median:.3f} outside {band.low:.3f}-{band.high:.3f}",
+    assert band.low <= median <= band.high, (
+        f"{mode} {feature}: median {median:.3f} outside {band.low:.3f}-{band.high:.3f}"
     )
 
 
@@ -79,13 +62,7 @@ def test_t2_pieces_are_not_all_alike(dev_report, mode, feature):
         pytest.xfail(KNOWN_MISSES[(mode, feature)])
     band, got = STATS.bands[mode][feature], dev_report[mode][feature]
     spread, need = got["q75"] - got["q25"], 0.5 * (band.high - band.low)
-    _check(
-        spread >= need,
-        "T2",
-        mode,
-        feature,
-        f"{mode} {feature}: spread {spread:.3f} below {need:.3f}",
-    )
+    assert spread >= need, f"{mode} {feature}: spread {spread:.3f} below {need:.3f}"
 
 
 def test_t3_guitar_guarantees(dev_cases):
@@ -97,12 +74,6 @@ def test_t3_guitar_guarantees(dev_cases):
 
 def test_known_misses_stay_few():
     assert all(sum(m == mode for m, _ in KNOWN_MISSES) <= 2 for mode in ("major", "minor"))
-
-
-def test_pending_tuning_names_gates_and_features():
-    for (mode, feature), note in PENDING_TUNING.items():
-        assert mode in ("major", "minor") and feature in FEATURES
-        assert set(note.split(":")[0].split("+")) <= {"T1", "T2"}
 
 
 def test_t4_same_seed_same_music(dev_cases):
