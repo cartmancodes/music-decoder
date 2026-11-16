@@ -36,7 +36,7 @@ FEATURES: tuple[str, ...] = (
 
 SLOTS_PER_BAR = 8
 WINDOW_BARS = 8
-_PENTATONIC: dict[str, frozenset[int]] = {
+PENTATONIC: dict[str, frozenset[int]] = {
     "major": frozenset({0, 2, 4, 7, 9}),
     "minor": frozenset({0, 3, 5, 7, 10}),
 }
@@ -107,7 +107,7 @@ def _window_features(
         hits = sum(n.pitch % 12 in chord_tones[n.slot] for n in strong)
         out["chord_tone_strong"] = hits / len(strong)
 
-    pent = _PENTATONIC[mode]
+    pent = PENTATONIC[mode]
     out["pentatonic"] = _share(sum((n.pitch - tonic_pc) % 12 in pent for n in win), len(win))
     out["range"] = float(max(n.pitch for n in win) - min(n.pitch for n in win)) if win else 0.0
     return out

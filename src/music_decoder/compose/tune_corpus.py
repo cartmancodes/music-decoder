@@ -27,12 +27,19 @@ from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from music_decoder.compose.tune_metrics import FEATURES, GridNote, Mode, grid_features
+from music_decoder.compose.tune_metrics import (
+    FEATURES,
+    PENTATONIC,
+    GridNote,
+    Mode,
+    grid_features,
+)
 from music_decoder.compose.tune_stats import (
     METRIC_CLASSES,
     MODES,
@@ -51,9 +58,12 @@ SIXTEENTHS_PER_BAR = 16
 WINDOW_BARS = 8
 MIN_WINDOW_NOTES = 12
 MAX_MOVE = 7
+MIN_PILOT_SONGS = 100
+PILOT_WINDOW_SLOTS = 64  # 8 bars of eighths
 SOURCES = (
     "POP909 (Wang et al., ISMIR 2020), hierarchical-structure release "
-    "(Dai, Zhang and Dannenberg, 2020): melody, chords, keys, tempo, human_label1",
+    "(Dai, Zhang and Dannenberg, 2020): melody, chords, keys, tempo, human_label1; "
+    "licence: MIT",
 )
 
 SCALES: dict[Mode, tuple[int, ...]] = {
@@ -389,6 +399,92 @@ def _shares(counts: Sequence[int]) -> list[float]:
     return [c / total if total else 0.0 for c in counts]
 
 
+def _median(values: Sequence[float]) -> float:
+    return float(np.median(values)) if values else 0.0
+
+
+def _pilot_line_range(slots_pitches: Sequence[tuple[int, int]]) -> float | None:
+    """Mean highest-minus-lowest pitch over the 8-bar windows holding two or more notes."""
+    windows: dict[int, list[int]] = defaultdict(list)
+    for slot, pitch in slots_pitches:
+        windows[slot // PILOT_WINDOW_SLOTS].append(pitch)
+    spans = [max(p) - min(p) for p in windows.values() if len(p) >= 2]
+    return sum(spans) / len(spans) if spans else None
+
+
+def pilot_stats(lines: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Pitch statistics of vocal lines extracted from the pilot's own songs.
+
+    Each line is ``{"tonic_pc", "mode", "notes": [[eighth_slot, pitch], ...]}``.
+    ``interval_classes`` (the share of repeats, steps of 1-2 semitones, thirds of
+    3-4 and leaps of 5 or more among consecutive notes) and ``pentatonic`` (per
+    mode) are medians over songs; ``degrees`` is the mean over songs of each
+    song's share per semitone above the tonic; ``range`` is the 25th, 50th and 75th
+    percentile over songs of the song's mean 8-bar-window range (as ``range`` in
+    ``tune_metrics``).
+    """
+    classes: dict[str, list[float]] = {c: [] for c in ("repeat", "step", "third", "leap")}
+    pentatonic: dict[Mode, list[float]] = {m: [] for m in MODES}
+    shares: dict[Mode, list[list[float]]] = {m: [] for m in MODES}
+    ranges: list[float] = []
+    n_songs = 0
+    for line in lines:
+        n_songs += 1
+        mode: Mode = "minor" if line["mode"] == "minor" else "major"
+        tonic = int(line["tonic_pc"])
+        notes = sorted((int(s), int(p)) for s, p in line["notes"])
+        if not notes:
+            continue
+        degrees = [(p - tonic) % 12 for _, p in notes]
+        counts = [degrees.count(d) for d in range(12)]
+        shares[mode].append(_shares(counts))
+        pent = PENTATONIC[mode]
+        pentatonic[mode].append(sum(d in pent for d in degrees) / len(degrees))
+        sizes = [abs(b[1] - a[1]) for a, b in pairwise(notes)]
+        if sizes:
+            classes["repeat"].append(sum(s == 0 for s in sizes) / len(sizes))
+            classes["step"].append(sum(1 <= s <= 2 for s in sizes) / len(sizes))
+            classes["third"].append(sum(3 <= s <= 4 for s in sizes) / len(sizes))
+            classes["leap"].append(sum(s >= 5 for s in sizes) / len(sizes))
+        span = _pilot_line_range(notes)
+        if span is not None:
+            ranges.append(span)
+    quartiles = [float(q) for q in np.percentile(ranges, [25, 50, 75])] if ranges else [0.0] * 3
+    return {
+        "songs": n_songs,
+        "interval_classes": {c: _median(v) for c, v in classes.items()},
+        "pentatonic": {m: _median(pentatonic[m]) for m in MODES},
+        "degrees": {
+            m: [float(x) for x in np.mean(shares[m], axis=0)] if shares[m] else [0.0] * 12
+            for m in MODES
+        },
+        "range": quartiles,
+    }
+
+
+def _merge_pilot(out: dict[str, Any], pilot: Mapping[str, Any]) -> None:
+    """Widen the pitch bands to the pilot's values and average the degree shares."""
+    values: dict[Mode, dict[str, tuple[float, float]]] = {}
+    low_q, _, high_q = (float(x) for x in pilot["range"])
+    for mode in MODES:
+        values[mode] = {c: (float(v), float(v)) for c, v in pilot["interval_classes"].items()}
+        values[mode]["pentatonic"] = (float(pilot["pentatonic"][mode]),) * 2
+        values[mode]["range"] = (low_q, high_q)
+        for feature, (lo, hi) in values[mode].items():
+            band = out["bands"][mode].get(feature)
+            if band is not None:
+                band["low"] = min(band["low"], lo)
+                band["high"] = max(band["high"], hi)
+        theirs = [float(x) for x in pilot["degrees"][mode]]
+        if sum(theirs) > 0:
+            mean = [(a + b) / 2 for a, b in zip(out["degrees"][mode], theirs, strict=True)]
+            out["degrees"][mode] = _shares(mean)
+    out["meta"]["sources"].append(
+        f"own YouTube pilot, vocal lines of {int(pilot['songs'])} songs; "
+        "licence: own YouTube pilot, statistics only"
+    )
+
+
 def build_stats(
     songs: Iterable[Song],
     pilot: Mapping[str, Any] | None = None,
@@ -398,8 +494,10 @@ def build_stats(
     """The statistics as a JSON-ready dict (see ``tune_stats`` for the typed view).
 
     Patterns seen fewer than ``min_pattern_count`` times in all of ``rhythm``
-    are removed from ``rhythm`` and ``rhythm_pairs``. ``pilot`` is stored
-    under ``"pilot"`` as given.
+    are removed from ``rhythm`` and ``rhythm_pairs``. ``pilot`` (``pilot_stats``
+    output) is stored under ``"pilot"`` as given; when it covers at least
+    ``MIN_PILOT_SONGS`` songs it also widens the pitch bands and is averaged
+    into ``degrees`` (``_merge_pilot``). Rhythm and move tables stay POP909's.
     """
     rhythm: dict[Role, Counter[Pattern]] = {r: Counter() for r in ROLES}
     pairs: dict[Role, defaultdict[Pattern, Counter[Pattern]]] = {
@@ -472,4 +570,6 @@ def build_stats(
     }
     if pilot is not None:
         out["pilot"] = dict(pilot)
+        if int(pilot.get("songs", 0)) >= MIN_PILOT_SONGS:
+            _merge_pilot(out, pilot)
     return out

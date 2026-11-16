@@ -2,11 +2,13 @@
 
     python scripts/build_tune_stats.py \
         --pop909 ~/.music-decoder/datasets/pop909-hsa/POP909 \
-        --out src/music_decoder/compose/data/tune_stats.json [--pilot FILE]
+        --out src/music_decoder/compose/data/tune_stats.json [--pilot FILE...]
 
 ``--pop909`` is the ``POP909`` folder of the hierarchical-structure release
-(one folder per song). Only the derived statistics are written; ``--pilot``
-is a JSON file stored under ``"pilot"`` as it is.
+(one folder per song). Only the derived statistics are written. ``--pilot``
+takes one or more JSON-lines files of vocal lines (``spikes/preference-pilot/
+extract_vocal_lines.py``): their ``pilot_stats`` are stored under ``"pilot"``
+and, from 100 songs on, merged into the pitch statistics.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import argparse
 import json
 from pathlib import Path
 
-from music_decoder.compose.tune_corpus import Song, build_stats, read_song
+from music_decoder.compose.tune_corpus import Song, build_stats, pilot_stats, read_song
 from music_decoder.compose.tune_metrics import FEATURES
 
 
@@ -23,7 +25,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--pop909", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--pilot", type=Path)
+    parser.add_argument("--pilot", type=Path, nargs="+")
     args = parser.parse_args()
 
     folders = sorted(p for p in args.pop909.expanduser().iterdir() if p.is_dir())
@@ -35,11 +37,20 @@ def main() -> None:
             skipped.append(folder.name)
         else:
             songs.append(song)
-    pilot = json.loads(args.pilot.read_text()) if args.pilot else None
+    pilot = None
+    if args.pilot:
+        lines = [
+            json.loads(line)
+            for path in args.pilot
+            for line in path.expanduser().read_text().splitlines()
+            if line.strip()
+        ]
+        pilot = pilot_stats(lines)
     stats = build_stats(songs, pilot)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(stats, indent=1) + "\n", encoding="utf-8")
+    out = args.out.expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(stats, indent=1) + "\n", encoding="utf-8")
 
     meta = stats["meta"]
     print(f"songs: {meta['songs']} read, {len(skipped)} skipped {skipped}")
@@ -55,7 +66,9 @@ def main() -> None:
             if feature in bands:
                 b = bands[feature]
                 print(f"  {feature:<18} {b['low']:8.3f} {b['mid']:8.3f} {b['high']:8.3f}")
-    print(f"wrote {args.out}")
+    if pilot is not None:
+        print(f"pilot: {pilot['songs']} songs, merged: {len(stats['meta']['sources']) > 1}")
+    print(f"wrote {out}")
 
 
 if __name__ == "__main__":

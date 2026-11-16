@@ -8374,7 +8374,7 @@
  },
  "meta": {
   "sources": [
-   "POP909 (Wang et al., ISMIR 2020), hierarchical-structure release (Dai, Zhang and Dannenberg, 2020): melody, chords, keys, tempo, human_label1"
+   "POP909 (Wang et al., ISMIR 2020), hierarchical-structure release (Dai, Zhang and Dannenberg, 2020): melody, chords, keys, tempo, human_label1; licence: MIT"
   ],
   "songs": 909,
   "windows": {
