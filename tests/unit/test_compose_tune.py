@@ -240,28 +240,31 @@ def test_approach_drops_the_chord_change_limit_before_the_final_approach(monkeyp
 
 def test_a_repeat_keeps_the_move_rows_share():
     row = {0: 25, 1: 50, -1: 25}  # repeats are a quarter of this row
+    pool = [60, 62, 64, 65]
     # Factors that favour the repeat no more than the other candidates (here all 3, the
-    # repeat's own weight inflated to 12) may not raise its share above the row's.
-    weights, pool = [3.0, 12.0, 3.0, 3.0], [60, 62, 64, 65]
-    _hold_repeat_share(weights, [3.0] * 4, pool, 62, row)
+    # repeat's own move weight inflated to 4) may not raise its share above the row's.
+    weights = [3.0, 12.0, 3.0, 3.0]
+    _hold_repeat_share(weights, [1.0, 4.0, 1.0, 1.0], [3.0] * 4, pool, 62, row)
     assert weights[1] / sum(weights) == pytest.approx(0.25)
     weights = [2.0, 1.0]
-    _hold_repeat_share(weights, [1.0, 1.0], [60, 62], 62, row)  # moves out of reach
+    _hold_repeat_share(weights, [2.0, 1.0], [1.0, 1.0], [60, 62], 62, row)  # moves out of reach
     assert weights[1] / sum(weights) == pytest.approx(0.25)
-    # Ruling R11: the repeat's own factors still count, relative to the others' mean; twice
-    # the mean doubles the odds of repeating (1/3 -> 2/3, so a share of 0.4), half halves them.
-    weights = [2.0, 1.0, 1.0, 1.0]
-    _hold_repeat_share(weights, [1.5, 2.0, 0.5, 1.0], pool, 62, row)
-    assert weights[1] / sum(weights) == pytest.approx(0.4)
-    weights = [2.0, 1.0, 1.0, 1.0]
-    _hold_repeat_share(weights, [1.5, 0.5, 0.5, 1.0], pool, 62, row)
-    assert weights[1] / sum(weights) == pytest.approx(1 / 7)
+    # Rulings R11, R11a: the repeat's own factors still count, against the other candidates'
+    # factors weighted by their moves: (2 x 1 + 1 x 4 + 1 x 1) / 4 = 1.75 here (the plain mean
+    # would be 2). Twice that doubles the odds of repeating (1/3 -> 2/3, a share of 0.4),
+    # half of it halves them (a share of 1/7).
+    moves, others = [2.0, 1.0, 1.0, 1.0], [1.0, 4.0, 1.0]
+    for repeat_factor, expected in ((3.5, 0.4), (0.875, 1 / 7)):
+        factors = [others[0], repeat_factor, others[1], others[2]]
+        weights = [m * f for m, f in zip(moves, factors, strict=True)]
+        _hold_repeat_share(weights, moves, factors, pool, 62, row)
+        assert weights[1] / sum(weights) == pytest.approx(expected)
     weights = [1.0, 1.0]
-    _hold_repeat_share(weights, [1.0, 1.0], [60, 64], 62, {0: 25, 1: 75})  # no repeat in pool
-    assert weights == [1.0, 1.0]
+    _hold_repeat_share(weights, [1.0, 1.0], [1.0, 1.0], [60, 64], 62, {0: 25, 1: 75})
+    assert weights == [1.0, 1.0]  # no repeat in the pool
     weights = [1.0, 3.0]
-    _hold_repeat_share(weights, [1.0, 1.0], [60, 62], 62, {0: 25})  # a row of repeats only
-    assert weights == [1.0, 3.0]
+    _hold_repeat_share(weights, [1.0, 1.0], [1.0, 3.0], [60, 62], 62, {0: 25})
+    assert weights == [1.0, 3.0]  # a row of repeats only
 
 
 def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it():
@@ -280,11 +283,6 @@ def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it():
     assert repeat_share(69) < 0.6 * repeat_share(67)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="ruling R11: the repeat's own factors count again and the line sits on favoured"
-    " pitches (1.6x the others' mean), so repeats run above the row's share (Task 7 report)",
-)
 def test_repeats_are_as_rare_as_in_real_tunes():
     # Before the repeat kept its row share, the harmony and degree factors made 30% of the
     # moves here repeats (38% on the hand shapes); real tunes have ~20% (band ~0.12-0.28).
