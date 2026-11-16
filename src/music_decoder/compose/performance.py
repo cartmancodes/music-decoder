@@ -157,8 +157,11 @@ def let_ring(
     """Let the accompaniment ring. Spec 5.1, let-ring.
 
     Each accompaniment note outside the final bar, in time order, rings to
-    the next onset on its string (any note of the part) or its bar's end,
-    whichever comes first, but is cut at the first onset ``t`` in between
+    the next onset on its string (any note of the part), :data:`RELEASE_GAP_S`
+    before the next accompaniment onset of its pitch (a unison on another
+    string; a same-pitch overlap would let its note-off silence the second
+    note) or its bar's end, whichever comes first, but is cut at the first
+    onset ``t`` in between
     where (a) the notes sounding at ``t`` with it ringing are not
     :func:`moment_playable`, (b) a melody note starting at ``t`` is not above
     it, or (c) a melody note starting at ``t`` is less than
@@ -183,6 +186,11 @@ def let_ring(
                 x.note.start_s
                 for x in (*melody, *accompaniment)
                 if x.position.string == string and x.note.start_s > start + _EPS_S
+            ]
+            + [
+                x.note.start_s - RELEASE_GAP_S
+                for x in accompaniment
+                if x.note.pitch == p and x.note.start_s > start + _EPS_S
             ]
             + [(bar + 1) * bar_s]
         )

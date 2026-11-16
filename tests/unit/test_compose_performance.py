@@ -7,7 +7,7 @@ from music_decoder.compose import metrics
 from music_decoder.compose.api import arrange
 from music_decoder.compose.fingerstyle import FingerstylePart, arrange_fingerstyle, hand_shape
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
-from music_decoder.tabs.tuning import STANDARD_EADGBE
+from music_decoder.tabs.tuning import PRESETS, STANDARD_EADGBE
 from music_decoder.types import ChordSymbol, Note, Scale, TabbedNote, TabPosition
 
 
@@ -166,6 +166,34 @@ def test_let_ring_never_shortens_and_keeps_the_final_bar_and_melody():
         assert new.note.end_s >= old.note.end_s - 1e-9
         if old.note.start_s >= final_start - 1e-6:
             assert new.note == old.note
+
+
+@pytest.mark.parametrize("tuning", sorted(PRESETS))
+@pytest.mark.parametrize("bars", [1, 2])
+def test_let_ring_leaves_no_same_pitch_overlap_in_the_accompaniment(tuning, bars):
+    # A unison on two strings would overlap in the on-grid MIDI that DAWs and
+    # productionize read: the ringing note stops 1 ms before the next one.
+    # The final roll is v4's and outside let-ring: every note of it rings to
+    # the end (A4), so a unison inside it still overlaps.
+    progressions = [
+        ("C", "Am", "F", "G"),
+        ("Am", "Dm", "E7", "Am"),
+        ("D", "G", "A7", "D"),
+        ("Csus4", "C", "Fmaj7", "G7"),
+    ]
+    for labels, seed in itertools.product(progressions, range(3)):
+        key, mode = ("A", "minor") if labels[0] == "Am" else (labels[0][0], "major")
+        prog, a = _fs(
+            labels, key=key, mode=mode, seed=seed, bars=bars, tempo=90.0, tuning=PRESETS[tuning]
+        )
+        final_start = (len(prog) * bars - 1) * 240.0 / 90.0
+        by_pitch: dict[int, list[Note]] = {}
+        for n in a.accompaniment:
+            if n.start_s < final_start - 1e-6:
+                by_pitch.setdefault(n.pitch, []).append(n)
+        for notes in by_pitch.values():
+            for x, y in itertools.pairwise(notes):  # accompaniment is time-sorted
+                assert x.end_s <= y.start_s + 1e-9, (labels, seed, x, y)
 
 
 def test_arrange_melody_matches_its_tab():
