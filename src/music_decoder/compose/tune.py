@@ -7,23 +7,61 @@ Two halves, both driven by ``tune_stats.TuneStats`` and a passed-in
   pattern for its role (open, body, cadence), weighted by how often that
   pattern follows the previous bar's and by closeness to a target density
   taken from the tempo. A' phrases often restate the matching bar of phrase A.
-* Pitch (added in a later task): notes on those onsets.
+* Pitch plan (:func:`generate_tune`): notes chosen left to right on those
+  onsets, each weighted by the real move tables (in scale steps), chord-tone
+  share, degree shares, register and an optional pitch prior, after the hard
+  interval rules. A bar whose pattern was used before often replays that bar's
+  moves (cell memory); phrases end on chord tones, the piece on the cadence pitch.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
+from music_decoder.compose.harmony import chord_pcs, chord_scale_pcs, tonic_pc
+from music_decoder.compose.melody import (
+    PRIOR_WEIGHT,
+    PRIOR_WIDTH,
+    _prior_target,
+    cadence_pc,
+    feasible_sets,
+    final_target,
+)
 from music_decoder.compose.rhythm import form_labels, split_phrases
-from music_decoder.compose.tune_stats import Pattern, Role, TuneStats
+from music_decoder.compose.tune_stats import (
+    START,
+    Pattern,
+    Role,
+    TuneStats,
+    load_tune_stats,
+    metric_class,
+)
+from music_decoder.types import ChordSymbol, Note, Scale
 
 P_RESTATE_RHYTHM = 0.5  # chance an A' bar copies the matching bar of phrase A
 DENSITY_SIGMA = 1.5  # width of the onsets-per-bar preference, in onsets
 DENSITY_MIN, DENSITY_MAX = 3.0, 6.5  # clamp on the target onsets per bar
 PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row to count
+
+P_RESTATE_CELL = 0.5  # chance a bar with a used pattern replays that bar's moves
+DEGREE_EXPONENT = 0.5
+REGISTER_SIGMA = 5.0  # semitones
+CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
+MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
+
+MAX_LEAP = 12  # no move larger than an octave
+CHANGE_LEAP = 7  # into a new chord and into the final note: at most a fifth
+FORBIDDEN_SIZES = frozenset({6, 10, 11})  # tritone, sevenths
+MAX_STEPS = 7  # scale-step moves are clipped to this size
+MISSING_COUNT = 0.5  # count given to a move the table never saw
+DEGREE_FLOOR = 1e-3  # an unseen degree's share, as a fraction of the mean share
+LENGTH_FACTOR = 0.95  # a note sounds this share of the time to the next onset
+STRONG_SLOTS = (0, 4)
 
 
 # --- Rhythm plan -----------------------------------------------------------------------
@@ -119,3 +157,317 @@ def plan_rhythm(
         pattern = _draw_pattern(rng, role, previous, target, stats, need_slot_zero=bar == 0)
         plan.append(BarRhythm(pattern, role, None))
     return plan
+
+
+# --- Pitch plan ------------------------------------------------------------------------
+
+
+def scale_steps(prev: int, cand: int, pcs: Collection[int]) -> int:
+    """Signed count of ladder pitches (any octave of ``pcs``) passed from ``prev``
+    to ``cand``, ``cand`` included when on the ladder; clipped to +-MAX_STEPS."""
+    if cand >= prev:
+        n = sum(1 for p in range(prev + 1, cand + 1) if p % 12 in pcs)
+    else:
+        n = -sum(1 for p in range(cand, prev) if p % 12 in pcs)
+    return max(-MAX_STEPS, min(MAX_STEPS, n))
+
+
+def _step_by(pitch: int, steps: int, pcs: Collection[int]) -> int:
+    """The ladder pitch ``steps`` scale steps from ``pitch`` (the inverse of
+    :func:`scale_steps`)."""
+    direction = 1 if steps > 0 else -1
+    left = abs(steps)
+    while left:
+        pitch += direction
+        if pitch % 12 in pcs:
+            left -= 1
+    return pitch
+
+
+@dataclass(frozen=True)
+class _Piece:
+    """What every note of the piece is chosen against."""
+
+    scale: Scale
+    stats: TuneStats
+    center: int
+    prior: Sequence[Note] | None
+    eighth_s: float
+
+
+@dataclass(frozen=True)
+class _Spot:
+    """One onset and the rules its note obeys."""
+
+    slot: int
+    onset_s: float
+    chord: ChordSymbol
+    ladder: frozenset[int]
+    change: bool  # first note over a new chord: at most CHANGE_LEAP
+    feasible: frozenset[int] | None  # approach to the final note
+    phrase_end: bool
+
+
+@dataclass
+class _Voice:
+    """The line so far: its last pitch, the move into it and its chord."""
+
+    prev: int | None = None
+    prev_move: int | None = None  # None before the second note; START for it
+    prev_chord: ChordSymbol | None = None
+
+    def ref(self, center: int) -> int:
+        return self.prev if self.prev is not None else center
+
+    def advance(self, pitch: int, spot: _Spot) -> None:
+        # The second note's previous move is START (the first note has none).
+        prev = self.prev
+        self.prev_move = START if prev is None else scale_steps(prev, pitch, spot.ladder)
+        self.prev, self.prev_chord = pitch, spot.chord
+
+
+def _bar_candidates(scale: Scale, chord: ChordSymbol, allowed: Collection[int]) -> list[int]:
+    ladder = chord_scale_pcs(scale, chord)
+    return sorted(p for p in allowed if p % 12 in ladder) or sorted(allowed)
+
+
+def _fits(prev: int | None, cand: int, limit: int) -> bool:
+    if prev is None:
+        return True
+    size = abs(cand - prev)
+    return size <= limit and size not in FORBIDDEN_SIZES
+
+
+def _phrase_end_pool(pool: list[int], scale: Scale, chord: ChordSymbol) -> list[int]:
+    """Chord tones if any, without the tonic when another chord tone is there."""
+    tones = chord_pcs(chord)
+    chordal = [c for c in pool if c % 12 in tones]
+    open_end = [c for c in chordal if c % 12 != tonic_pc(scale)]
+    return open_end or chordal or pool
+
+
+def _pool(spot: _Spot, allowed: Collection[int], prev: int | None, scale: Scale) -> list[int]:
+    """Candidates after the hard filters. The chord-scale restriction is dropped
+    first, then the chord-change limit and the approach sets; the interval sizes
+    give way only when nothing at all fits, to the pitch nearest ``prev``."""
+    on_ladder = _bar_candidates(scale, spot.chord, allowed)
+    everything = sorted(allowed)
+    for cands, strict in ((on_ladder, True), (everything, True), (everything, False)):
+        limit = CHANGE_LEAP if strict and spot.change else MAX_LEAP
+        pool = [
+            c
+            for c in cands
+            if _fits(prev, c, limit) and (not strict or spot.feasible is None or c in spot.feasible)
+        ]
+        if pool:
+            return _phrase_end_pool(pool, scale, spot.chord) if spot.phrase_end else pool
+    assert prev is not None  # with no previous pitch every candidate fits
+    return [min(everything, key=lambda p: (abs(p - prev), p))]
+
+
+def _move_row(stats: TuneStats, slot: int, prev_move: int) -> Mapping[int, int]:
+    cls = metric_class(slot)
+    row = stats.steps[cls].get(prev_move)
+    if row is not None and sum(row.values()) >= CONTEXT_MIN_COUNT:
+        return row
+    return stats.steps_base[cls]
+
+
+def _degree_factors(shares: Sequence[float]) -> list[float]:
+    mean = sum(shares) / len(shares)
+    return [(max(x, DEGREE_FLOOR * mean) / mean) ** DEGREE_EXPONENT for x in shares]
+
+
+def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> list[float]:
+    """Move x harmony x degree x register x prior, per candidate (spec 5.2)."""
+    stats, mode = piece.stats, piece.scale.mode
+    tones = chord_pcs(spot.chord)
+    n_tones = sum(c % 12 in tones for c in pool)
+    share = stats.chord_tone[metric_class(spot.slot)]
+    degrees = _degree_factors((stats.final_degrees if spot.phrase_end else stats.degrees)[mode])
+    tonic = tonic_pc(piece.scale)
+    row = None
+    if voice.prev is not None and voice.prev_move is not None:
+        row = _move_row(stats, spot.slot, voice.prev_move)
+    target = None
+    if piece.prior is not None:
+        target = _prior_target(piece.prior, spot.onset_s, piece.eighth_s)
+    weights: list[float] = []
+    for c in pool:
+        w = 1.0
+        if row is not None and voice.prev is not None:
+            w *= row.get(scale_steps(voice.prev, c, spot.ladder)) or MISSING_COUNT
+        w *= share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
+        w *= degrees[(c - tonic) % 12]
+        w *= math.exp(-((c - piece.center) ** 2) / (2.0 * REGISTER_SIGMA**2))
+        if target is not None:
+            r = (c - target) % 12
+            w *= math.exp(PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH))
+        weights.append(w)
+    return weights
+
+
+def _sample(rng: np.random.Generator, pool: Sequence[int], weights: Sequence[float]) -> int:
+    if len(pool) == 1:
+        return pool[0]
+    p = np.asarray(weights, dtype=float)
+    return int(pool[int(rng.choice(len(pool), p=p / p.sum()))])
+
+
+def _replay_start(
+    pool: Sequence[int], moves: Sequence[int], pattern: Pattern, spot: _Spot, ref: int
+) -> int:
+    """The start giving the most chord tones on slots 0 and 4 when ``moves`` are
+    replayed from it; ties go to the pitch nearest ``ref``, then the lower."""
+    tones = chord_pcs(spot.chord)
+
+    def strong_tones(start: int) -> int:
+        pitch, hits = start, 0
+        for k, slot in enumerate(pattern):
+            if k:
+                pitch = _step_by(pitch, moves[k - 1], spot.ladder)
+            hits += slot in STRONG_SLOTS and pitch % 12 in tones
+        return hits
+
+    return min(pool, key=lambda p: (-strong_tones(p), abs(p - ref), p))
+
+
+def _replayed(
+    pool: Sequence[int], moves: Sequence[int], k: int, pattern: Pattern, spot: _Spot, ref: int
+) -> int:
+    """The pitch a replay of ``moves`` asks for at note ``k`` (``ref`` is the
+    previous pitch, or the register centre before the first note)."""
+    if k == 0:
+        return _replay_start(pool, moves, pattern, spot, ref)
+    return _step_by(ref, moves[k - 1], spot.ladder)
+
+
+def _approach_sets(
+    plan: Sequence[BarRhythm], candidates: Sequence[list[int]], goal: Collection[int]
+) -> dict[tuple[int, int], frozenset[int]]:
+    """Per (bar, note) leading into the final note, the pitches from which it
+    stays reachable by smooth moves (as v5's approach bar)."""
+    last = len(plan) - 1
+    n_last = len(plan[last].pattern)
+    bar, n_free = (last, n_last - 1) if n_last > 1 else (last - 1, len(plan[last - 1].pattern))
+    if bar < 0:
+        return {}
+    sets = feasible_sets(candidates[bar], n_free, goal)
+    return {(bar, k): s for k, s in enumerate(sets)}
+
+
+def _replay_moves(
+    rng: np.random.Generator,
+    bar: int,
+    rhythm: BarRhythm,
+    first_two: bool,
+    bar_moves: Sequence[list[int]],
+    last_with: Mapping[Pattern, int],
+) -> list[int] | None:
+    """Cell memory: the earlier bar's moves to replay here, or None."""
+    source = rhythm.restated_from
+    if source is None:
+        source = last_with.get(rhythm.pattern)
+    if source is None or source >= bar:
+        return None
+    if (rhythm.restated_from is not None and first_two) or rng.random() < P_RESTATE_CELL:
+        return bar_moves[source]
+    return None
+
+
+def _notes(bar: int, pattern: Pattern, pitches: Sequence[int], eighth_s: float) -> list[Note]:
+    out: list[Note] = []
+    for k, (slot, pitch) in enumerate(zip(pattern, pitches, strict=True)):
+        nxt = pattern[k + 1] if k + 1 < len(pattern) else 8
+        start = (bar * 8 + slot) * eighth_s
+        velocity = 80 if slot == 0 else 75 if slot == 4 else 70
+        end = start + LENGTH_FACTOR * (nxt - slot) * eighth_s
+        out.append(Note(start_s=start, end_s=end, pitch=pitch, velocity=velocity, confidence=1.0))
+    return out
+
+
+def _check_allowed(allowed_pitches: Sequence[frozenset[int]], n_bars: int) -> None:
+    if len(allowed_pitches) != n_bars:
+        raise ValueError("allowed_pitches needs one set per bar.")
+    if any(not pitches for pitches in allowed_pitches):
+        raise ValueError("allowed_pitches has an empty set.")
+
+
+def _phrase_offsets(n_bars: int) -> list[int]:
+    return [k for length in split_phrases(n_bars) for k in range(length)]
+
+
+def generate_tune(
+    *,
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int = 1,
+    tempo_bpm: float = 100.0,
+    seed: int | None = None,
+    tessitura_center: int,
+    allowed_pitches: Sequence[frozenset[int]],
+    final_whole_note: bool = True,
+    pitch_prior: Sequence[Note] | None = None,
+    stats: TuneStats | None = None,
+) -> list[Note]:
+    """A melody over ``progression`` from the statistics of real tunes (spec 5.2).
+
+    Notes sit on the eighth grid, every note of bar ``b`` in
+    ``allowed_pitches[b]``, none crossing a bar line; with ``final_whole_note``
+    the last bar is one held cadence note. Deterministic for a seed.
+    """
+    n_bars = len(progression) * bars_per_chord
+    _check_allowed(allowed_pitches, n_bars)
+    stats = stats if stats is not None else load_tune_stats()
+    rng = np.random.default_rng(seed)
+    plan = plan_rhythm(n_bars, tempo_bpm, rng, stats, final_whole_note=final_whole_note)
+    eighth_s = 30.0 / tempo_bpm
+    center = tessitura_center
+    piece = _Piece(scale, stats, center, pitch_prior, eighth_s)
+    chords = [progression[b // bars_per_chord] for b in range(n_bars)]
+    candidates = [_bar_candidates(scale, chords[b], allowed_pitches[b]) for b in range(n_bars)]
+    final_pc = cadence_pc(scale, progression[-1])
+    approach = _approach_sets(plan, candidates, {p for p in candidates[-1] if p % 12 == final_pc})
+    offsets = _phrase_offsets(n_bars)
+
+    voice = _Voice()
+    out: list[Note] = []
+    bar_moves: list[list[int]] = []
+    last_with: dict[Pattern, int] = {}
+    for bar, rhythm in enumerate(plan):
+        chord, final_bar = chords[bar], bar == n_bars - 1
+        ladder = chord_scale_pcs(scale, chord)
+        replay = None
+        if not final_bar:
+            replay = _replay_moves(rng, bar, rhythm, offsets[bar] < 2, bar_moves, last_with)
+        replaced = 0
+        pitches: list[int] = []
+        for k, slot in enumerate(rhythm.pattern):
+            last = k == len(rhythm.pattern) - 1
+            spot = _Spot(
+                slot=slot,
+                onset_s=(bar * 8 + slot) * eighth_s,
+                chord=chord,
+                ladder=ladder,
+                change=voice.prev_chord is not None and chord != voice.prev_chord,
+                feasible=approach.get((bar, k)),
+                phrase_end=last and rhythm.role == "cadence" and not final_bar,
+            )
+            if final_bar and last:
+                pitch = final_target(scale, progression[-1], candidates[bar], voice.ref(center))
+            else:
+                pool = _pool(spot, allowed_pitches[bar], voice.prev, scale)
+                want = None
+                if replay is not None and replaced < MAX_REPLAY_REPLACEMENTS:
+                    want = _replayed(pool, replay, k, rhythm.pattern, spot, voice.ref(center))
+                    replaced += want not in pool
+                if want is not None and want in pool:
+                    pitch = want
+                else:
+                    pitch = _sample(rng, pool, _weights(pool, spot, voice, piece))
+            voice.advance(pitch, spot)
+            pitches.append(pitch)
+        bar_moves.append([scale_steps(a, b, ladder) for a, b in pairwise(pitches)])
+        last_with[rhythm.pattern] = bar
+        out.extend(_notes(bar, rhythm.pattern, pitches, eighth_s))
+    return out
