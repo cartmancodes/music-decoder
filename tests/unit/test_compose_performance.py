@@ -168,11 +168,22 @@ def test_let_ring_never_shortens_and_keeps_the_final_bar_and_melody():
             assert new.note == old.note
 
 
+def _assert_no_unison_overlap_before_the_final_bar(prog, a, bars, tempo):
+    final_start = (len(prog) * bars - 1) * 240.0 / tempo
+    by_pitch: dict[int, list[Note]] = {}
+    for n in a.accompaniment:
+        if n.start_s < final_start - 1e-6:
+            by_pitch.setdefault(n.pitch, []).append(n)
+    for notes in by_pitch.values():
+        for x, y in itertools.pairwise(notes):  # accompaniment is time-sorted
+            assert x.end_s <= y.start_s + 1e-9, (x, y)
+
+
 @pytest.mark.parametrize("tuning", sorted(PRESETS))
 @pytest.mark.parametrize("bars", [1, 2])
 def test_let_ring_leaves_no_same_pitch_overlap_in_the_accompaniment(tuning, bars):
     # A unison on two strings would overlap in the on-grid MIDI that DAWs and
-    # productionize read: the ringing note stops 1 ms before the next one.
+    # productionize read: the earlier note stops 1 ms before the next one.
     # The final roll is v4's and outside let-ring: every note of it rings to
     # the end (A4), so a unison inside it still overlaps.
     progressions = [
@@ -186,14 +197,15 @@ def test_let_ring_leaves_no_same_pitch_overlap_in_the_accompaniment(tuning, bars
         prog, a = _fs(
             labels, key=key, mode=mode, seed=seed, bars=bars, tempo=90.0, tuning=PRESETS[tuning]
         )
-        final_start = (len(prog) * bars - 1) * 240.0 / 90.0
-        by_pitch: dict[int, list[Note]] = {}
-        for n in a.accompaniment:
-            if n.start_s < final_start - 1e-6:
-                by_pitch.setdefault(n.pitch, []).append(n)
-        for notes in by_pitch.values():
-            for x, y in itertools.pairwise(notes):  # accompaniment is time-sorted
-                assert x.end_s <= y.start_s + 1e-9, (labels, seed, x, y)
+        _assert_no_unison_overlap_before_the_final_bar(prog, a, bars, 90.0)
+
+
+def test_let_ring_shortens_a_thumb_note_under_a_unison():
+    # The thumb's G (string 2, fret 5 in Drop C) would ring past an open G
+    # string plucked an eighth later; it now ends 1 ms before it.
+    labels = ("Esus4", "G7", "C#sus4", "Fsus4")
+    prog, a = _fs(labels, key="E", mode="minor", seed=2, tempo=140.0, tuning=PRESETS["Drop_C"])
+    _assert_no_unison_overlap_before_the_final_bar(prog, a, 1, 140.0)
 
 
 def test_arrange_melody_matches_its_tab():

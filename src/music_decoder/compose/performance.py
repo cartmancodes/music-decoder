@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import math
 from collections.abc import Sequence
 
 import numpy as np
@@ -157,17 +158,17 @@ def let_ring(
     """Let the accompaniment ring. Spec 5.1, let-ring.
 
     Each accompaniment note outside the final bar, in time order, rings to
-    the next onset on its string (any note of the part), :data:`RELEASE_GAP_S`
-    before the next accompaniment onset of its pitch (a unison on another
-    string; a same-pitch overlap would let its note-off silence the second
-    note) or its bar's end, whichever comes first, but is cut at the first
-    onset ``t`` in between
+    the next onset on its string (any note of the part) or its bar's end,
+    whichever comes first, but is cut at the first onset ``t`` in between
     where (a) the notes sounding at ``t`` with it ringing are not
     :func:`moment_playable`, (b) a melody note starting at ``t`` is not above
     it, or (c) a melody note starting at ``t`` is less than
     ``THIN_MARGIN_SEMITONES`` above it and it is not an essential tone of
-    the bar's chord. No note gets shorter than it was; the final bar and the
-    melody are unchanged.
+    the bar's chord. No note gets shorter than it was, except that every
+    one ends at least :data:`RELEASE_GAP_S` before the next accompaniment
+    onset of its pitch (a unison on another string): a same-pitch overlap
+    would let its note-off silence the second note in the MIDI. The final
+    bar and the melody are unchanged.
     """
     bar_s = 4.0 * 60.0 / tempo_bpm
     final_start = (len(progression) * bars_per_chord - 1) * bar_s
@@ -181,18 +182,21 @@ def let_ring(
             continue
         bar = int((start + _EPS_S) // bar_s)
         essential = essential_pcs(progression[bar // bars_per_chord])
+        unison = min(
+            (
+                x.note.start_s - RELEASE_GAP_S
+                for x in accompaniment
+                if x.note.pitch == p and x.note.start_s > start + _EPS_S
+            ),
+            default=math.inf,
+        )
         end = min(
             [
                 x.note.start_s
                 for x in (*melody, *accompaniment)
                 if x.position.string == string and x.note.start_s > start + _EPS_S
             ]
-            + [
-                x.note.start_s - RELEASE_GAP_S
-                for x in accompaniment
-                if x.note.pitch == p and x.note.start_s > start + _EPS_S
-            ]
-            + [(bar + 1) * bar_s]
+            + [(bar + 1) * bar_s, unison]
         )
         for t in onsets:
             if not start + _EPS_S < t < end - _EPS_S:
@@ -207,7 +211,8 @@ def let_ring(
             ):
                 end = t
                 break
-        if end > a.note.end_s:
+        end = min(max(end, a.note.end_s), unison)
+        if end != a.note.end_s:
             accompaniment[i] = _with_end(a, end)
     return dataclasses.replace(part, accompaniment_tab=tuple(accompaniment))
 
