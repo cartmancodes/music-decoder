@@ -250,7 +250,9 @@ music-decoder analyze rock.wav --tuning "Drop D" --format json | jq '.chord_prog
 music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
                        [--style arpeggio | strum | fingerstyle]
                        [--tempo BPM] [--bars N] [--seed N]
-                       [--tuning ...] --out DIR
+                       [--tuning ...] [--sound soundfont | plucked]
+                       [--candidates N] [--rank-audio]
+                       [--melody-model none | amt] --out DIR
                        [--format pretty | json]
 ```
 
@@ -269,6 +271,24 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
 - `--seed` — integer; same seed → same music (for a given
   `metadata.composer_version`). Default: a fresh random seed each run.
 - `--tuning` — same set as `analyze`. Default `EADGBE`.
+- `--sound soundfont | plucked` — how the WAV sounds. `soundfont`
+  (default) is the General MIDI guitar from the soundfont; `plucked` is a
+  built-in string model (an extended Karplus–Strong voice per note, placed
+  on the string and fret the tab says) with no soundfont needed. Only the
+  WAV changes: the MIDI and the tab are the same for both.
+- `--candidates N` — `fingerstyle` only (the other styles ignore it). The
+  composer writes N pieces and keeps the one with the best score from the
+  tool's own measures of a good tune. Default `12`; `1` gives a single
+  piece. Must be ≥ 1.
+- `--rank-audio` — `fingerstyle` only. Instead of trusting the score
+  alone, render the best 4 candidates and let Audiobox Aesthetics (a
+  pretrained model that rates how enjoyable and how well produced a clip
+  sounds) break the tie. Needs the `ml` extra, see
+  [Optional models](#optional-models-the-ml-extra).
+- `--melody-model none | amt` — `fingerstyle` only. With `amt` a pretrained
+  melody model, the Anticipatory Music Transformer, proposes a tune over
+  the bass line, and the composer uses the proposal as a soft hint: its own
+  rules still decide every note. Needs the `ml` extra. Default `none`.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
 
@@ -350,6 +370,34 @@ JSON output for programmatic consumption:
 music-decoder compose --scale C:major --progression "C G Am F" \
   --seed 1 --out ./out --format json | jq '.metadata'
 ```
+
+The v5 options, on a fingerstyle piece (the second and third need the `ml`
+extra, see [Optional models](#optional-models-the-ml-extra)):
+
+```bash
+# the plucked-string sound instead of the soundfont guitar
+music-decoder compose --scale C:major --progression "C G Am F" --bars 2 \
+  --seed 601 --sound plucked --out ./out
+
+# keep the best of 12 (the default) by the symbolic score, then let the
+# audio model choose among the best 4
+music-decoder compose --scale A:minor --progression "Am Dm E7 Am" --bars 2 \
+  --seed 602 --rank-audio --out ./out
+
+# let the Anticipatory Music Transformer propose the tune
+music-decoder compose --scale E:minor --progression "Em C G D" --bars 2 \
+  --seed 604 --tuning DADGAD --melody-model amt --out ./out
+
+# one single piece, no choice among candidates
+music-decoder compose --scale C:major --progression "C G Am F" \
+  --seed 1 --candidates 1 --out ./out
+```
+
+Measured on an Apple M4 (CPU), an 8-bar fingerstyle piece takes about 1–2
+seconds with the defaults, 2–4 seconds with `--sound plucked`, 6–8 seconds
+with `--rank-audio` (it renders and scores 4 candidates) and 24–29 seconds
+with `--melody-model amt` (the model is loaded on every call). Only the
+chosen candidate's MIDI, WAV and tab are kept.
 
 ### `productionize` — master a composition for release
 
@@ -482,7 +530,35 @@ whether the Demucs weights are cached. Returns non-zero on any failure
 music-decoder fetch-models                 # Demucs weights + GeneralUser GS soundfont
 music-decoder fetch-models --no-soundfont  # Demucs only
 music-decoder fetch-models --no-demucs     # soundfont only
+music-decoder fetch-models --composer-models  # also Audiobox Aesthetics + AMT (~930 MB, needs the `ml` extra)
 ```
+
+### Optional models: the `ml` extra
+
+Two optional models help `compose` and are never needed for anything else.
+They are not part of the default install, and no default code path or test
+imports them:
+
+| Model | Used by | Download | Licence |
+|---|---|---|---|
+| Audiobox Aesthetics (`facebook/audiobox-aesthetics`) | `compose --rank-audio` | ~415 MB | CC-BY-4.0 (Meta) |
+| Anticipatory Music Transformer (`stanford-crfm/music-small-800k`) | `compose --melody-model amt` | ~512 MB (a pickled `pytorch_model.bin`, read with torch's weights-only loader) | Apache-2.0 (Stanford CRFM) |
+
+Install the Python packages and fetch both weights (about 930 MB in the
+Hugging Face cache, `~/.cache/huggingface/hub`):
+
+```bash
+pip install -e ".[ml]"                      # transformers, huggingface_hub, audiobox_aesthetics, anticipation
+music-decoder fetch-models --composer-models
+```
+
+The `ml` extra pulls in `transformers`, `huggingface_hub`,
+`audiobox_aesthetics`, `tqdm` and `anticipation` (not on PyPI, so it is
+pinned to a git commit; this needs `git` on the PATH). Each download pins a
+model revision and sends no token. Both models run on the CPU, so a seed
+gives the same result every time. If you ask for `--rank-audio` or
+`--melody-model amt` without the extra or the weights, the command stops
+before doing any work with an error that names both fixes.
 
 ### `fetch-samples` — pre-download production samples
 
@@ -597,6 +673,28 @@ print(result.midi_path)   # ./out/20260508T...-.../composition.mid
 print(result.wav_path)    # ./out/20260508T...-.../composition.wav
 print(result.ascii_tab)
 ```
+
+`compose()`'s signature is frozen. In composer version 5 it keeps the best of
+12 fingerstyle candidates. To choose the sound, the number of candidates or the
+optional models, call `compose_with_options()` from
+`music_decoder.compose.api` (it is not exported from the package):
+
+```python
+from music_decoder.compose.api import compose_with_options
+
+result = compose_with_options(
+    Scale("C", "major"),
+    [ChordSymbol.parse(c) for c in ("C", "G", "Am", "F")],
+    bars_per_chord=2, seed=601, out_dir=Path("./out"),
+    sound="plucked",          # or "soundfont" (default)
+    candidates=12,            # fingerstyle pieces to write; the best is kept
+    rank_audio=False,         # True needs the `ml` extra and the weights
+    melody_model=None,        # "amt" needs the `ml` extra and the weights
+)
+```
+
+Asking for `rank_audio` or `melody_model="amt"` without the extra or the
+weights raises `music_decoder.compose.ml.MLUnavailableError`.
 
 ### `productionize()`
 
@@ -753,7 +851,8 @@ analyze will re-download.
 Per-take directory: `<out_dir>/<timestamp>-<hash>/`.
 
 - `composition.mid` — the MIDI score (two tracks: melody, accompaniment).
-- `composition.wav` — the rendered audio at 22050 Hz, 16-bit PCM.
+- `composition.wav` — the rendered audio, 16-bit PCM: 22050 Hz with the
+  default soundfont sound, 44100 Hz mono with `--sound plucked`.
 
 `<timestamp>` is `YYYYmmddTHHMMSS` (UTC-naive local clock).
 `<hash>` is the first 8 hex chars of `sha1(scale | progression |
@@ -897,10 +996,29 @@ same conventions:
     "style": "fingerstyle",
     "seed": 42,
     "tuning": "EADGBE",
-    "composer_version": 4
+    "composer_version": 5,
+    "sound": "soundfont",
+    "candidates": 12,
+    "chosen_candidate": 7,
+    "score": 12.80,
+    "final_fallback": false,
+    "identity_misses": [],
+    "rank_audio": false,
+    "audio_scores": null,
+    "melody_model": null
   }
 }
 ```
+
+The metadata keys added in version 5: `sound` (`soundfont` or `plucked`);
+`candidates` (how many fingerstyle pieces were written; `1` for strum and
+arpeggio) and `chosen_candidate` (the index of the one kept); `score` (its
+symbolic score, `null` for strum and arpeggio); `final_fallback` (true when
+the final chord could not be re-voiced under the final note);
+`identity_misses` (the 0-based bars whose accompaniment alone lacks an
+essential tone); `rank_audio` (was the audio re-rank on), `audio_scores`
+(`{"CE": ..., "PQ": ...}` of the chosen candidate, or `null`) and
+`melody_model` (`"amt"` or `null`).
 
 In `chord_voicings[i].positions`, `fret = -1` means the string is
 muted (not played).
@@ -1194,8 +1312,9 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 ### Composition style choices
 
 - **`fingerstyle`** — one guitar part that one person can play from the
-  tab. The fretting hand holds the chord shape (the same one the Chords
-  block shows) and everything else is picked inside it:
+  tab. In each bar the fretting hand holds one shape of the chord and
+  everything else is picked inside it (the shape may change from bar to
+  bar, see below):
   - the thumb plays a **Travis bass**, a quarter note on every beat,
     alternating the root (beats 1 and 3) with another string of the shape
     (beats 2 and 4);
@@ -1206,8 +1325,7 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   - the **melody** is chosen only from notes the held shape can reach
     (open strings, or frets near the shape) on the top strings, always
     the highest note when it starts and never on a string the thumb is
-    using, so its range is about one octave, narrower than strum or
-    arpeggio;
+    using;
   - the **final bar** is one held melody note over one rolled chord. The
     roll may be voiced differently from the bar's shape so that every
     chord tone, the third and seventh included, sounds under the held note
@@ -1219,17 +1337,65 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   ballads, folk and slow tempos. It is the default because it sounds
   reasonable on most progressions.
 
-  One limit: the shape is fixed and the melody's pitches are never changed
-  to fit the chord. So in a bar of a seventh chord (`maj7`, `min7`, `7`)
-  the accompaniment alone occasionally lacks the seventh or the third (the
-  melody usually sounds it). On the evaluation matrices this affects
-  roughly 2-6% of all bars, and every plain triad bar there keeps every
-  chord tone. A triad bar can also miss, when the melody holds the only
-  string the missing tone can go on; this is rare, and mostly augmented
-  chords. And for a few endings, mostly diminished (and rarely augmented)
-  chords, no roll can put every chord tone under the held note: the piece
-  then ends on a thinned, still playable roll of the bar's shape, and
-  `final_fallback` in the arrangement says so.
+  What composer version 5 adds to fingerstyle:
+
+  - **Per-bar shapes.** Each bar may use a different shape of its chord
+    (open, or a barre up to the 9th fret). The composer picks the
+    sequence by dynamic programming: it prefers shapes that keep the third
+    and seventh playable under the melody, shapes that reach more melody
+    notes, open and library shapes, a melody range centred on G4, and a
+    small hand movement between bars. A chord held for several bars
+    usually keeps its shape. After the part is written, any bar whose
+    accompaniment alone still lacks an essential tone is tried with the
+    other shapes (the melody's pitches never change) and kept only if
+    playability and identity both hold. In the evaluation matrices this
+    removes the old 2-6% of seventh-chord bars that lost their seventh,
+    and widens the melody by 2-3 semitones. The **Chords** block under the
+    tab lists every shape the piece used, in order of first use.
+  - **Hooks, an arch, peaks and form.** The first bar's first two to four
+    notes are the **hook**: every opening phrase restates it, transposed to
+    the chord, and the answering phrase restates it with exactly one
+    interval or one rhythm changed. Each four-bar phrase follows an
+    **arch**, rising to **one** unique highest note (its peak, 55-75% of
+    the way through) and falling to the cadence. Pieces of 16 bars or more
+    (four phrases) follow **A A' B A'**, where B has a contrasting rhythm
+    and sits at least two semitones higher; an 8-bar piece has two
+    phrases, A A'. The hard melody rules and the reach sets still apply.
+  - **Expressive performance.** The velocities in the MIDI are no longer
+    flat: the melody is at least 8 louder than the accompaniment sounding
+    with it, strong beats are louder, each phrase swells toward its peak
+    and falls to the cadence, thumb notes on beats 1 and 3 are louder than
+    on 2 and 4, fills are softest, and every velocity stays in 30-118.
+    Accompaniment notes **let ring**: they last until their string is
+    plucked again or the bar ends, and are cut short wherever ringing on
+    would break playability or sit at or above a starting melody note. The
+    tab still draws onsets only.
+  - **Audio-only micro-timing.** The WAV is rendered from a temporary
+    performance MIDI whose onsets move by at most +-6 ms (seeded, so the
+    WAV repeats). The strokes of one chord stay together, the final roll
+    keeps its stagger, and `composition.mid` and the tab stay exactly on
+    the eighth-note grid.
+  - **Best of 12.** The composer writes 12 pieces (`--candidates`) and
+    keeps the one with the best score. The score is a weighted sum of the
+    tool's own measures: accompaniment identity, melody above the
+    accompaniment, chord tones on strong beats, stepwise motion, rhythm
+    variety, hook, peak, arch and range, minus repeated notes, hand
+    movement and a final-chord fallback (the weights are in
+    `compose/scoring.py`). `--rank-audio` re-ranks the best 4 with
+    Audiobox Aesthetics.
+  - **Melody model.** `--melody-model amt` asks the Anticipatory Music
+    Transformer for one tune per piece over the thumb pattern. Its notes
+    are quantised to the eighth-note grid and become a soft bonus in the
+    pitch scoring: the hard rules, the reach sets and the cadence still
+    decide, so the result is as playable as without the model.
+
+  Limits. The melody's pitches are never changed to fit the chord, and in
+  rare cases an accompaniment bar still lacks an essential tone, which
+  `identity_misses` lists. For a few endings, mostly diminished (and
+  rarely augmented) chords, no roll can put every chord tone under the held
+  note: the piece then ends on a thinned, still playable roll of the bar's
+  shape, and `final_fallback` says so. The best-of-12 score picks against
+  both.
 - **`strum`** — a pop strum on the eighth-note grid (down, down-up,
   up-down-up), with strings staggered a few milliseconds like a real
   pick stroke. Best for pop and rock progressions.
@@ -1241,7 +1407,9 @@ would sit on or just under the melody (never the bass, and never the notes
 that make the chord's shape major, minor or a seventh), and the piece ends
 on one ringing chord. In `fingerstyle` nothing is left out after the fact:
 the melody is chosen to fit the held shape, and the piece ends on a held
-melody note over one rolled chord. The melody is written in four-bar phrases with a
+melody note over one rolled chord. `strum` and `arpeggio` are unchanged by
+composer version 5: no per-bar shapes, no dynamics, no candidates, and
+`--sound plucked` is their only new option. The melody is written in four-bar phrases with a
 repeated motif, resolves leading tones, follows altered chords (G# over
 E7 in A minor), and ends on a long tonic (or on the last chord's root
 if that chord does not contain the tonic).
@@ -1263,7 +1431,7 @@ guarantee its random streams across releases). Useful for:
   music-decoder compose --seed $s ...; done`.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `4`). Version 2 (November
+in `metadata.composer_version` (currently `5`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
 (more musical) take. Version 3 (November 2026) plays a faithful,
@@ -1273,7 +1441,16 @@ wider than a fifth is rare, arpeggiates one chord and steps back), so
 a seed saved from version 2 also gives a different take. Version 4
 (November 2026) makes `fingerstyle` one playable guitar part, so a
 seed gives a different `fingerstyle` take than in version 3; `strum`
-and `arpeggio` output is unchanged from version 3. Compose
+and `arpeggio` output is unchanged from version 3. Version 5
+(November 2026) again changes only `fingerstyle`: it picks a shape per
+bar, writes a hook and a phrase arch, performs the part with dynamics and
+let-ring, and keeps the best of 12 candidates. A seed saved from version 4
+therefore gives a different `fingerstyle` piece, and the seed now
+names the best of 12 pieces, not one (the chosen index is
+`metadata.chosen_candidate`). `--candidates`, `--rank-audio` and
+`--melody-model` change which piece a seed gives; `--sound` and the audio
+micro-timing change only the WAV. The same seed with the same options is
+reproducible with or without the models. Compose
 output does not depend on `config/hyperparameters.yaml` or
 `MUSIC_DECODER_HYPERPARAMETERS`.
 
@@ -1385,6 +1562,11 @@ music-decoder analyze song.mp3 --format json | jq '.chord_progression'
 # Compose a piece
 music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" \
                        --style fingerstyle --tempo 100 --seed 42 --out ./out
+
+# ...with the plucked-string sound, or the optional models (`pip install -e ".[ml]"`
+# and `music-decoder fetch-models --composer-models` first)
+music-decoder compose --scale C:major --progression "C G Am F" --bars 2 --seed 601 \
+                       --sound plucked --rank-audio --melody-model amt --out ./out
 
 # Master it for release (WAV + MP3 + stems + checks)
 music-decoder productionize ./out/<take-folder> --out ./release --name my_track
