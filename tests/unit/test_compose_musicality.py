@@ -36,6 +36,11 @@ from music_decoder.types import ChordSymbol, Scale
 
 BASELINE_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_baseline.json"
 V2_PATH = Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v2.json"
+V4_FS = json.loads(
+    (
+        Path(__file__).parents[1] / "fixtures" / "compose" / "musicality_v4_fingerstyle.json"
+    ).read_text()
+)
 GROUPS = ("overall", "major", "minor", "bars1", "bars2")
 
 # Higher is better / lower is better; every subgroup must beat the baseline.
@@ -308,3 +313,46 @@ def test_same_seed_same_music():
     a = arrange(Scale("A", "minor"), progression, bars_per_chord=2, seed=1003)
     b = arrange(Scale("A", "minor"), progression, bars_per_chord=2, seed=1003)
     assert a == b
+
+
+# ---- v5 feature 2: per-bar chord shapes (spec 2026-11-16 section 6) ----------
+
+
+@pytest.mark.parametrize("matrix", ALL_MATRICES)
+def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix):
+    o = {**all_reports, **reserve_report}[matrix]["overall"]
+    # v5 ruling F5f: back to the spec target on every matrix. F2b had gated reserve at
+    # 0.98 (0.9888 at one candidate); best of 12 measures 1.0 there.
+    assert o["P3"]["mean"] >= 0.99
+    # v5 ruling F2a: the +2 target moves to feature 3; feature 2 must not narrow the melody
+    if matrix != "reserve":
+        assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] - 0.5
+    # v5 ruling F2d: reserve F.M6 10.16 vs v4 10.9 is judged by feature 3's v4+2 target
+    assert o["F.shape_moves"]["mean"] <= 0.5
+
+
+# ---- v5 feature 3: hooks, contour, peaks and form (spec 2026-11-16 section 6.5) ----
+
+
+@pytest.mark.parametrize("matrix", ALL_MATRICES)
+def test_phrase_shaping_targets(all_reports, reserve_report, matrix):
+    o = {**all_reports, **reserve_report}[matrix]["overall"]
+    # v5 rulings F2a/F2d: +2 semitones over v4. v5 ruling F5f: back to +2 on every matrix.
+    # F3c had gated holdout at +1.85 (+1.88 at one candidate); best of 12 measures +2.20.
+    assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + 2
+    if matrix == "validation":
+        assert o["F.hook"]["mean"] >= 0.75
+        assert o["F.peak"]["mean"] >= 0.9
+        assert o["F.arch"]["mean"] >= 0.5
+        # v5 ruling F3b: v3 singability guards
+        assert o["F.M1"]["mean"] >= 0.95
+        assert o["F.M3"]["mean"] <= 0.15
+        assert o["F.M5"]["pooled"] >= 0.70
+        assert o["F.M11b"]["mean"] >= 0.60
+
+
+# ---- v5 feature 4: best of twelve candidates by a symbolic score (spec 2026-11-16 5.4) ----
+
+
+def test_fingerstyle_cases_use_best_of_twelve(report):
+    assert report["validation"]["overall"]["F.score"]["mean"] > 0

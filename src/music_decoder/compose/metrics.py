@@ -287,6 +287,99 @@ def motif_contour_match(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -
     return sum(scores) / len(scores) if scores else None
 
 
+PEAK_WINDOW = (0.55, 0.75)  # where in a phrase (fraction of its duration) the peak belongs
+ARCH_PEAK = 0.65  # the arch target rises to its apex here, then falls
+_HOOK_NOTES = 4  # the hook cell spans at most this many notes (so 3 intervals)
+_HOOK_TOLERANCE = 1  # semitones a restated interval may differ by
+
+
+def hook_cell(melody: Sequence[Note], tempo_bpm: float) -> tuple[int, ...]:
+    """The hook: the intervals between the first (up to 4) notes of bar 0."""
+    notes = _bar_notes(melody, 0, tempo_bpm)[:_HOOK_NOTES]
+    return tuple(intervals(notes))
+
+
+def hook_restatements(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -> float | None:
+    """Share of the phrases after the first whose first bar opens with the hook's
+    intervals, each within a semitone. None without a hook or a second phrase."""
+    cell = hook_cell(melody, tempo_bpm)
+    lengths = phrase_layout(n_bars).phrase_lengths
+    if not cell or len(lengths) < 2:
+        return None
+    hits, start = 0, lengths[0]
+    for length in lengths[1:]:
+        opening = intervals(_bar_notes(melody, start, tempo_bpm)[: len(cell) + 1])
+        hits += len(opening) == len(cell) and all(
+            abs(a - b) <= _HOOK_TOLERANCE for a, b in zip(opening, cell, strict=True)
+        )
+        start += length
+    return hits / (len(lengths) - 1)
+
+
+def _phrase_notes(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -> list[list[Note]]:
+    """The notes of each phrase, with onsets in [first bar start, last bar end)."""
+    bar_s = 4.0 * _beat_s(tempo_bpm)
+    out: list[list[Note]] = []
+    start = 0
+    for length in phrase_layout(n_bars).phrase_lengths:
+        lo, hi = start * bar_s - 1e-6, (start + length) * bar_s - 1e-6
+        out.append([n for n in melody if lo <= n.start_s < hi])
+        start += length
+    return out
+
+
+def _phrase_fractions(
+    melody: Sequence[Note], tempo_bpm: float, n_bars: int
+) -> list[list[tuple[float, int]]]:
+    """Per phrase of 3+ notes: (onset as a fraction of the phrase span, pitch) per note."""
+    bar_s = 4.0 * _beat_s(tempo_bpm)
+    out: list[list[tuple[float, int]]] = []
+    start = 0
+    for length, notes in zip(
+        phrase_layout(n_bars).phrase_lengths, _phrase_notes(melody, tempo_bpm, n_bars), strict=True
+    ):
+        t0, span = start * bar_s, length * bar_s
+        start += length
+        if len(notes) >= 3:
+            out.append([((n.start_s - t0) / span, n.pitch) for n in notes])
+    return out
+
+
+def peak_uniqueness(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -> float | None:
+    """Share of the phrases (3+ notes) whose highest pitch sounds once, inside PEAK_WINDOW."""
+    phrases = _phrase_fractions(melody, tempo_bpm, n_bars)
+    hits = 0
+    for notes in phrases:
+        top = max(pitch for _, pitch in notes)
+        at_top = [x for x, pitch in notes if pitch == top]
+        hits += len(at_top) == 1 and PEAK_WINDOW[0] <= at_top[0] <= PEAK_WINDOW[1]
+    return _ratio(hits, len(phrases))
+
+
+def _arch(x: float) -> float:
+    return x / ARCH_PEAK if x <= ARCH_PEAK else (1.0 - x) / (1.0 - ARCH_PEAK)
+
+
+def _pearson(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    if sxx == 0 or syy == 0:
+        return None
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / math.sqrt(sxx * syy)
+
+
+def contour_arch(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -> float | None:
+    """Mean over phrases (3+ notes, non-constant pitch) of the correlation between
+    the note pitches and a rise-then-fall arch peaking at ARCH_PEAK of the phrase."""
+    scores: list[float] = []
+    for notes in _phrase_fractions(melody, tempo_bpm, n_bars):
+        r = _pearson([_arch(x) for x, _ in notes], [float(pitch) for _, pitch in notes])
+        if r is not None:
+            scores.append(r)
+    return sum(scores) / len(scores) if scores else None
+
+
 def phrase_end_long_ratio(melody: Sequence[Note], tempo_bpm: float, n_bars: int) -> float:
     """M12: share of the layout's phrase-final bars whose last note lasts >= 1.5 beats."""
     beat = _beat_s(tempo_bpm)
@@ -636,3 +729,33 @@ def tab_consistent(notes: Sequence[Note], tab: Sequence[TabbedNote], tuning: Tun
     return all(
         t.note.pitch == tuning.open_pitches[t.position.string] + t.position.fret for t in tab
     )
+
+
+def shape_moves(bar_voicings: Sequence[VoicedChord], tuning: Tuning) -> float | None:
+    """F.shape_moves (v5 spec 5.2): share of consecutive bar pairs whose hand
+    windows differ in their lowest fret. ``None`` with fewer than 2 bars."""
+    # Imported here: fingerstyle imports this module.
+    from music_decoder.compose.fingerstyle import hand_shape
+
+    lows = [hand_shape(v, tuning).window[0] for v in bar_voicings]
+    moves = [a != b for a, b in pairwise(lows)]
+    return _ratio(sum(moves), len(moves))
+
+
+# ---- performance (v5 spec 5.1) ----------------------------------------------
+
+
+def velocity_spread(notes: Sequence[Note]) -> float | None:
+    """F.vel_std: population standard deviation of the notes' velocities.
+    ``None`` without notes."""
+    if not notes:
+        return None
+    mean = sum(n.velocity for n in notes) / len(notes)
+    return math.sqrt(sum((n.velocity - mean) ** 2 for n in notes) / len(notes))
+
+
+def mean_length_beats(notes: Sequence[Note], tempo_bpm: float) -> float | None:
+    """F.ring: mean sounding length of the notes, in beats. ``None`` without notes."""
+    if not notes:
+        return None
+    return sum(n.end_s - n.start_s for n in notes) / len(notes) / _beat_s(tempo_bpm)

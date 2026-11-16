@@ -20,7 +20,12 @@ fingerstyle use that melody. The fingerstyle part adds ``P1`` (playability),
 ``P2`` (melody on top at every onset), ``P3`` and ``P3m`` (the share of bars
 whose accompaniment alone, or with the melody, sounds every essential tone),
 ``P3t`` (``P3`` over triad-family bars only), ``P4`` (tab = MIDI) and ``P5``
-(the final-voicing fallback).
+(the final-voicing fallback). ``F.shape_moves`` is the share of consecutive
+bars whose fingerstyle hand window moves (v5 spec 5.2). ``F.hook``, ``F.peak``
+and ``F.arch`` score the fingerstyle melody's hook restatement, unique phrase
+peak and rise-then-fall contour (v5 spec 5.3). Fingerstyle is arranged best
+of ``FINGERSTYLE_CANDIDATES`` = 12, as ``compose()`` does, and ``F.score`` is
+the chosen candidate's symbolic score (v5 spec 5.4).
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ VALIDATION_SEEDS = tuple(range(1000, 1005))
 EDGE_SEEDS = tuple(range(1000, 1010))
 HOLDOUT_SEEDS = tuple(range(3000, 3005))
 RESERVE_SEEDS = tuple(range(4000, 4005))
+FINGERSTYLE_CANDIDATES = 12  # compose()'s default (v5 spec 5.4)
 DEVELOPMENT_MATRICES = ("validation", "edge", "tunings")
 ACCEPTANCE_MATRICES = ("holdout",)
 RESERVE_MATRICES = ("reserve",)
@@ -225,7 +231,9 @@ def build_cases(inputs: Iterable[Inputs], tuning: Tuning = STANDARD_EADGBE) -> l
             seed=seed,
         )
         # The strum melody is the shared melody strum and arpeggio accompany.
-        arr, fingerstyle = styled(style="strum"), styled(style="fingerstyle")
+        # v5 spec 5.4: fingerstyle is evaluated as compose() writes it, best of twelve.
+        arr = styled(style="strum")
+        fingerstyle = styled(style="fingerstyle", candidates=FINGERSTYLE_CANDIDATES)
         acc: dict[str, tuple[Note, ...]] = {
             "strum": arr.accompaniment,
             "arpeggio": accompany(
@@ -301,7 +309,8 @@ def _melody_metrics(
 
 
 def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
-    """P1-P5: the fingerstyle part as one guitar part (spec 5.4, 6)."""
+    """P1-P5: the fingerstyle part as one guitar part (spec 5.4, 6); F.vel_std and
+    F.ring: its performance (v5 spec 5.1)."""
     fs, prog, bars = case.fingerstyle, case.progression, case.bars_per_chord
     identity = metrics.bar_identity(fs.accompaniment, prog, bars, TEMPO_BPM)
     with_melody = metrics.bar_identity((*fs.accompaniment, *fs.melody), prog, bars, TEMPO_BPM)
@@ -321,6 +330,17 @@ def _fingerstyle_part_metrics(case: Case) -> dict[str, Value]:
             (*fs.melody, *fs.accompaniment), (*fs.melody_tab, *fs.accompaniment_tab), case.tuning
         ),
         "P5": fs.final_fallback,
+        # v5 spec 5.1: the performance (velocity spread, accompaniment ring in beats)
+        "F.vel_std": metrics.velocity_spread((*fs.melody, *fs.accompaniment)),
+        "F.ring": metrics.mean_length_beats(fs.accompaniment, TEMPO_BPM),
+        # v5 spec 5.2: the share of bar changes that move the hand window
+        "F.shape_moves": metrics.shape_moves(fs.bar_voicings, case.tuning),
+        # v5 spec 5.3: the hook's restatements, the unique mid-late peak, the arch contour
+        "F.hook": metrics.hook_restatements(fs.melody, TEMPO_BPM, case.n_bars),
+        "F.peak": metrics.peak_uniqueness(fs.melody, TEMPO_BPM, case.n_bars),
+        "F.arch": metrics.contour_arch(fs.melody, TEMPO_BPM, case.n_bars),
+        # v5 spec 5.4: the chosen candidate's symbolic score
+        "F.score": fs.score,
     }
 
 

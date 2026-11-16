@@ -72,8 +72,8 @@ Source layout under [src/music_decoder/](../src/music_decoder/):
 - [chords/](../src/music_decoder/chords/) — chord recognition (templates + 97-state Viterbi, optional madmom backend).
 - [transcription/](../src/music_decoder/transcription/) — basic-pitch wrapper + post-processing.
 - [tabs/](../src/music_decoder/tabs/) — A* fret search + ASCII/SVG renderers.
-- [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`.
-- [synth/](../src/music_decoder/synth/) — MIDI to WAV via fluidsynth or sine fallback.
+- [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`. Composer v5 adds, for fingerstyle: [shapes.py](../src/music_decoder/compose/shapes.py) (per-bar shapes and the identity repair), [performance.py](../src/music_decoder/compose/performance.py) (dynamics, let-ring, micro-timing), [scoring.py](../src/music_decoder/compose/scoring.py) (the symbolic score for best-of-N) and [ml/](../src/music_decoder/compose/ml/) (the opt-in models: [aesthetics.py](../src/music_decoder/compose/ml/aesthetics.py), [amt.py](../src/music_decoder/compose/ml/amt.py)).
+- [synth/](../src/music_decoder/synth/) — MIDI to WAV via fluidsynth or sine fallback; [plucked.py](../src/music_decoder/synth/plucked.py), the numpy plucked-string renderer (v5).
 - [assets.py](../src/music_decoder/assets.py) — model/asset provisioning: bundled soundfont, soundfont download + validation, Demucs weight cache check/fetch (used by `fetch-models`, `doctor`, `setup.sh`).
 - [config/](../src/music_decoder/config/) — runtime + hyperparameter loaders.
 - [evaluation/](../src/music_decoder/evaluation/) — mir_eval wrappers + synthetic fixture loader.
@@ -83,6 +83,7 @@ Source layout under [src/music_decoder/](../src/music_decoder/):
 The IO/ML/DSP/rule-based boundaries:
 
 - **IO**: [ingest/](../src/music_decoder/ingest/), [synth/](../src/music_decoder/synth/), parts of [config/](../src/music_decoder/config/) (YAML loading), the YouTube cache, file writing in [compose/api.py](../src/music_decoder/compose/api.py).
+- **ML (pre-trained, optional, composer v5)**: [compose/ml/](../src/music_decoder/compose/ml/): Audiobox Aesthetics (`--rank-audio`) and the Anticipatory Music Transformer (`--melody-model amt`). Everything here needs the `ml` extra, imports its libraries lazily and is never touched by default code or tests.
 - **ML (pre-trained, no training in v2)**: [separation/demucs.py](../src/music_decoder/separation/demucs.py) (Demucs htdemucs_6s), [transcription/basic_pitch_wrapper.py](../src/music_decoder/transcription/basic_pitch_wrapper.py) (Spotify basic-pitch), [chords/backends/madmom_deep_chroma.py](../src/music_decoder/chords/backends/madmom_deep_chroma.py) (madmom DeepChromaChordRecognitionProcessor).
 - **DSP**: [dsp/](../src/music_decoder/dsp/), [key/](../src/music_decoder/key/), [chords/recognize.py](../src/music_decoder/chords/recognize.py).
 - **Rule-based**: [tabs/](../src/music_decoder/tabs/), [compose/](../src/music_decoder/compose/), [chords/templates.py](../src/music_decoder/chords/templates.py), [chords/voicings.py](../src/music_decoder/chords/voicings.py).
@@ -667,13 +668,20 @@ arrange(...)                                   # pure: no files, no YAML
   │   accompany(voicings, melody, ...)         # melody-aware accompaniment
   │   _melody_tab(melody, tuning)              # A* with pinned weights + fallback
   │
-  │ fingerstyle (one playable part, §5.3.1):
-  │   hand_shape(voicing, tuning) for each chord      # what the held shape can reach
-  │   generate_melody(..., allowed_pitches=, tessitura_center=, final_whole_note=True)
+  │ fingerstyle (one playable part, §5.3.1; v5 §5.3.2), for each of N candidates:
+  │   choose_bar_shapes(...)                   # one shape per bar (Viterbi)
+  │   hand_shape(shape, tuning) for each bar   # what the held shape can reach
+  │   generate_melody(..., allowed_pitches=, tessitura_center=, final_whole_note=True,
+  │                   phrase_shaping=True, pitch_prior=)
   │   arrange_fingerstyle(...)                 # melody tab + accompaniment tab, bar by bar
+  │   repair_identity(...)                     # re-voice bars that still miss a tone
+  │   shape_dynamics(...); let_ring(...)       # velocities and lengths (still on the grid)
+  │   score_arrangement(...)                   # the symbolic score of the candidate
+  │ keep the best candidate (ties: the lowest k)
   ▼
 Arrangement(melody, voicings, accompaniment, melody_tab,
-            accompaniment_tab, identity_misses, final_fallback)
+            accompaniment_tab, identity_misses, final_fallback,
+            bar_voicings, candidates, chosen_candidate, score)
   │
   ▼
 work = out_dir / f"{ts}-{payload_hash}"        # per-call directory
@@ -692,25 +700,35 @@ compose.tabtext.render_fingerstyle_tab(...)    → ASCII string  (fingerstyle)
 Composition(midi_path, wav_path, ascii_tab, melody_notes, chord_voicings, metadata)
 ```
 
-The three new `Arrangement` fields are filled for fingerstyle only (they keep
-their defaults for strum and arpeggio, so those results are unchanged):
-`accompaniment_tab` is the accompaniment as `TabbedNote`s (the `accompaniment`
-field is exactly its notes), `identity_misses` lists the bars whose
-accompaniment alone lacks an essential tone, and `final_fallback` says the
-final chord could not be re-voiced under the held final note. `accompany()`
+The `Arrangement` fields below are filled for fingerstyle only (they keep
+their defaults for strum and arpeggio, so those results are unchanged).
+Composer v4: `accompaniment_tab` is the accompaniment as `TabbedNote`s (the
+`accompaniment` field is exactly its notes), `identity_misses` lists the bars
+whose accompaniment alone lacks an essential tone, and `final_fallback` says
+the final chord could not be re-voiced under the held final note. Composer v5
+adds `bar_voicings` (one `VoicedChord` per bar; `voicings` stays one per
+chord, its first bar's shape, so `Composition.chord_voicings` keeps its
+type), `candidates` (how many fingerstyle pieces were arranged), `chosen_candidate`
+(the index k of the one kept) and `score` (its symbolic score, `None` for
+strum and arpeggio, which arrange a single candidate). `accompany()`
 raises `ValueError` for `style="fingerstyle"`, because that accompaniment
 depends on its own melody; call `arrange()`. `build_midi(accompaniment=...)`
 writes the accompaniment notes it is given instead of generating the pattern
 for `style`, and `compose()` passes `arrangement.accompaniment` for
 fingerstyle (fingerstyle without it raises).
 
-`compose()` is fully synchronous. Determinism: the only source of randomness
-is `numpy.random.default_rng(seed)` inside the melody generator. It drives
-both the rhythm plan and the pitch choices, so the same seed gives the same
-music. `metadata["composer_version"]` (currently `4`) is bumped whenever the
-composer changes what a given seed produces. Version 4 changes only
-`style="fingerstyle"` (§5.3.1); strum and arpeggio output is unchanged from
-version 3 for the same inputs (`tests/unit/test_compose_frozen.py`). Seeds from before version 2
+`compose()` is fully synchronous. Determinism: the randomness is
+`numpy.random.default_rng(seed)` inside the melody generator, which drives
+both the rhythm plan and the pitch choices (v5 fingerstyle draws the seed of
+candidate k from `candidate_seeds(seed, N)`, which does not depend on
+`PYTHONHASHSEED`; the optional models add their own seeded CPU RNG, §5.3.2),
+so the same seed and options give the same music.
+`metadata["composer_version"]` (currently `5`) is bumped whenever the
+composer changes what a given seed produces. Versions 4 and 5 change only
+`style="fingerstyle"` (§5.3.1, §5.3.2); strum and arpeggio output is unchanged
+from version 3 for the same inputs (`tests/unit/test_compose_frozen.py`). In
+version 5 the seed names the best of N pieces, so the same seed gives a
+different fingerstyle piece than in version 4. Seeds from before version 2
 (the uniform quarter-note generator) give different melodies now, and so do
 version-2 seeds: version 3 changed the chord shapes in every tuning and the
 melody's leap rules. The melody
@@ -1022,6 +1040,134 @@ the fallback roll stays playable.
 `compose/tabtext.py: render_fingerstyle_tab(part, voicings, *, bars_per_chord,
 tempo_bpm, tuning)` draws the combined tab (§5.4).
 
+### 5.3.2 Composer v5: fingerstyle performance, shapes, hooks and candidates
+
+Everything here is fingerstyle only. Spec:
+[the v5 design](superpowers/specs/2026-11-16-composer-v5-design.md).
+
+**Per-bar shapes** ([compose/shapes.py](../src/music_decoder/compose/shapes.py)).
+`shape_candidates(chord, tuning)` lists the chord's v4 shape and its
+`ranked_shapes` (at most `MAX_CANDIDATES = 8`; barres capped at base fret 9).
+`choose_bar_shapes` runs Viterbi over the bars. `bar_cost` charges an
+essential tone only the top (melody) string can supply (`W_IDENTITY = 3`,
+`IDENTITY_TOP = 1.0`, `IDENTITY_FILL = 0.3`), subtracts reach
+(`W_REACH = 0.15` per pitch), adds `W_RANK = 0.4` per rank and
+`W_REGISTER = 0.05` per semitone from G4; `move_cost` charges `W_MOVE = 0.25`
+per fret the hand window's lowest fret moves (0 for the same shape).
+`repair_identity` then re-voices any `identity_misses` body bar with the first
+candidate shape (in cost order, every ranked shape) that reaches the bar's
+melody pitches and keeps P1, P2 and identity; the melody never changes.
+
+**Hooks, arch, peaks and form.** `generate_melody(phrase_shaping=True)`:
+the first bar's first two to four notes are the hook cell; each antecedent
+phrase restates it (interval reward `HOOK_EXACT`/`HOOK_NEAR` = 4.0), and the
+answering A' restates it with exactly one interval changed (`HOOK_VARIATION`;
+the varied slot is the first later slot that can play the +-1 variation in
+scale). A contour term pulls each phrase toward an arch (`ARCH_SPAN` 23
+semitones); `PEAK_BONUS` (2.5), `PEAK_TIE` (-2.25) and `PEAK_AFTER` (-7.0)
+make one unique highest note fall in 55-75% of the phrase. Phrases are four
+bars (`phrase_layout`), so an 8-bar piece is A A', 9 to 12 bars are three
+phrases, A A' A' (they end at home, v5 ruling F3h), and the form A A' B A'
+(B: contrasting rhythm, its arch `B_REGISTER_LIFT` = 2 semitones up) needs
+four phrases, 13 bars or more. The metrics are
+`hook_restatements`, `peak_uniqueness` and `contour_arch`
+([compose/metrics.py](../src/music_decoder/compose/metrics.py)). The v3 hard
+rules and the reach sets still apply.
+
+**Performance** ([compose/performance.py](../src/music_decoder/compose/performance.py)).
+`shape_dynamics` writes velocities: melody 78 (+6 on beats 1 and 3, a
+swell of up to +10 at the phrase peak, the final note 84), thumb 66 on beats
+1 and 3 and 58 on 2 and 4, fills 50, the final roll 70; every melody note
+is at least 8 above the loudest accompaniment note sounding at its onset; all
+velocities are clamped to 30-118. `let_ring` makes each accompaniment note
+last to the next onset on its string or its bar's end, cut at the first onset
+where ringing on would break `moment_playable`, put the note at or above a
+starting melody note, or put a note that is not an essential tone of the
+chord less than `THIN_MARGIN_SEMITONES` (3) under it. The final roll
+rings to the end and melody lengths are untouched. Onsets and pitches never
+change, so the tab (which draws onsets) and the MIDI grid are unchanged.
+`humanize(notes, seed=)` is used only for rendering the WAV: each stroke
+(onsets within 60 ms) moves by a seeded uniform offset in +-6 ms, a note
+ends at least 1 ms before the next onset of its pitch, and nothing moves
+below 0. `compose_with_options` renders a temporary performance MIDI, removed
+afterwards.
+
+**Plucked sound** ([synth/plucked.py](../src/music_decoder/synth/plucked.py)).
+An extended Karplus-Strong voice per tabbed note: a velocity-dependent noise
+burst shaped by a pluck-position comb (0.18 of the period), a string loop
+whose loss depends on the string and the fret, a stiffness all-pass and a
+fractional-delay tuning all-pass in the loop, a 40 ms finger mute, then a
+three-biquad body resonance and peak normalisation to 0.9. Output is 44.1 kHz
+mono 16-bit, deterministic in the notes, tuning and seed. With
+`--sound plucked`, fingerstyle renders from the humanized tab; strum and
+arpeggio render from the notes of `composition.mid` on their lowest-fret
+strings (`tab_for_midi_notes`).
+
+**Best of N** ([compose/scoring.py](../src/music_decoder/compose/scoring.py)).
+`arrange_candidates(..., candidates=N)` arranges N pieces, candidate k from the
+k-th of `candidate_seeds`, scores each with `score_arrangement` (a weighted sum
+of P3 (+3), A2 (+1), M1 (+2), M2 (+1), rhythm entropy (+1), M3 (-1.5), M5 (+1),
+M11b (+1), hook (+1), peak (+1), arch (+1), ambitus (+1), shape moves (-0.5)
+and a final-voicing fallback (-3), with a neutral value for a term with nothing
+to count), and returns them best first, ties to the lower k. `arrange()`
+defaults to `candidates=1`; `compose()` and `compose_with_options()` use 12.
+Strum and arpeggio ignore `candidates`.
+
+**Audio re-rank** ([compose/ml/aesthetics.py](../src/music_decoder/compose/ml/aesthetics.py)).
+With `rank_audio=True` the top `RANK_AUDIO_TOP_K = 4` candidates are rendered
+(with the chosen `sound`) to temporary WAVs and scored by Audiobox Aesthetics
+(`facebook/audiobox-aesthetics`, CC-BY-4.0, 415 MB, a CPU re-implementation of
+the predictor's forward pass from the pinned safetensors revision, no token).
+Both signals are normalised across the four candidates:
+`final = z_audio + 0.5 * z_symbolic`, `z_symbolic` the min-max of the symbolic
+score and `z_audio = (x - min) / max(span, AUDIO_SPAN_FLOOR)` of
+`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality;
+`AUDIO_SPAN_FLOOR = 0.3` on the model's 1-10 scale; each 0 when all are
+equal). Normalising matters: the audio model's raw spread between candidates
+is about 0.05-0.3, so the raw sum would never override the symbolic order.
+The floor keeps a gap of a few hundredths, about the model's noise, from
+being stretched to a full 1.0: such a gap counts only in proportion and does
+not overturn the symbolic order by itself (v5 ruling F4e).
+`metadata["audio_scores"]` holds the chosen candidate's `CE` and `PQ`.
+
+**Melody model** ([compose/ml/amt.py](../src/music_decoder/compose/ml/amt.py)).
+With `melody_model="amt"` the Anticipatory Music Transformer
+(`stanford-crfm/music-small-800k`, Apache-2.0, 512 MB, via the `anticipation`
+package pinned to a git commit; the weights are a pickled `pytorch_model.bin`,
+loaded with torch's weights-only loader, revision pinned, no token) proposes one
+melody per piece, shared as a soft prior by all candidates. It is conditioned
+on the thumb pattern of the chosen per-bar shapes (steel-string guitar,
+instrument 25), not on the full accompaniment, which depends on the melody.
+Sampling runs on the CPU under `torch.random.fork_rng()` seeded with the
+piece's seed, so a seed repeats. The model mostly answers silence or drums
+when given a lone bass line, so generation is constrained at the logits: rests
+and drums are masked, a duplicate note at one onset is masked, and after
+4 events per second of the piece the next onset is forced past the end
+(this bounds the event count). The model proposes for at most the first
+`AMT_MAX_SECONDS = 40` s of the piece, and the context is clipped there before
+it is encoded (AMT's onset tokens end at 100 s; a later control would land in
+the duration range), so a proposal's cost stops growing past 40 s of music.
+The bars after it get no prior; `metadata["melody_model_seconds"]` records the
+seconds covered and the CLI notes a shorter cover on stderr. The model's
+monophonic top line (not quantised) is `pitch_prior`, a `Sequence[Note]`; at
+each melody slot the target is the highest prior note sounding at the slot's
+onset, else the highest at the nearest prior onset within an eighth after it,
+else none. `generate_melody` adds `PRIOR_WEIGHT * exp(-d / PRIOR_WIDTH)` to
+`score_pitch` (`PRIOR_WEIGHT = 2.0`, `PRIOR_WIDTH = 2` semitones, `d` the
+semitones to the nearest octave of the target). With `pitch_prior=None` the generator's output is
+byte-identical to before. The hard rules, reach sets and cadence still decide.
+
+**Optional install.** Everything under `compose/ml/` imports its libraries
+lazily; the `ml` extra is `transformers`, `huggingface_hub`,
+`audiobox_aesthetics`, `anticipation` (git-pinned) and `tqdm`
+(`allow-direct-references` is set for the git dependency).
+`music-decoder fetch-models --composer-models` downloads both weights
+(about 930 MB in all) to the Hugging Face cache. Missing extra or weights
+raise `MLUnavailableError`, which the CLI turns into a one-line error naming
+both fixes, before any work is done. The opt-in tests
+(`MUSIC_DECODER_ML_E2E=1`, `tests/integration/test_compose_ml_e2e.py`) run with
+the real weights; unit tests use fakes.
+
 ### 5.4 ASCII tab for the composition
 
 For strum and arpeggio, `arrange()` fingers the melody with the A\* search that
@@ -1086,6 +1232,10 @@ typed metric functions:
 - voicings: nearest-pitch proximity (a proximity guard, not a voice-leading
   score), shape defects (essential tones missing from, or foreign tones in,
   each shape played) and non-root bass (S2)
+- fingerstyle performance and shapes (composer version 5): `velocity_spread`
+  (F.vel_std), `mean_length_beats` (F.ring), `shape_moves` (F.shape_moves),
+  `hook_restatements` (F.hook), `peak_uniqueness` (F.peak) and `contour_arch`
+  (F.arch); `F.score` is the chosen candidate's symbolic score
 - leaps (composer version 3): forbidden intervals (L1), recovery of leaps
   larger than a fifth (L2), unjustified large leaps (L3), the pooled
   large-leap frequency (L0), chord-change smoothness (L4, L4max) and the
@@ -1155,7 +1305,10 @@ warning line and falls back to `SynthBackend.SINE`
 (`pretty_midi.PrettyMIDI.synthesize(fs=sr)`, no external deps). Callers
 can force a specific backend via the optional `backend` keyword. The
 output is peak-normalized to 0.9 and written as 16-bit PCM at
-`sr=22050` Hz.
+`sr=22050` Hz. Composer v5: the fingerstyle WAV is rendered from a temporary
+performance MIDI (`humanize`, §5.3.2), and `--sound plucked` replaces this
+whole path with [synth/plucked.py](../src/music_decoder/synth/plucked.py)
+(44.1 kHz).
 
 ---
 
@@ -1252,6 +1405,11 @@ five subcommands:
   - `--bars INT` (default `1`).
   - `--seed INT` (optional).
   - `--tuning ...` (same set as `analyze`).
+  - `--sound soundfont | plucked` (default `soundfont`).
+  - `--candidates INT` (default `12`; fingerstyle only).
+  - `--rank-audio` (fingerstyle only; needs the `ml` extra and weights).
+  - `--melody-model none | amt` (default `none`; fingerstyle only; needs the
+    `ml` extra and weights).
   - `--out DIR` (required).
   - `--format pretty | json`.
 - `ui` — launches Streamlit via `subprocess` on
@@ -1261,13 +1419,17 @@ five subcommands:
   module, and that a soundfont resolves (prints whether it is the
   installed or the bundled one); reports whether the Demucs weights are
   cached (informational — not a failure). Exits non-zero on any fail.
-- `fetch-models [--no-demucs] [--no-soundfont]` — idempotently
+- `fetch-models [--no-demucs] [--no-soundfont] [--composer-models]` — idempotently
   pre-downloads the Demucs `htdemucs_6s` weights (~52 MB, torch hub cache)
   and the GeneralUser GS soundfont (~30 MB, to the configured
   `fluidsynth_soundfont` path) via [assets.py](../src/music_decoder/assets.py).
   Downloads go to a `.part` file and are validated (SF2 `RIFF…sfbk`
   header) before being moved into place. `setup.sh` runs it by default
-  (`--no-models` / `--no-soundfont` opt out).
+  (`--no-models` / `--no-soundfont` opt out). `--composer-models` also
+  downloads, from Hugging Face with a pinned revision and no token, the
+  Audiobox Aesthetics weights (~415 MB) and the Anticipatory Music Transformer
+  (~512 MB) for `compose --rank-audio` and `--melody-model amt`; it needs the
+  `ml` extra and is not part of `setup.sh`.
 
 The CLI converts `MusicDecoderError` into `click.ClickException` so the
 process exits with a clean non-zero status and a one-line message.
@@ -1417,6 +1579,11 @@ Under [tests/](../tests/):
     parametrized over each synthetic fixture; gates
     `chord_recognition_score`, `key_mirex_score`, and
     `tab_string_accuracy` against `config/eval_thresholds.yaml`.
+  - Opt-in (skipped by default): `MUSIC_DECODER_ML_E2E=1` runs
+    [test_compose_ml_e2e.py](../tests/integration/test_compose_ml_e2e.py) with
+    the real ML weights; `MUSIC_DECODER_PRODUCTION_E2E=1` runs
+    [test_productionize_e2e.py](../tests/integration/test_productionize_e2e.py)
+    (downloads ~180 MB of samples if missing, about 2.7 GB of RAM).
 - `regression/` — placeholder for future committed-result snapshots.
 - `fixtures/synthetic/` — committed `.mid` fixtures (`c_major_scale.mid`,
   `g_major_chord.mid`). The first run renders them to `.wav` with
@@ -1504,6 +1671,8 @@ decoding sweeps don't re-run the network. Results and decisions:
   or `pip install -e ".[dev]"` in a virtualenv. There is no container
   image; the tool runs directly on the host. `setup.sh` pre-downloads the
   models; with pip/pipx, run `music-decoder fetch-models` once.
+- Optional extra `ml` (`pip install -e ".[ml]"`): the composer's two opt-in
+  models (§5.3.2). Not installed by `setup.sh` or the default install.
 
 There is no SQLite, no Alembic, no Postgres dependency, and no
 persistence layer. The v2 pipeline is stateless: the only on-disk

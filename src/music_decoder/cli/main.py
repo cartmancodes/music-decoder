@@ -7,6 +7,7 @@ Subcommands:
 - productionize <source>: render composer output as a mastered instrumental
 - doctor: verify ffmpeg, fluidsynth, models
 - fetch-models: pre-download Demucs weights and the GeneralUser GS soundfont
+  (and, with --composer-models, the Audiobox Aesthetics and AMT weights)
 - fetch-samples: pre-download the drum, percussion and piano samples
 """
 
@@ -25,7 +26,9 @@ from typing import Literal, cast
 
 import click
 
-from music_decoder.api import analyze, compose
+from music_decoder.api import analyze
+from music_decoder.compose.api import compose_with_options
+from music_decoder.compose.ml import MLUnavailableError
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
@@ -166,6 +169,39 @@ def cli_analyze(
 @click.option("--bars", type=int, default=1)
 @click.option("--seed", type=int, default=None)
 @click.option("--tuning", type=click.Choice(list(_TUNINGS)), default="EADGBE")
+@click.option(
+    "--sound",
+    type=click.Choice(["soundfont", "plucked"]),
+    default="soundfont",
+    help="guitar sound of the WAV",
+)
+@click.option(
+    "--candidates",
+    type=int,
+    default=12,
+    show_default=True,
+    help="fingerstyle pieces to generate; the best by the symbolic score is kept",
+)
+@click.option(
+    "--rank-audio",
+    is_flag=True,
+    default=False,
+    help=(
+        "fingerstyle: re-rank the top 4 candidates by Audiobox Aesthetics "
+        '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
+    ),
+)
+@click.option(
+    "--melody-model",
+    type=click.Choice(["none", "amt"]),
+    default="none",
+    show_default=True,
+    help=(
+        "fingerstyle: a pretrained melody model (the Anticipatory Music Transformer) "
+        "proposes the tune as a soft prior "
+        '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
+    ),
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -176,15 +212,23 @@ def cli_compose(
     bars: int,
     seed: int | None,
     tuning: str,
+    sound: str,
+    candidates: int,
+    rank_audio: bool,
+    melody_model: str,
     out: str,
     fmt: str,
 ) -> None:
     """Generate a simple arrangement from a scale + chord progression."""
+    if style != "fingerstyle":
+        for flag, on in (("--rank-audio", rank_audio), ("--melody-model", melody_model != "none")):
+            if on:
+                click.echo(f"note: {flag} is fingerstyle-only; ignored for {style}", err=True)
     try:
         s = Scale.parse(scale)
         chords = [ChordSymbol.parse(c) for c in progression.split()]
         with _quiet_stdout():
-            result = compose(
+            result = compose_with_options(
                 scale=s,
                 progression=chords,
                 bars_per_chord=bars,
@@ -193,12 +237,17 @@ def cli_compose(
                 tuning=_TUNINGS[tuning],
                 seed=seed,
                 out_dir=Path(out),
+                sound=cast(Literal["soundfont", "plucked"], sound),
+                candidates=candidates,
+                rank_audio=rank_audio,
+                melody_model=None if melody_model == "none" else "amt",
             )
-    except MusicDecoderError as e:
-        raise click.ClickException(str(e)) from e
-    except ValueError as e:
+    except (MusicDecoderError, ValueError, MLUnavailableError) as e:
         raise click.ClickException(str(e)) from e
 
+    covered = result.metadata.get("melody_model_seconds")
+    if covered is not None and covered < len(chords) * bars * 240.0 / tempo - 1e-9:
+        click.echo(f"note: the melody model guides the first {covered:g} s", err=True)
     if fmt == "json":
         click.echo(json.dumps(_serialize(result), indent=2, default=str))
     else:
@@ -440,12 +489,21 @@ def cli_doctor() -> None:
 @main.command("fetch-models")
 @click.option("--no-demucs", is_flag=True, help="Skip the Demucs separation weights (~52 MB).")
 @click.option("--no-soundfont", is_flag=True, help="Skip the GeneralUser GS soundfont (~30 MB).")
-def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
+@click.option(
+    "--composer-models",
+    is_flag=True,
+    help="Also fetch the Audiobox Aesthetics weights for `compose --rank-audio` (~415 MB) "
+    "and the Anticipatory Music Transformer for `compose --melody-model amt` (~512 MB); "
+    'needs `pip install -e ".[ml]"`.',
+)
+def cli_fetch_models(no_demucs: bool, no_soundfont: bool, composer_models: bool) -> None:
     """Pre-download models so first runs don't stall (idempotent).
 
     Fetches the Demucs htdemucs_6s weights into the torch cache and the
     GeneralUser GS soundfont to the path in config/runtime.yaml. Composition
-    works without the soundfont (pretty_midi's bundled one is used).
+    works without the soundfont (pretty_midi's bundled one is used). With
+    --composer-models, also the composer's optional models into the Hugging
+    Face cache.
     """
     from music_decoder import assets
 
@@ -466,7 +524,28 @@ def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
         except Exception as e:
             click.echo(f"  FAILED: {e} (the bundled TimGM6mb soundfont will be used)")
             rc = 1
+    if composer_models:
+        composer = [
+            (f"Audiobox Aesthetics weights ({assets.AUDIOBOX_REPO})", assets.fetch_audiobox),
+            (f"Anticipatory Music Transformer weights ({assets.AMT_REPO})", assets.fetch_amt),
+        ]
+        for label, fetch in composer:
+            click.echo(f"{label} ...")
+            try:
+                path = fetch()
+                click.echo(f"  OK: {path} ({_folder_mb(path):.1f} MB)")
+            except ImportError as e:
+                click.echo(f'  FAILED: {e}; install the ml extra: pip install -e ".[ml]"')
+                rc = 1
+            except Exception as e:
+                click.echo(f"  FAILED: {e}")
+                rc = 1
     sys.exit(rc)
+
+
+def _folder_mb(path: Path) -> float:
+    """Size of the files under *path* in MB, following the cache's symlinks."""
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
 
 
 @main.command("fetch-samples")

@@ -353,7 +353,9 @@ def _chords(*labels: str) -> list[ChordSymbol]:
     return [ChordSymbol.parse(c) for c in labels]
 
 
-def _fingerstyle(key, mode, labels, seed, bars=1, tempo=120.0, tuning=STANDARD_EADGBE):
+def _fingerstyle(
+    key, mode, labels, seed, bars=1, tempo=120.0, tuning=STANDARD_EADGBE, candidates=1
+):
     progression = _chords(*labels)
     arr = arrange(
         Scale(key, mode),
@@ -363,6 +365,7 @@ def _fingerstyle(key, mode, labels, seed, bars=1, tempo=120.0, tuning=STANDARD_E
         style="fingerstyle",
         tuning=tuning,
         seed=seed,
+        candidates=candidates,
     )
     return arr, progression
 
@@ -635,7 +638,7 @@ def test_compose_writes_the_fingerstyle_part_to_midi_and_tab(tmp_path):
             seed=4,
             out_dir=tmp_path,
         )
-    arr, _ = _fingerstyle("A", "minor", labels, 4)
+    arr, _ = _fingerstyle("A", "minor", labels, 4, candidates=12)  # compose()'s best of 12
     pm = pretty_midi.PrettyMIDI(str(result.midi_path))
     tracks = {i.name: i for i in pm.instruments}
     assert [i.name for i in pm.instruments] == ["melody", "accompaniment"]

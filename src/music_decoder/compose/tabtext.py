@@ -9,7 +9,8 @@ Fingerstyle (:func:`render_fingerstyle_tab`): a ``Fingerstyle`` block with
 the whole one-guitar part, melody and accompaniment together, drawn with
 rhythm: eight eighth-note columns per bar, a chord-name row and a count row.
 
-Both end with a ``Chords`` block listing each chord shape under its name.
+Both end with a ``Chords`` block listing each chord shape under its name
+(for fingerstyle, each distinct shape once, in order of first use).
 """
 
 from __future__ import annotations
@@ -104,7 +105,10 @@ def render_fingerstyle_tab(
 ) -> str:
     """The fingerstyle part (melody and accompaniment together) with rhythm:
     eight eighth-note columns per bar, a chord-name row above each system and
-    a count row under it. Held notes are drawn at their onset only."""
+    a count row under it. Held notes are drawn at their onset only.
+
+    ``voicings`` may hold one shape per bar (``bars_per_chord=1``); the
+    ``Chords`` block lists each distinct shape once, in order of first use."""
     labels = string_labels(tuning)
     n_strings = len(labels)
     n_bars = max(len(voicings) * bars_per_chord, 1)
@@ -167,5 +171,6 @@ def render_fingerstyle_tab(
                 ]
             )
         )
-    chords = render_chord_shapes(voicings, tuning)
+    # Each distinct shape once, in order of first use (v5 spec 5.2).
+    chords = render_chord_shapes(list(dict.fromkeys(voicings)), tuning)
     return "Fingerstyle\n" + "\n\n".join(systems) + "\n\nChords\n" + chords

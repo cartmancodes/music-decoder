@@ -100,3 +100,49 @@ def test_plan_bars_follows_the_layout(n_bars):
 
 def test_plan_bars_is_deterministic_per_seed():
     assert plan_bars(8, np.random.default_rng(11)) == plan_bars(8, np.random.default_rng(11))
+
+
+def test_plan_bars_contrast_b_default_is_unchanged():
+    a = plan_bars(16, np.random.default_rng(3))
+    b = plan_bars(16, np.random.default_rng(3), contrast_b=False)
+    assert a == b
+
+
+def test_plan_bars_contrast_b_gives_the_b_phrase_its_own_rhythms():
+    def bodies(plans, start):
+        return {p.rhythm for p in plans[start : start + 3]}
+
+    plain = contrasted = 0
+    for seed in range(40):
+        a = plan_bars(16, np.random.default_rng(seed))
+        b = plan_bars(16, np.random.default_rng(seed), contrast_b=True)
+        plain += not (bodies(a, 0) & bodies(a, 8))
+        contrasted += not (bodies(b, 0) & bodies(b, 8))
+        # only the A' after B changes its echo source (see the test below)
+        assert [p.motif_from for p in a[:12]] == [p.motif_from for p in b[:12]]
+    assert contrasted == 40 and plain < 40
+
+
+@pytest.mark.parametrize("n_bars", [9, 10, 11, 12])
+def test_plan_bars_three_phrases_have_no_b_to_contrast(n_bars):
+    # v5 ruling F3h: A A' A', so contrast_b leaves a three-phrase plan as it was
+    for seed in range(20):
+        plain = plan_bars(n_bars, np.random.default_rng(seed))
+        assert plan_bars(n_bars, np.random.default_rng(seed), contrast_b=True) == plain
+
+
+@pytest.mark.parametrize(
+    ("n_bars", "a_prime"),
+    [(13, (11, 1)), (14, (12, 1)), (15, (12, 2)), (16, (12, 3)), (17, (12, 2))],
+)
+def test_plan_bars_contrast_b_echoes_phrase_a_after_b(n_bars, a_prime):
+    # v5 ruling F3f: A A' B A' -- the last A' restates A, not B
+    start, body = a_prime
+    for seed in range(40):
+        plain = plan_bars(n_bars, np.random.default_rng(seed))
+        b = plan_bars(n_bars, np.random.default_rng(seed), contrast_b=True)
+        echoes = b[start : start + body]
+        assert [p.motif_from for p in echoes] == list(range(body))
+        assert [p.rhythm for p in echoes] == [p.rhythm for p in b[:body]]
+        # without contrast it echoes B (bars 8 on), as phrase_layout pairs it
+        assert [p.motif_from for p in plain[start : start + body]] == [8 + i for i in range(body)]

@@ -438,3 +438,44 @@ def test_tab_consistent():
     # the tab's own pitch must match its string and fret
     bad = [TabbedNote(note=note(0.0, 0.4, 65), position=P(5, 0))]
     assert not m.tab_consistent([bad[0].note], bad, STANDARD_EADGBE)
+
+
+def _line(pitches, eighths=2, start=0.0):
+    step = 0.25 * eighths
+    return [
+        note(start + k * step, start + k * step + 0.95 * step, p) for k, p in enumerate(pitches)
+    ]
+
+
+def test_hook_cell_and_restatements():
+    # two 4-bar phrases (8 bars), quarter notes, phrase 2 restates the hook a tone higher
+    a = _line([60, 62, 64, 62] + [60] * 12)
+    b = _line([62, 64, 66, 64] + [62] * 12, start=8.0)
+    mel = a + b
+    assert m.hook_cell(mel, 120.0) == (2, 2, -2)
+    assert m.hook_restatements(mel, 120.0, 8) == 1.0
+    b_bad = _line([62, 55, 66, 64] + [62] * 12, start=8.0)
+    assert m.hook_restatements(a + b_bad, 120.0, 8) == 0.0
+
+
+def test_peak_uniqueness_window():
+    # 4-bar phrase, 16 quarter notes; peak 72 at note 10 (x = 10/16 = 0.625)
+    pitches = [60, 62, 64, 65, 64, 65, 67, 65, 67, 69, 72, 69, 67, 65, 64, 62]
+    assert m.peak_uniqueness(_line(pitches), 120.0, 4) == 1.0
+    tied = list(pitches)
+    tied[3] = 72
+    assert m.peak_uniqueness(_line(tied), 120.0, 4) == 0.0
+
+
+def test_contour_arch_prefers_rise_then_fall():
+    rise_fall = [60, 62, 64, 65, 67, 69, 71, 72, 71, 72, 74, 72, 69, 67, 64, 62]
+    fall_rise = [132 - p for p in rise_fall]  # mirrored in pitch: a valley, not an arch
+    assert m.contour_arch(_line(rise_fall), 120.0, 4) > 0.5
+    assert m.contour_arch(_line(fall_rise), 120.0, 4) < 0.0
+
+
+def test_metrics_on_a_single_phrase():
+    mel = _line([60, 64, 67, 64])  # 2 bars, one phrase
+    assert m.hook_restatements(mel, 120.0, 2) is None
+    assert m.peak_uniqueness(mel, 120.0, 2) is not None
+    assert m.contour_arch(_line([60]), 120.0, 1) is None

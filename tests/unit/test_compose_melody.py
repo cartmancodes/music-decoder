@@ -1,12 +1,19 @@
+import itertools
 import math
+import statistics
 
 import pytest
 
 from music_decoder.compose import metrics
 from music_decoder.compose.melody import (
     CHORD_CHANGE_STEP_BONUS,
+    HOOK_EXACT,
+    HOOK_NEAR,
     MAX_INTERVAL,
+    PRIOR_WEIGHT,
+    PRIOR_WIDTH,
     NoteContext,
+    _prior_target,
     admissible,
     feasible_sets,
     final_target,
@@ -14,7 +21,8 @@ from music_decoder.compose.melody import (
     ranked_scores,
     score_pitch,
 )
-from music_decoder.types import ChordSymbol, Scale
+from music_decoder.compose.rhythm import form_labels, phrase_layout
+from music_decoder.types import ChordSymbol, Note, Scale
 
 C_MAJOR_PCS = {0, 2, 4, 5, 7, 9, 11}
 
@@ -476,3 +484,227 @@ def test_allowed_pitches_argument_checks():
             notes_per_bar=4,
             final_whole_note=True,
         )
+
+
+# ---- v5 feature 3: phrase shaping (spec 2026-11-16 section 5.3) --------------
+
+PROG8 = [ChordSymbol.parse(c) for c in ("C", "Am", "F", "G", "C", "F", "G", "C")]
+
+
+def test_score_pitch_phrase_shaping_terms():
+    def s(candidate, **kw):
+        return score_pitch(candidate, _ctx(**kw), 72)
+
+    # the arch target replaces the register gravity
+    assert s(76, contour_target=76.0) > s(72, contour_target=76.0)
+    assert s(76) < s(72)
+    # peak guard: before the window a new high is penalised, inside it rewarded,
+    # a tie inside it or a high after it penalised
+    assert s(76, phrase_max=74, peak_phase="before") < s(76)
+    assert s(76, phrase_max=74, peak_phase="inside") > s(76)
+    assert s(74, phrase_max=74, peak_phase="inside") < s(74)
+    assert s(76, phrase_max=74, peak_phase="after") < s(76)
+    # the forced final note would tie the phrase's peak
+    tie = s(74, phrase_max=76, peak_phase="before", final_choices=(76,))
+    assert tie < s(74, phrase_max=76, peak_phase="before")
+
+
+def _hook_gain(candidate, **kw):
+    """What the hook term alone adds to ``candidate``'s score (prev pitch 72)."""
+    return score_pitch(candidate, _ctx(**kw), 72) - score_pitch(candidate, _ctx(), 72)
+
+
+def test_hook_term_rewards_exact_and_near_restatements():
+    assert _hook_gain(74, hook_interval=2) == pytest.approx(HOOK_EXACT)  # the hook's own interval
+    assert _hook_gain(75, hook_interval=2) == pytest.approx(HOOK_NEAR)  # within a semitone
+    assert _hook_gain(73, hook_interval=2) == pytest.approx(HOOK_NEAR)
+    assert _hook_gain(76, hook_interval=2) == pytest.approx(
+        0.0
+    )  # two semitones off: no restatement
+    assert _hook_gain(70, hook_interval=2) == pytest.approx(0.0)  # the hook's direction reversed
+
+
+def test_hook_term_in_a_varied_slot_withholds_the_original_interval():
+    # A' varies hook interval 2 to 3 (v5 ruling F3d): the original earns nothing
+    varied = dict(hook_interval=3, hook_original=2)
+    assert _hook_gain(75, **varied) == pytest.approx(HOOK_EXACT)  # the varied interval
+    assert _hook_gain(76, **varied) == pytest.approx(HOOK_NEAR)  # its other neighbour
+    assert _hook_gain(74, **varied) == pytest.approx(0.0)  # the original interval
+    assert score_pitch(74, _ctx(**varied), 72) < score_pitch(75, _ctx(**varied), 72)
+
+
+def test_a_prime_openings_rarely_restate_the_hook_unchanged():
+    identical = 0
+    for seed in range(100):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        hook = metrics.hook_cell(mel, 120.0)
+        bar4 = [n for n in mel if 8.0 <= n.start_s < 10.0][: len(hook) + 1]  # A' opens bar 4
+        identical += tuple(b.pitch - a.pitch for a, b in itertools.pairwise(bar4)) == hook
+    # 19 here; 24 when the varied slot still rewarded the original interval (finding I1).
+    # The rest: the varied interval was unplayable in every slot left, or not sampled.
+    assert identical <= 20
+
+
+def test_the_a_prime_after_b_echoes_phrase_a_at_16_bars():
+    def onsets(mel, bar):  # bar-relative onsets at 120 bpm (2 s bars)
+        return [
+            round(n.start_s - 2.0 * bar, 6) for n in mel if 2.0 * bar <= n.start_s < 2.0 * (bar + 1)
+        ]
+
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8 * 2,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        assert [onsets(mel, 12 + i) for i in range(3)] == [onsets(mel, i) for i in range(3)]
+
+
+def test_phrase_shaping_off_is_unchanged():
+    kw = dict(scale=Scale("C", "major"), progression=PROG8, tempo_bpm=120.0, seed=5)
+    assert generate_melody(**kw) == generate_melody(**kw, phrase_shaping=False)
+
+
+def test_phrase_shaping_meets_the_melody_targets():
+    rows = []
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        rows.append(
+            (
+                metrics.hook_restatements(mel, 120.0, 8),
+                metrics.peak_uniqueness(mel, 120.0, 8),
+                metrics.contour_arch(mel, 120.0, 8),
+            )
+        )
+        assert metrics.forbidden_interval_count(mel) == 0
+        assert max(metrics.chord_change_moves(mel, PROG8, 1, 120.0)) <= 7
+    hook = [r[0] for r in rows]
+    peak = [r[1] for r in rows]
+    arch = [r[2] for r in rows]
+    assert statistics.fmean(hook) >= 0.75
+    # v5 ruling F3b: with the v3 singability guards holding, this sample reaches 0.900.
+    # v5 ruling F5h: the gate stays 0.85; this calls generate_melody, so best of 12 does
+    # not help it, and 0.9 would leave no margin.
+    assert statistics.fmean(peak) >= 0.85
+    assert statistics.fmean(arch) >= 0.5
+
+
+def test_phrase_shaping_with_a_one_note_first_bar():
+    mel = generate_melody(
+        scale=Scale("C", "major"),
+        progression=[ChordSymbol.parse("C")],
+        seed=1,
+        phrase_shaping=True,
+        final_whole_note=True,
+    )
+    assert len(mel) == 1
+
+
+def test_phrase_shaping_needs_phrase_rhythms():
+    with pytest.raises(ValueError):
+        generate_melody(
+            scale=Scale("C", "major"), progression=PROG8, notes_per_bar=4, phrase_shaping=True
+        )
+
+
+def test_form_labels_follow_the_phrase_layout():
+    for n in (1, 2, 3, 4, 5, 7, 8, 9, 16):
+        labels = form_labels(n)
+        assert len(labels) == len(phrase_layout(n).phrase_lengths) and labels[0] == "A"
+    assert form_labels(16)[:4] == ("A", "A'", "B", "A'")
+    assert form_labels(8) == ("A", "A'")
+    assert form_labels(4) == ("A",)
+
+
+def test_only_four_or_more_phrases_get_a_b():
+    # v5 ruling F3h: three phrases are A A' A', so a 9-12 bar piece ends at home
+    for n in range(1, 21):
+        has_b = "B" in form_labels(n)
+        assert has_b == (len(phrase_layout(n).phrase_lengths) >= 4) == (n >= 13), n
+    for n in (9, 10, 11, 12):
+        assert form_labels(n) == ("A", "A'", "A'")
+    assert form_labels(13) == ("A", "A'", "B", "A'")
+    assert form_labels(17) == ("A", "A'", "B", "A'", "A")
+
+
+def test_the_b_phrase_of_a_16_bar_melody_is_raised_and_has_its_own_rhythm():
+    def bars_of(mel, first):  # four bars at 120 bpm (2 s bars)
+        return [n for n in mel if 2.0 * first <= n.start_s < 2.0 * (first + 4)]
+
+    def body_rhythms(mel, first):  # each body bar's bar-relative onsets
+        return {
+            tuple(
+                round(n.start_s - 2.0 * b, 6) for n in mel if 2.0 * b <= n.start_s < 2.0 * (b + 1)
+            )
+            for b in range(first, first + 3)
+        }
+
+    lifts = []
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8 * 2,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        a = statistics.fmean(n.pitch for n in bars_of(mel, 0))
+        b = statistics.fmean(n.pitch for n in bars_of(mel, 8))
+        lifts.append(b - a)
+        assert not body_rhythms(mel, 0) & body_rhythms(mel, 8), seed  # B's own body rhythms
+    # The B arch sits B_REGISTER_LIFT (2) higher; the notes follow it on average
+    # (2.6 here), not in every piece: the hard rules and the chords still decide.
+    assert statistics.fmean(lifts) >= 1
+    assert sum(lift >= 1 for lift in lifts) >= 15  # 16 of the 20 here
+
+
+# ---- v5 feature 5: the soft pitch prior (spec 2026-11-16 section 5.5) ---------
+
+
+def _prior_gain(candidate, target):
+    """What the prior term alone adds to ``candidate``'s score."""
+    return score_pitch(candidate, _ctx(prior_target=target), 72) - score_pitch(
+        candidate, _ctx(), 72
+    )
+
+
+def test_prior_bonus_falls_off_with_octave_aware_distance():
+    assert PRIOR_WEIGHT == 2.0 and PRIOR_WIDTH == 2.0
+    assert _prior_gain(74, 74) == pytest.approx(PRIOR_WEIGHT)
+    assert _prior_gain(74, 74 + 24) == pytest.approx(PRIOR_WEIGHT)  # octaves away: same pull
+    assert _prior_gain(76, 74) == pytest.approx(PRIOR_WEIGHT * math.exp(-2 / PRIOR_WIDTH))
+    assert _prior_gain(72, 83) == pytest.approx(PRIOR_WEIGHT * math.exp(-1 / PRIOR_WIDTH))
+    assert _prior_gain(74, None) == 0.0
+
+
+def _n(start, end, pitch):
+    return Note(start_s=start, end_s=end, pitch=pitch, velocity=80, confidence=1.0)
+
+
+def test_prior_target_is_the_highest_sounding_note_else_the_next_onset_within_an_eighth():
+    prior = [_n(0.0, 1.0, 60), _n(0.5, 1.0, 67), _n(1.3, 1.5, 64), _n(1.3, 1.5, 65)]
+    eighth = 0.25
+    assert _prior_target(prior, 0.0, eighth) == 60
+    assert _prior_target(prior, 0.5, eighth) == 67  # the highest of those sounding
+    assert _prior_target(prior, 1.0, eighth) is None  # both end here; 1.3 is over an eighth on
+    assert _prior_target(prior, 1.05, eighth) == 65  # the highest at the nearest onset ahead
+    assert _prior_target(prior, 1.5, eighth) is None
+    assert _prior_target([], 0.0, eighth) is None

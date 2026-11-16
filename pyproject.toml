@@ -38,9 +38,20 @@ dev = [
   "mypy>=1.10",
   "types-PyYAML",
 ]
+ml = [
+  "audiobox_aesthetics==0.0.4",
+  "transformers>=5,<6",
+  "huggingface_hub>=1",
+  # the Anticipatory Music Transformer (Apache-2.0; not on PyPI), pinned
+  "anticipation @ git+https://github.com/jthickstun/anticipation@af37397922665a0fb8d474d7988b0f3755a38d45",
+  "tqdm",
+]
 
 [project.scripts]
 music-decoder = "music_decoder.cli.main:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true  # the `ml` extra pins anticipation by git commit
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/music_decoder"]
@@ -63,7 +74,9 @@ plugins = []
 module = ["basic_pitch.*", "demucs.*", "librosa.*", "pretty_midi.*",
           "music21.*", "mir_eval.*", "fluidsynth.*",
           "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*",
-          "soundfile.*", "pyloudnorm.*"]
+          "soundfile.*", "pyloudnorm.*",
+          # the optional `ml` extra
+          "torchaudio.*", "audiobox_aesthetics.*", "huggingface_hub.*", "anticipation.*", "tqdm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

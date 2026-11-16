@@ -2,7 +2,9 @@ import re
 from pathlib import Path
 from unittest import mock
 
+import pretty_midi
 import pytest
+import soundfile
 
 from music_decoder.chords.templates import QUALITIES, ROOTS, chord_label
 from music_decoder.compose import metrics
@@ -13,6 +15,7 @@ from music_decoder.compose.api import (
     _melody_tab,
     arrange,
     compose,
+    compose_with_options,
 )
 from music_decoder.compose.melody import MAX_INTERVAL, generate_melody
 from music_decoder.compose.tabtext import render_melody_tab
@@ -115,10 +118,10 @@ def test_pinned_tab_weights_match_the_analysis_defaults():
 def test_compose_returns_the_arrangement_and_version(tmp_path):
     with mock.patch("music_decoder.compose.api.render_wav"):
         result = compose(scale=Scale("C", "major"), progression=_PROG, seed=1, out_dir=tmp_path)
-    arr = arrange(Scale("C", "major"), _PROG, seed=1)
+    arr = arrange(Scale("C", "major"), _PROG, seed=1, candidates=12)
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
-    assert result.metadata["composer_version"] == COMPOSER_VERSION == 4
+    assert result.metadata["composer_version"] == COMPOSER_VERSION == 5
 
 
 def test_arrange_tabs_every_melody_note_in_a_playable_register():
@@ -357,3 +360,149 @@ def test_every_root_and_quality_composes_smoothly():  # spec section 6.4 bounded
                     for seed in range(5):
                         arr = arrange(Scale(key, mode), _chords(*labels), seed=seed)
                         _api_leap_invariants(arr, labels)
+
+
+def test_compose_writes_on_grid_midi_and_records_the_sound(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        result = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path)
+    pm = pretty_midi.PrettyMIDI(str(result.midi_path))
+    starts = [n.start for i in pm.instruments for n in i.notes]
+    assert metrics.onset_grid_ratio(metrics.stroke_heads(starts), 100.0, 2) == 1.0
+    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 5
+    assert not list(result.midi_path.parent.glob("*performance*"))  # temp MIDI removed
+
+
+def test_compose_renders_fingerstyle_from_the_humanized_performance_midi(tmp_path):
+    rendered = []
+
+    def fake(midi_path, out_path):
+        rendered.append(midi_path)
+        assert midi_path.exists()
+        out_path.write_bytes(b"RIFF")
+
+    with mock.patch("music_decoder.compose.api.render_wav", side_effect=fake):
+        result = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path)
+    assert rendered[0] != result.midi_path and "performance" in rendered[0].name
+    assert not rendered[0].exists()
+
+
+def test_compose_renders_strum_from_composition_midi(tmp_path):
+    rendered = []
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda m, o: (rendered.append(m), o.write_bytes(b"RIFF"))
+        result = compose_with_options(
+            Scale("C", "major"), _PROG, style="strum", seed=1, out_dir=tmp_path
+        )
+    assert rendered == [result.midi_path]
+
+
+@pytest.mark.parametrize("tuning_name", list(PRESETS))
+def test_compose_with_plucked_sound_in_every_tuning(tmp_path, tuning_name):
+    r = compose_with_options(
+        Scale("D", "major"),
+        [ChordSymbol.parse(c) for c in ("D", "G", "A", "D")],
+        tuning=PRESETS[tuning_name],
+        seed=2,
+        out_dir=tmp_path,
+        sound="plucked",
+    )
+    y, _ = soundfile.read(r.wav_path)
+    assert len(y) > 0 and r.metadata["sound"] == "plucked"
+
+
+def test_plucked_renders_strum_from_midi(tmp_path):
+    r = compose_with_options(
+        Scale("C", "major"), _PROG, style="strum", seed=1, out_dir=tmp_path, sound="plucked"
+    )
+    assert soundfile.info(r.wav_path).duration > 0
+
+
+def test_plucked_sound_leaves_composition_midi_unchanged(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        a = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "a")
+    b = compose_with_options(
+        Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "b", sound="plucked"
+    )
+    assert a.midi_path.read_bytes() == b.midi_path.read_bytes()
+    assert a.ascii_tab == b.ascii_tab
+    assert not list(b.midi_path.parent.glob("*performance*"))
+
+
+def test_compose_delegates_to_compose_with_options(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        a = compose(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "a")
+        b = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "b")
+    assert a.melody_notes == b.melody_notes and a.ascii_tab == b.ascii_tab
+
+
+_PROG8 = _chords("C", "Am", "F", "G", "C", "F", "G", "C")
+
+
+def test_compose_records_the_choice(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = compose_with_options(Scale("C", "major"), _PROG8, seed=4, out_dir=tmp_path)
+    m = r.metadata
+    assert m["candidates"] == 12 and isinstance(m["chosen_candidate"], int)
+    assert isinstance(m["score"], float) and m["final_fallback"] is False
+    assert isinstance(m["identity_misses"], list)
+    best = arrange(Scale("C", "major"), _PROG8, seed=4, candidates=12)
+    assert m["chosen_candidate"] == best.chosen_candidate and m["score"] == best.score
+    assert r.melody_notes == best.melody
+
+
+def test_compose_strum_records_one_candidate(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = compose_with_options(
+            Scale("C", "major"), _PROG8, style="strum", seed=4, out_dir=tmp_path
+        )
+    m = r.metadata
+    assert m["candidates"] == 1 and m["chosen_candidate"] == 0 and m["score"] is None
+    assert m["final_fallback"] is False and m["identity_misses"] is None  # not counted
+
+
+def _silent_render(midi_path, out_path):
+    out_path.write_bytes(b"RIFF")
+
+
+@pytest.mark.parametrize("style", ["fingerstyle", "strum"])
+def test_compose_records_the_seed_it_used_and_rebuilds_from_it(tmp_path, style):
+    with mock.patch("music_decoder.compose.api.render_wav", side_effect=_silent_render):
+        given = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, seed=4, out_dir=tmp_path, candidates=2
+        )
+        assert given.metadata["seed"] == 4 and given.metadata["seed_used"] == 4
+        drawn = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, out_dir=tmp_path, candidates=2
+        )
+        used = drawn.metadata["seed_used"]
+        assert drawn.metadata["seed"] is None and isinstance(used, int)
+        again = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, seed=used, out_dir=tmp_path, candidates=2
+        )
+    assert again.melody_notes == drawn.melody_notes and again.ascii_tab == drawn.ascii_tab
+    assert again.midi_path.read_bytes() == drawn.midi_path.read_bytes()
+
+
+def test_compose_validates_before_loading_any_model(tmp_path, monkeypatch):
+    from music_decoder.compose.ml import aesthetics, amt
+
+    def fail():
+        raise AssertionError("no model may load for invalid arguments")
+
+    monkeypatch.setattr(aesthetics, "load_scorer", fail)
+    monkeypatch.setattr(amt, "load_proposer", fail)
+    for kw in ({"rank_audio": True}, {"melody_model": "amt"}):
+        with pytest.raises(ValueError, match="candidates must be >= 1"):
+            compose_with_options(Scale("C", "major"), _PROG8, out_dir=tmp_path, candidates=0, **kw)
+        with pytest.raises(InvalidProgressionError):
+            compose_with_options(Scale("C", "major"), [], out_dir=tmp_path, **kw)
+        with pytest.raises(InvalidProgressionError):
+            compose_with_options(
+                Scale("C", "major"), _PROG8, bars_per_chord=0, out_dir=tmp_path, **kw
+            )
+    assert list(tmp_path.iterdir()) == []
