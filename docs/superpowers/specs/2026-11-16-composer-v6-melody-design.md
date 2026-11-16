@@ -146,7 +146,7 @@ Contents:
   unconditioned counts per metric class for backoff. Notes outside the key's seven-note scale break the chain.
 - `chord_tone`: share of notes that are chord tones, per metric class.
 - `degrees`: share of each scale degree, per mode; and of phrase-final notes, per mode.
-- `density`: notes per second (median and quartiles).
+- `notes_per_second`: notes per second (median and quartiles).
 - `bands`: for every feature of section 5.4, the 25th, 50th and 75th percentile over eight-bar windows, per mode.
   A window starts at a labelled 8-bar phrase or at two consecutive 4-bar phrases, and counts only if every bar in it
   that has notes is an eighths-only bar and it has at least 12 notes. Windows with any other bar are skipped whole.

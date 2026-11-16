@@ -1362,7 +1362,9 @@ Two fixed matrices build fingerstyle pieces with the tune engine through
 per mode, tempos 72, 96 and 120, two seeds, 8 bars, plus 16-bar pieces in four
 keys per mode) and `holdout` (160 pieces, other keys and seeds; its test,
 `test_holdout_meets_t1_and_t3`, asserts T1 and T3 only and was run once, on the
-final constants).
+final constants; it stays in the default suite as a regression check of that
+result, and no later tuning may be steered by it: an engine change that fails it
+is reported, not tuned against).
 Each configuration has its own seed (`base + 2 k`). A `TuneCase` keeps the
 best-of-12 arrangement and the features of candidate 0. The gates:
 
@@ -1375,7 +1377,7 @@ best-of-12 arrangement and the features of candidate 0. The gates:
   construction.
 - **T3** the guitar guarantees, on the pieces as `compose()` writes them
   (best of 12): P1 and P2 equal 1, P4 holds, P3 of triad bars is at least
-  0.99, no forbidden interval, no move over an octave, the chord-change and
+  0.99, no forbidden interval, no move over a fifth, the chord-change and
   final-approach moves at most a fifth, a final note of at least 1.5 beats on
   the cadence pitch.
 - **T4** the same seed gives the same music; **T5** every key and mode

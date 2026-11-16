@@ -286,7 +286,8 @@ def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it(monkeypatch):
 
 def test_repeats_are_as_rare_as_in_real_tunes():
     # Before the repeat kept its row share, the harmony and degree factors made 30% of the
-    # moves here repeats (38% on the hand shapes); real tunes have ~20% (band ~0.12-0.28).
+    # moves here repeats (38% on the hand shapes); real tunes have ~20% (shipped band 0.115-0.34).
+    # The 0.28 ceiling is deliberately stricter than the band's top: it guards that regression.
     scale = Scale.parse("C:major")
     feats = [tune_features(tune(s), scale, [C, G, AM, F], 2, 96.0) for s in range(80)]
     assert float(np.median([f["repeat"] for f in feats])) <= 0.28

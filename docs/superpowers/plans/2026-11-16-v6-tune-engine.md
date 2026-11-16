@@ -16,7 +16,7 @@
 - All randomness is `numpy.random.default_rng(seed)`; the same seed gives the same music.
 - `compose()` keeps its signature. `melody_engine="rules"` must give the v5 output for a seed, note for note.
 - Every melody note is on the eighth grid, inside `allowed_pitches[bar]`, and ends before its bar line.
-- Hard interval rules: no move over 12 semitones, none of 6, 10 or 11 semitones; the move into a new chord and into the final note is at most 7.
+- Hard interval rules: no move over 7 semitones, none of 6, 10 or 11 semitones; the move into a new chord and into the final note is at most 7.
 - Only statistics leave a dataset. The dataset itself is never copied into the repo.
 - `ruff check`, `ruff format --check` (line length 100) and `mypy --strict src` stay clean.
 - Never stage `spikes/`, `out/` or `compose-samples/`.

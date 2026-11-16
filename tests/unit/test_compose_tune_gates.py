@@ -129,6 +129,12 @@ def holdout_report(holdout_cases):
 
 
 def test_holdout_meets_t1_and_t3(holdout_report, holdout_cases):
+    """A regression check of a result judged once.
+
+    The holdout was judged once, on the final v6 constants. From now on this test only
+    guards that result; future tuning must not be steered by it. A later engine change that
+    fails it is to be reported, not tuned against.
+    """
     # T1: every feature's median inside its band, per mode (KNOWN_MISSES excused).
     t1 = []
     for mode in ("major", "minor"):
