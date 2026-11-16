@@ -113,3 +113,33 @@ def test_t5_edge_and_tunings_inputs_compose():
             melody_engine="tune",
         )
         assert arrangement.melody, (scale, progression, seed, tuning.name)
+
+
+# ---- Holdout (v6 spec 5.5): other keys and seeds, evaluated once after the tuning ----
+
+
+@pytest.fixture(scope="module")
+def holdout_cases():
+    return tune_cases("holdout")
+
+
+@pytest.fixture(scope="module")
+def holdout_report(holdout_cases):
+    return tune_report(holdout_cases)
+
+
+def test_holdout_meets_t1_and_t3(holdout_report, holdout_cases):
+    # T1: every feature's median inside its band, per mode (KNOWN_MISSES excused).
+    t1 = []
+    for mode in ("major", "minor"):
+        for feature in FEATURES:
+            if (mode, feature) in KNOWN_MISSES:
+                continue
+            band, median = STATS.bands[mode][feature], holdout_report[mode][feature]["median"]
+            if not band.low <= median <= band.high:
+                t1.append(f"{mode} {feature}: {median:.3f} outside {band.low:.3f}-{band.high:.3f}")
+    # T3: the guitar guarantees on every piece, and triad identity pooled.
+    t3 = [(describe(c), f) for c in holdout_cases if (f := guarantee_failures(c))]
+    triads = [met for c in holdout_cases for met in triad_identity(c)]
+    assert not t1 and not t3, {"T1": t1, "T3": t3}
+    assert sum(triads) / len(triads) >= MIN_TRIAD_IDENTITY
