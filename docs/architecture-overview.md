@@ -295,7 +295,7 @@ You give the tool a scale, a chord progression, and a few options
    chord tone. Second, the melody gets a **hook** (the first few notes
    return at every phrase start, with one change in the answer), a rising
    and falling **arch** with one unique high note per phrase, and the form
-   A A' B A' for pieces of 16 bars or more. Third, the part is
+   A A' B A' for pieces of four phrases or more (13 bars or more). Third, the part is
    **performed**: louder melody, a swell over each phrase, bass notes that
    ring until the string is plucked again or the bar ends. Fourth, the tool
    writes 12 whole pieces from 12 seeds derived from yours and **keeps the

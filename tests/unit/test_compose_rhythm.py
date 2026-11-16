@@ -123,6 +123,14 @@ def test_plan_bars_contrast_b_gives_the_b_phrase_its_own_rhythms():
     assert contrasted == 40 and plain < 40
 
 
+@pytest.mark.parametrize("n_bars", [9, 10, 11, 12])
+def test_plan_bars_three_phrases_have_no_b_to_contrast(n_bars):
+    # v5 ruling F3h: A A' A', so contrast_b leaves a three-phrase plan as it was
+    for seed in range(20):
+        plain = plan_bars(n_bars, np.random.default_rng(seed))
+        assert plan_bars(n_bars, np.random.default_rng(seed), contrast_b=True) == plain
+
+
 @pytest.mark.parametrize(
     ("n_bars", "a_prime"),
     [(13, (11, 1)), (14, (12, 1)), (15, (12, 2)), (16, (12, 3)), (17, (12, 2))],

@@ -628,8 +628,50 @@ def test_form_labels_follow_the_phrase_layout():
         assert len(labels) == len(phrase_layout(n).phrase_lengths) and labels[0] == "A"
     assert form_labels(16)[:4] == ("A", "A'", "B", "A'")
     assert form_labels(8) == ("A", "A'")
-    assert form_labels(9) == ("A", "A'", "B")
     assert form_labels(4) == ("A",)
+
+
+def test_only_four_or_more_phrases_get_a_b():
+    # v5 ruling F3h: three phrases are A A' A', so a 9-12 bar piece ends at home
+    for n in range(1, 21):
+        has_b = "B" in form_labels(n)
+        assert has_b == (len(phrase_layout(n).phrase_lengths) >= 4) == (n >= 13), n
+    for n in (9, 10, 11, 12):
+        assert form_labels(n) == ("A", "A'", "A'")
+    assert form_labels(13) == ("A", "A'", "B", "A'")
+    assert form_labels(17) == ("A", "A'", "B", "A'", "A")
+
+
+def test_the_b_phrase_of_a_16_bar_melody_is_raised_and_has_its_own_rhythm():
+    def bars_of(mel, first):  # four bars at 120 bpm (2 s bars)
+        return [n for n in mel if 2.0 * first <= n.start_s < 2.0 * (first + 4)]
+
+    def body_rhythms(mel, first):  # each body bar's bar-relative onsets
+        return {
+            tuple(
+                round(n.start_s - 2.0 * b, 6) for n in mel if 2.0 * b <= n.start_s < 2.0 * (b + 1)
+            )
+            for b in range(first, first + 3)
+        }
+
+    lifts = []
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8 * 2,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        a = statistics.fmean(n.pitch for n in bars_of(mel, 0))
+        b = statistics.fmean(n.pitch for n in bars_of(mel, 8))
+        lifts.append(b - a)
+        assert not body_rhythms(mel, 0) & body_rhythms(mel, 8), seed  # B's own body rhythms
+    # The B arch sits B_REGISTER_LIFT (2) higher; the notes follow it on average
+    # (2.6 here), not in every piece: the hard rules and the chords still decide.
+    assert statistics.fmean(lifts) >= 1
+    assert sum(lift >= 1 for lift in lifts) >= 15  # 16 of the 20 here
 
 
 # ---- v5 feature 5: the soft pitch prior (spec 2026-11-16 section 5.5) ---------

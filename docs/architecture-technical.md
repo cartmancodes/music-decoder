@@ -1066,8 +1066,10 @@ the varied slot is the first later slot that can play the +-1 variation in
 scale). A contour term pulls each phrase toward an arch (`ARCH_SPAN` 23
 semitones); `PEAK_BONUS` (2.5), `PEAK_TIE` (-2.25) and `PEAK_AFTER` (-7.0)
 make one unique highest note fall in 55-75% of the phrase. Phrases are four
-bars, so an 8-bar piece is A A' and the form A A' B A' (B: contrasting
-rhythm, register at least 2 semitones up) needs 16 bars. The metrics are
+bars (`phrase_layout`), so an 8-bar piece is A A', 9 to 12 bars are three
+phrases, A A' A' (they end at home, v5 ruling F3h), and the form A A' B A'
+(B: contrasting rhythm, its arch `B_REGISTER_LIFT` = 2 semitones up) needs
+four phrases, 13 bars or more. The metrics are
 `hook_restatements`, `peak_uniqueness` and `contour_arch`
 ([compose/metrics.py](../src/music_decoder/compose/metrics.py)). The v3 hard
 rules and the reach sets still apply.

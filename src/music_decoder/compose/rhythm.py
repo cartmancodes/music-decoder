@@ -47,6 +47,7 @@ CADENCE_RHYTHMS: tuple[tuple[int, ...], ...] = (
 
 _FINAL_MIN_LAST_EIGHTHS = 4
 _B_PHRASE = 2  # the B phrase of A A' B A'
+_B_MIN_PHRASES = 4  # fewer phrases have no B (v5 ruling F3h)
 _CONTRAST_REDRAWS = 5
 
 
@@ -107,14 +108,23 @@ def phrase_layout(n_bars: int) -> PhraseLayout:
     return PhraseLayout(tuple(lengths), tuple(cadences), tuple(echoes))
 
 
+def _has_b(phrase_count: int) -> bool:
+    return phrase_count >= _B_MIN_PHRASES
+
+
 def form_labels(n_bars: int) -> tuple[str, ...]:
     """The form role of each phrase of :func:`phrase_layout`: A and A' alternate,
-    and the third phrase, when there is one, is B (so four phrases are
-    A A' B A' and two are A A')."""
+    and with four or more phrases (13 bars or more) the third is B, so four
+    phrases are A A' B A'. Three phrases (9 to 12 bars) are A A' A', ending at
+    home rather than on B (v5 ruling F3h); two are A A'."""
     count = len(split_phrases(n_bars))
-    return tuple(
-        "B" if index == _B_PHRASE else "A" if index % 2 == 0 else "A'" for index in range(count)
-    )
+
+    def label(index: int) -> str:
+        if index == _B_PHRASE:
+            return "B" if _has_b(count) else "A'"
+        return "A" if index % 2 == 0 else "A'"
+
+    return tuple(label(index) for index in range(count))
 
 
 def _draw(rng: np.random.Generator, templates: tuple[tuple[int, ...], ...]) -> tuple[int, ...]:
@@ -131,12 +141,14 @@ def _fresh_bodies(rng: np.random.Generator) -> list[tuple[int, ...]]:
 def plan_bars(n_bars: int, rng: np.random.Generator, contrast_b: bool = False) -> list[BarPlan]:
     """One ``BarPlan`` per bar, in order, following :func:`phrase_layout`.
 
-    With ``contrast_b`` the B phrase (see :func:`form_labels`) redraws its
+    With ``contrast_b`` the B phrase (see :func:`form_labels`; a piece of
+    fewer than four phrases has none, and its plan is unchanged) redraws its
     fresh body rhythms, up to ``_CONTRAST_REDRAWS`` times, while any it plays
     is one of phrase A's; and the A' after B echoes phrase A's bars (rhythms
     and motif intervals) instead of B's, so the form returns to A.
     """
     layout = phrase_layout(n_bars)
+    contrast_b = contrast_b and _has_b(len(layout.phrase_lengths))
     echo_of = {target: source for source, target in layout.echo_pairs}
     rhythms: list[tuple[int, ...]] = []
     plans: list[BarPlan] = []

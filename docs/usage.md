@@ -1368,10 +1368,11 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
     the chord, and the answering phrase restates it with exactly one
     interval or one rhythm changed. Each four-bar phrase follows an
     **arch**, rising to **one** unique highest note (its peak, 55-75% of
-    the way through) and falling to the cadence. Pieces of 16 bars or more
-    (four phrases) follow **A A' B A'**, where B has a contrasting rhythm
-    and sits at least two semitones higher; an 8-bar piece has two
-    phrases, A A'. The hard melody rules and the reach sets still apply.
+    the way through) and falling to the cadence. Pieces of four phrases or
+    more (13 bars or more) follow **A A' B A'**, where B has a contrasting
+    rhythm and its arch sits two semitones higher; a piece of three phrases
+    (9 to 12 bars) is A A' A', so it ends at home, and an 8-bar piece has
+    two phrases, A A'. The hard melody rules and the reach sets still apply.
   - **Expressive performance.** The velocities in the MIDI are no longer
     flat: the melody is at least 8 louder than the accompaniment sounding
     with it, strong beats are louder, each phrase swells toward its peak
