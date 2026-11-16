@@ -264,9 +264,11 @@ def test_a_repeat_keeps_the_move_rows_share():
     assert weights == [1.0, 3.0]  # a row of repeats only
 
 
-def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it():
+def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it(monkeypatch):
     # On the downbeat of a new G chord in C major, repeating A (not a chord tone) must be
     # less likely than repeating G (a chord tone); the harmony factor still judges repeats.
+    # The 0.6 margin is the learned harmony factor's (HARMONY_EXPONENT 1.0); the shipped,
+    # weaker exponent (ruling R15) must still rank the clashing repeat lower.
     scale = Scale.parse("C:major")
     piece = _Piece(scale=scale, stats=STATS, center=68, prior=None, eighth_s=60 / 96 / 2)
     spot = replace(_spot_for(G, scale), change=True)
@@ -277,6 +279,8 @@ def test_a_repeat_off_the_new_chord_is_less_likely_than_one_on_it():
         weights = _weights(pool, spot, voice, piece)
         return weights[pool.index(prev)] / sum(weights)
 
+    assert repeat_share(69) < repeat_share(67)
+    monkeypatch.setattr(tune_module, "HARMONY_EXPONENT", 1.0)
     assert repeat_share(69) < 0.6 * repeat_share(67)
 
 
@@ -348,3 +352,17 @@ def test_the_bar_before_the_approach_keeps_the_final_reachable():
         )
         sizes = [abs(b.pitch - a.pitch) for a, b in pairwise(notes)]
         assert all(s <= 7 and s != 6 for s in sizes), seed
+
+
+def test_a_lower_harmony_exponent_lowers_the_strong_slot_chord_tone_share(monkeypatch):
+    # Ruling R15: HARMONY_EXPONENT scales the chord-tone pull (1.0 is the learned share as is).
+    scale = Scale.parse("C:major")
+
+    def strong_chord_tones(exponent):
+        monkeypatch.setattr(tune_module, "HARMONY_EXPONENT", exponent)
+        feats = [tune_features(tune(s), scale, [C, G, AM, F], 2, 96.0) for s in range(60)]
+        return float(np.mean([f["chord_tone_strong"] for f in feats]))
+
+    low, shipped, high = (strong_chord_tones(x) for x in (0.3, tune_module.HARMONY_EXPONENT, 1.0))
+    assert low < shipped < high
+    assert high - low >= 0.05

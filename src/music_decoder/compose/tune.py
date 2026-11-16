@@ -51,6 +51,7 @@ PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row t
 
 P_RESTATE_CELL = 0.75  # chance a bar with a used pattern replays that bar's moves (tuned)
 DEGREE_EXPONENT = 0.8  # tuned (v6 spec 5.5)
+HARMONY_EXPONENT = 0.7  # tuned (v6 spec 5.5): exponent on the chord-tone share factor
 REGISTER_SIGMA = 6.0  # semitones (tuned, v6 spec 5.5)
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
@@ -304,6 +305,7 @@ def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> 
     factors: list[float] = []  # the non-move factors: harmony x degree x register x prior
     for c in pool:
         f = share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
+        f **= HARMONY_EXPONENT
         f *= degrees[(c - tonic) % 12]
         f *= math.exp(-((c - piece.center) ** 2) / (2.0 * REGISTER_SIGMA**2))
         if target is not None:
