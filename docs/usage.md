@@ -327,7 +327,7 @@ music-decoder compose \
 ```
 
 Expected pretty output (paths will differ; the notes are what the tune
-engine of composer version 6 writes for this seed):
+engine of composer version 6 writes for this seed on the shipped statistics):
 
 ```text
 MIDI:    out/20260508T142510-7c4a3b21/composition.mid
@@ -362,7 +362,7 @@ again, and a fret of 10 or more widens its column for every string.
 The **Chords** block under it shows each chord shape under its name
 (`x` = muted string). In the example, the bass notes on the A and D strings
 are the thumb, the notes on the top strings are the melody, and in the last
-bar a rolled G7 sits under the final melody note, a held G4 on the top string.
+bar a rolled G7 sits under the final melody note, a held G3 on the G string.
 `strum` and `arpeggio` still print the older two-part text: a **Melody**
 block (one column per note, no rhythm) and the **Chords** block. The MIDI
 file has the exact timing in every style.
@@ -1033,8 +1033,8 @@ same conventions:
     "composer_version": 6,
     "sound": "soundfont",
     "candidates": 12,
-    "chosen_candidate": 5,
-    "score": 2.07,
+    "chosen_candidate": 9,
+    "score": 1.86,
     "final_fallback": false,
     "identity_misses": [],
     "rank_audio": false,
@@ -1546,17 +1546,18 @@ pair of consecutive moves.
   (<https://github.com/Dsqvival/hierarchical-structure-analysis>, built on
   POP909 by Wang et al., ISMIR 2020). The dataset itself is not in this
   repository.
-- **The project's own pilot recordings (optional).** The pitch statistics
-  (interval shares, pentatonic share, scale-degree shares, range) of vocal
-  lines extracted from the 488 songs of the project's own YouTube pilot. Only
-  these statistics are stored, never audio or notes. They are recorded in
-  the file, and merged into the pitch ranges and scale-degree shares only
-  when they come from at least 100 songs. `meta.sources` in
-  `tune_stats.json` names the sources that went into it.
+- **The project's own pilot recordings.** The pitch statistics (interval
+  shares, pentatonic share, scale-degree shares, range) of the vocal lines of
+  400 songs of the project's own YouTube pilot (the other 88 of its 488 songs
+  could not be extracted). The shipped file includes them: the scale-degree
+  shares are the mean of the two sources, and the pitch ranges are widened to
+  cover both (for example the range band is 8.9 to 15 semitones, and the repeat
+  band reaches 0.34). The rhythm and move tables are POP909's alone, because
+  the pilot's timing is too noisy. Only these statistics are stored, never audio
+  or notes. `meta.sources` in `tune_stats.json` names both sources.
 
-To rebuild the file (for example after changing the pilot data), fetch the
-dataset once and run the builder. It reads the dataset from disk and takes a
-few seconds:
+To rebuild the file, fetch the dataset once and run the builder. It reads the
+dataset from disk and takes a few seconds:
 
 ```bash
 git clone --depth 1 https://github.com/Dsqvival/hierarchical-structure-analysis \
@@ -1572,10 +1573,14 @@ python scripts/build_tune_stats.py \
 more JSON-lines files of vocal lines (one song per line,
 `{"tonic_pc": 0, "mode": "major", "notes": [[eighth_slot, midi_pitch], ...]}`),
 written by a throwaway extractor (`extract_vocal_lines.py` in
-`spikes/preference-pilot/`) that is not part of the repository. Without
-`--pilot` the file is POP909 only. The script prints the counts and the
-bands it measured. Building from the same dataset (and the same pilot files)
-gives the same statistics, apart from `meta.built`, the date.
+`spikes/preference-pilot/`) that is not part of the repository, and neither
+are its output files (`vocal_lines_*.jsonl`). The shipped file was built with
+all 400 lines, and rebuilding with the same `--pilot` files reproduces it
+exactly, apart from `meta.built` (the date of the build). Without `--pilot`
+the result is POP909 only, which is a different file from the shipped one (no
+`pilot` entry, other degree shares and bands), so the gates are not
+guaranteed to pass on it: use it for a comparison, not as a replacement. The
+script prints the counts and the bands it measured.
 
 A rebuilt file that differs in content changes the tune the engine writes for
 a given seed. After a rebuild, run `pytest tests/unit/test_compose_tune_gates.py`:

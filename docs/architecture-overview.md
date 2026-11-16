@@ -104,8 +104,8 @@ ones and changed how the fingerstyle melody is written. It is the default;
 - Of those songs, only **statistics** are kept in the tool, such as counts
   and ranges. No melody is copied, and the song collection itself is not part
   of the tool. It is the cleaned POP909 collection of Dai et al. (MIT
-  licence), and, when present, pitch statistics from the project's own
-  pilot recordings.
+  licence), and the pitch statistics (never audio or notes) of 400 vocal
+  lines from the project's own pilot recordings.
 - Best of 12 now picks the candidate **closest to a real tune** (its note
   habits measured against the ranges real tunes occupy), while still
   insisting on the guitar qualities of version 5: playable, melody on top,

@@ -1,6 +1,6 @@
 # Composer v6: melodies built from what real tunes do
 
-Date: 2026-11-16. Status: design, awaiting approval. Follows `2026-11-16-composer-v5-design.md`.
+Date: 2026-11-16. Status: implemented on `feat/composer-v6`; results in section 10. Follows `2026-11-16-composer-v5-design.md`.
 
 ## 1. Why
 
@@ -174,7 +174,8 @@ Same contract as the fingerstyle call of `generate_melody`: notes on the eighth 
 1. Target onsets per bar = stats notes per second × the bar's length in seconds, clamped to 3–6.5.
 2. If the bar is in an A′ phrase and the matching bar of phrase A exists, copy A's pattern with probability
    `P_RESTATE_RHYTHM`.
-3. Otherwise draw a pattern with weight `P(pattern | role, previous pattern) × exp(−(onsets − target)² / (2 × 1.5²))`,
+3. Otherwise draw a pattern with weight `P(pattern | role, previous pattern) × exp(−(onsets − target)² / (2 × DENSITY_SIGMA²))`, with `DENSITY_SIGMA` = 2.5
+   (as built; this design first said 1.5, which made the rhythm of every piece too alike, section 10),
    where the conditional probability is interpolated half and half with `P(pattern | role)` when the previous
    pattern has at least 20 following bars in the table, and is `P(pattern | role)` otherwise.
 4. The last bar is one whole note. The first bar of the piece must attack slot 0.
@@ -191,16 +192,32 @@ product of:
   in the key that is the key's scale, which is what the statistics count on; for an altered chord it is the key's
   scale with the altered degree in place of the plain one, so a step still means one degree.
 - **Harmony**: the stats chord-tone share for the slot's metric class if the candidate is a chord tone, one minus it
-  otherwise, each divided by the number of candidates in its class.
-- **Degree**: `(share of this degree in the mode / mean share) ** DEGREE_EXPONENT`.
-- **Register**: a normal curve around `tessitura_center`, `REGISTER_SIGMA` semitones wide. This is the
+  otherwise, each divided by the number of candidates in its class, to the power `HARMONY_EXPONENT` = 0.7 (ruling
+  R15: it keeps the shares of thirds inside their bands once the pilot statistics are merged; 1.0 is the learned
+  share as is).
+- **Degree**: `(share of this degree in the mode / mean share) ** DEGREE_EXPONENT`, `DEGREE_EXPONENT` = 0.8.
+- **Register**: a normal curve around `tessitura_center`, `REGISTER_SIGMA` = 6 semitones wide. This is the
   regression-to-the-mean that the literature finds behind "leaps turn back"; there is no separate leap-recovery rule.
 - **Prior** (only with `pitch_prior`): as in v5, `exp(PRIOR_WEIGHT × exp(−d / PRIOR_WIDTH))`.
 
-Hard rules, applied before weighting (if they leave nothing, they are dropped in this order: degree pool, then the
-chord-change limit; the interval limits and `allowed_pitches` are never dropped):
+**The weight of a repeated note (rulings R11b and R11).** The product above, taken as is, made repeats far more
+frequent than the real share: the harmony, degree and register factors all favour the pitch the line is already on,
+and the moves the pool cannot make hand their probability to the rest. So a repeat's weight is not the product.
+Let `others` be the summed weights of the other candidates, `share` the move row's own repeat share
+(`row[0] / sum(row)`) and `fit = min(1, f_repeat / mean(f_others))`, where `f` is a candidate's product of the four
+non-move factors (harmony, degree, register, prior) and the mean is the plain mean over the other candidates. Then
+`weight(repeat) = others × share / (1 − share) × fit`. A repeat keeps the corpus repeat share, a repeat that fits the
+harmony, degree and register worse than the others is made less likely (a non-chord tone on a new chord's downbeat),
+and a repeat is never made more likely than the corpus share, because `fit` is at most 1. (R11a, which compared
+against the move-weighted mean, made repeats more frequent and was replaced.)
 
-- no move larger than an octave, no tritone, no seventh;
+Hard rules, applied before weighting (if they leave nothing, they are dropped in this order: the chord-scale pool,
+then the approach sets of the final note over the chord scale; the interval limits are dropped only in the last
+resort, the nearest allowed pitch, because `allowed_pitches` outranks them, ruling R12):
+
+- no move larger than a fifth (7 semitones; ruling R10, which replaces this design's first "no move larger than an
+  octave": real tunes leap more than a fifth in about 3.5% of their moves, and the guitar guarantees L2 and L3 of v3
+  then hold by construction), no tritone, no seventh;
 - the move into a new chord and the move into the final note are at most a fifth (the v3 invariants L4 and L5);
 - the final note is the cadence pitch chosen as in v5 (`final_bar_pitches`, `final_target`), and the notes of the bar
   before it stay inside `feasible_sets` so it can be reached.
@@ -218,8 +235,9 @@ ending). The last note of the piece is the cadence pitch.
 
 **Note lengths.** A note lasts until the next onset in its bar, or the bar's end, times 0.95.
 
-Tunable constants (`P_RESTATE_RHYTHM`, `P_RESTATE_CELL`, `DEGREE_EXPONENT`, `REGISTER_SIGMA`) are pinned in
-`tune.py`. They are tuned only to bring the features into the stats bands.
+Tunable constants (`P_RESTATE_RHYTHM` 0.5, `P_RESTATE_CELL` 0.75, `DEGREE_EXPONENT` 0.8, `HARMONY_EXPONENT` 0.7,
+`REGISTER_SIGMA` 6, `DENSITY_SIGMA` 2.5) are pinned in `tune.py`. They are tuned only to bring the features into the
+stats bands.
 
 ### 5.3 Wiring
 
@@ -265,7 +283,7 @@ seeds and keys, evaluated once at the end.
 - **T2 (not all alike).** For `repeat`, `notes_per_second`, `rhythm_variety` and `figure_recurrence`, the matrix's own
   25–75% spread is at least half as wide as the band.
 - **T3 (guitar guarantees).** On the pieces as `compose()` writes them (best of 12): P1 = 1, P2 = 1, P4 true, mean P3 ≥ 0.99 for triad bars, no
-  forbidden interval, no move over an octave, chord-change and final-approach moves at most a fifth, final note at
+  forbidden interval, no move over a fifth (ruling R10), chord-change and final-approach moves at most a fifth, final note at
   least 1.5 beats and on the cadence pitch.
 - **T4 (same seed, same music)** and **T5** (every key and mode produces a melody; no exceptions on the edge and
   tunings inputs of the existing harness).
@@ -325,3 +343,172 @@ how the 0.95 articulation interacts with let-ring, and the starting values of th
   the characteristic degree raised.
 - Melody-aware shape choice for a wider, higher register; sixteenth notes; ties across bar lines; a liking term for
   medium surprise (Gold et al. 2019).
+
+## 10. Results
+
+Built on branch `feat/composer-v6` (tune engine, statistics file, harness and gates: commits `a26a976` to `eb4a91c`).
+All numbers below were measured on the shipped statistics file and constants, with `evaluation/compose_tune.py`.
+
+### 10.1 Success criteria (section 8)
+
+1. **T1 to T5 on the dev matrix and the holdout set.** Met, with no missed band: `KNOWN_MISSES` is empty.
+   - Dev (232 pieces: 216 of 8 bars, 16 of 16 bars): T1 passes for all 14 features in both modes, T2 passes for the four
+     spread features in both modes, T3 has 0 failing pieces (P1 and P2 = 1, P4 true, no forbidden interval, no move
+     over a fifth, largest move 7, final note on the cadence pitch), pooled triad identity P3 = 1.000 over 1,984 bars,
+     T4 (same seed, same music) and T5 (every key and mode, the edge and tunings inputs) pass.
+   - Holdout (160 pieces, keys A, D#, B, G# major and G, C#, F, A# minor, seed bases 6000/6001), **run once**, after
+     the constants were final: T1 passes for all 28 mode and feature pairs, T3 has 0 failing pieces, pooled triad
+     identity P3 = 1.000 over 1,408 bars, largest move 7.
+   - The holdout test asserts T1 and T3 only. Measured afterwards, the T2 spread of the holdout is below its minimum
+     for major `rhythm_variety` (inter-quartile range 0.125 against 0.152 needed); the other seven T2 checks hold on the
+     holdout. This is not a gate failure (T2 is a dev gate) and is listed under 10.5.
+2. **Every existing test passes with the rules engine.** Met. The full unit suite passes (`pytest tests/unit`: 1,479 passed, 0 failed, no xfails, including the holdout test), and `melody_engine="rules"` gives the v5 melody note for note (pinned
+   by a fixture, commit `2114573`).
+3. **The user has the comparison samples.** The listening checkpoint was done before tuning (section 5.7): 10 pieces in
+   each engine were generated from the v5 sample commands, and 10 tune and 3 rules MP3s were sent. The final set is in
+   `compose-samples/2026-11-16-v6/` (28 commands as in v5, plus `NN-rules` for pieces 01 to 10). Whether the user
+   likes them is open (10.5).
+4. **ruff, ruff format and mypy --strict are clean.** Met: `ruff check` and `ruff format --check` on `src`, `tests` and `scripts`, and `mypy --strict src` (110 source files), report no issues.
+
+### 10.2 Statistics file
+
+`tune_stats.json` holds POP909 (909 songs, 774 major and 648 minor eight-bar windows, 220 rhythm patterns) **and the
+pilot's pitch statistics**: 400 vocal lines extracted from the 488 pilot songs (88 skipped; the extractor throws away
+notes under 0.12 s and snaps onsets to the tracked eighth grid). The pilot merge averages the scale-degree shares of the
+two sources and widens the pitch bands to cover both: repeat high 0.340, step low 0.333, minor pentatonic low 0.772, and
+the range band to 8.875 to 15 (ruling R5: the pilot's 75th-percentile range, 14.0, is at most POP909's 15 plus 4
+semitones, so it was allowed to widen the band). Rhythm and move tables are POP909's only, because the pilot's timing
+is too noisy. The shipped file is POP909 plus pilot; rebuilding it needs the pilot's vocal-line files as well
+(`--pilot`, section 5.6).
+
+### 10.3 Rulings and tuning changes
+
+Controller rulings (the full ledger is `.superpowers/sdd/2026-11-16-v6-tune-engine/progress.md`):
+
+- **R1.** A chain's first note has no move; the second note's move is counted under the previous move `START`.
+- **R2.** Fallback to single-candidate features if the dev matrix took over 150 s; not needed (the dev matrix builds in
+  about 35 s with the full design).
+- **R3.** A song with several keys keeps each labelled phrase's own key (122 songs).
+- **R4.** Consecutive four-bar phrases pair from the left without overlap; `meta.built` changes on a rebuild.
+- **R5.** The pilot's range widens the range band only if its 75th percentile is within 4 semitones of POP909's.
+- **R6.** `tune.py` may exceed the plan's length (one engine, one file); rare interval breaks on synthetic
+  non-overlapping bar sets are accepted (none on real hand shapes).
+- **R7, R8.** Task 7 ran in two parts, and tuning started on the POP909-only file while the pilot extraction ran; the
+  gates were re-run and the engine re-tuned after the merge, and the holdout judged the final file only.
+- **R9.** Each matrix case has its own seed (`base + 2k`): with one seed per key the dev matrix had only six rhythm
+  plans per mode, so the T1 medians were six coin flips.
+- **R10.** No move larger than a fifth (7 semitones), replacing the first design's octave. A human flagged over-wide
+  leaps in the v3 samples, the v3 gates L2 and L3 then hold by construction, and leaps over a fifth are about 3.5% of
+  real moves.
+- **R11, R11a, R11b.** The repeat's weight is its own rule (section 5.2): R11 kept the harmony, degree and register
+  judgement on repeats while removing the inflation; R11a (reference: move-weighted mean) made repeats more frequent
+  and was replaced; **R11b** (the shipped rule) lets those factors only lower a repeat's weight, never raise it.
+- **R12.** The last resort of the interval pool (the nearest allowed pitch) is kept, because `allowed_pitches`
+  outranks the interval limits; it never fired on more than 4,800 arrangements.
+- **R13.** The usage and architecture docs were written while the pilot extraction ran.
+- **R14.** After the pilot merge the engine was re-tuned for thirds with margin, not to the edge of the band.
+- **R15.** `HARMONY_EXPONENT`, an exponent on the learned chord-tone factor like `DEGREE_EXPONENT`, searched jointly
+  with the existing constants (30 settings); accepted only where every dev gate passes, both third medians sit at least
+  0.005 inside their band on dev and on an independent 928-piece sample, and no other feature misses on that sample.
+  The pilot merge had pushed the minor third median to 0.257 against 0.256.
+- **R16.** The review fix after the post-pilot re-tune counts as its own fix round.
+
+Tuning changes, in order: two engine defects fixed (the repeat bias from multiplied factors, and the replay start
+tie-break that made a replayed bar's first move a repeat about half the time); `DENSITY_SIGMA` 1.5 to 2.5 (at 1.5 the
+rhythm of every piece was too alike, T2); `DEGREE_EXPONENT` 1.0 to 0.8; `REGISTER_SIGMA` to 6; `P_RESTATE_CELL` to 0.75;
+`MAX_LEAP` 7 (R10); the repeat rule R11b; the final-approach sets extended to the bar before the approach bar; and
+`HARMONY_EXPONENT` 0.7 (R15). Constants as shipped: `P_RESTATE_RHYTHM` 0.5, `P_RESTATE_CELL` 0.75, `DEGREE_EXPONENT` 0.8,
+`HARMONY_EXPONENT` 0.7, `REGISTER_SIGMA` 6, `DENSITY_SIGMA` 2.5, `MAX_LEAP` 7, `W_CORPUS` 2.0. The bands were never edited.
+
+### 10.4 Dev and holdout tables
+
+Medians of the features of candidate 0 of each piece (single candidates, before any selection, the same quantity T1
+gates), per mode, with the quartiles in brackets for the tune engine. "v5 rules engine" is the same matrix built with
+`melody_engine="rules"` (candidate 0, median); `*` marks a v5 median outside its band. "Band" is the 25th to 75th
+percentile of real eight-bar windows in the shipped file. The v5 column was measured after the fact, for this table;
+the rules engine was never tuned against these bands.
+
+**Dev matrix** (232 pieces)
+
+| mode | feature | v5 rules engine | tune engine | band (25th-75th) | in band |
+|---|---|---|---|---|---|
+| major | repeat | 0.107 * | 0.182 [0.126-0.245] | 0.115-0.340 | yes |
+| major | step | 0.574 * | 0.440 [0.359-0.486] | 0.333-0.556 | yes |
+| major | third | 0.197 | 0.236 [0.170-0.311] | 0.112-0.257 | yes |
+| major | leap | 0.097 | 0.122 [0.077-0.184] | 0.086-0.172 | yes |
+| major | notes_per_second | 1.512 * | 1.625 [1.459-1.875] | 1.542-2.177 | yes |
+| major | rhythm_variety | 0.500 * | 0.750 [0.625-0.828] | 0.571-0.875 | yes |
+| major | rhythm_lag2 | 0.500 * | 0.000 [0.000-0.000] | 0.000-0.333 | yes |
+| major | rhythm_lag4 | 0.750 * | 0.500 [0.250-0.500] | 0.000-0.500 | yes |
+| major | figure_recurrence | 0.110 * | 0.155 [0.076-0.252] | 0.133-0.425 | yes |
+| major | offbeat | 0.214 * | 0.391 [0.333-0.453] | 0.389-0.514 | yes |
+| major | late_entry | 0.000 | 0.125 [0.000-0.250] | 0.000-0.375 | yes |
+| major | chord_tone_strong | 0.933 * | 0.769 [0.667-0.837] | 0.600-0.889 | yes |
+| major | pentatonic | 0.793 * | 0.851 [0.813-0.889] | 0.831-1.000 | yes |
+| major | range | 13 | 12 [10-14] | 9-15 | yes |
+| minor | repeat | 0.109 | 0.172 [0.118-0.240] | 0.105-0.340 | yes |
+| minor | step | 0.562 * | 0.474 [0.368-0.545] | 0.333-0.529 | yes |
+| minor | third | 0.208 | 0.228 [0.148-0.304] | 0.129-0.256 | yes |
+| minor | leap | 0.111 | 0.114 [0.070-0.167] | 0.081-0.206 | yes |
+| minor | notes_per_second | 1.556 | 1.625 [1.425-1.875] | 1.532-2.135 | yes |
+| minor | rhythm_variety | 0.500 | 0.750 [0.625-0.875] | 0.500-0.750 | yes |
+| minor | rhythm_lag2 | 0.500 * | 0.000 [0.000-0.000] | 0.000-0.333 | yes |
+| minor | rhythm_lag4 | 0.750 * | 0.500 [0.250-0.500] | 0.000-0.500 | yes |
+| minor | figure_recurrence | 0.082 * | 0.173 [0.071-0.297] | 0.111-0.467 | yes |
+| minor | offbeat | 0.224 * | 0.417 [0.360-0.453] | 0.333-0.476 | yes |
+| minor | late_entry | 0.000 | 0.125 [0.000-0.250] | 0.000-0.375 | yes |
+| minor | chord_tone_strong | 0.933 * | 0.750 [0.636-0.833] | 0.714-0.923 | yes |
+| minor | pentatonic | 0.763 * | 0.821 [0.758-0.869] | 0.772-0.971 | yes |
+| minor | range | 13 | 12 [10-14] | 9-15 | yes |
+
+**Holdout matrix** (160 pieces)
+
+| mode | feature | v5 rules engine | tune engine | band (25th-75th) | in band |
+|---|---|---|---|---|---|
+| major | repeat | 0.107 * | 0.178 [0.121-0.250] | 0.115-0.340 | yes |
+| major | step | 0.576 * | 0.463 [0.370-0.549] | 0.333-0.556 | yes |
+| major | third | 0.200 | 0.232 [0.180-0.306] | 0.112-0.257 | yes |
+| major | leap | 0.121 | 0.100 [0.059-0.146] | 0.086-0.172 | yes |
+| major | notes_per_second | 1.550 | 1.694 [1.491-1.884] | 1.542-2.177 | yes |
+| major | rhythm_variety | 0.500 * | 0.750 [0.750-0.875] | 0.571-0.875 | yes |
+| major | rhythm_lag2 | 0.500 * | 0.000 [0.000-0.000] | 0.000-0.333 | yes |
+| major | rhythm_lag4 | 0.750 * | 0.500 [0.250-0.500] | 0.000-0.500 | yes |
+| major | figure_recurrence | 0.082 * | 0.173 [0.104-0.265] | 0.133-0.425 | yes |
+| major | offbeat | 0.222 * | 0.406 [0.366-0.449] | 0.389-0.514 | yes |
+| major | late_entry | 0.000 | 0.125 [0.000-0.250] | 0.000-0.375 | yes |
+| major | chord_tone_strong | 0.933 * | 0.727 [0.615-0.804] | 0.600-0.889 | yes |
+| major | pentatonic | 0.780 * | 0.854 [0.799-0.902] | 0.831-1.000 | yes |
+| major | range | 12 | 12 [10-12] | 9-15 | yes |
+| minor | repeat | 0.111 | 0.167 [0.108-0.231] | 0.105-0.340 | yes |
+| minor | step | 0.554 * | 0.463 [0.419-0.551] | 0.333-0.529 | yes |
+| minor | third | 0.200 | 0.219 [0.138-0.306] | 0.129-0.256 | yes |
+| minor | leap | 0.103 | 0.100 [0.056-0.161] | 0.081-0.206 | yes |
+| minor | notes_per_second | 1.512 * | 1.637 [1.500-1.822] | 1.532-2.135 | yes |
+| minor | rhythm_variety | 0.500 | 0.750 [0.625-0.875] | 0.500-0.750 | yes |
+| minor | rhythm_lag2 | 0.500 * | 0.000 [0.000-0.000] | 0.000-0.333 | yes |
+| minor | rhythm_lag4 | 0.750 * | 0.500 [0.250-0.500] | 0.000-0.500 | yes |
+| minor | figure_recurrence | 0.106 * | 0.166 [0.085-0.316] | 0.111-0.467 | yes |
+| minor | offbeat | 0.223 * | 0.426 [0.345-0.460] | 0.333-0.476 | yes |
+| minor | late_entry | 0.000 | 0.125 [0.000-0.250] | 0.000-0.375 | yes |
+| minor | chord_tone_strong | 0.933 * | 0.750 [0.636-0.827] | 0.714-0.923 | yes |
+| minor | pentatonic | 0.772 * | 0.817 [0.750-0.864] | 0.772-0.971 | yes |
+| minor | range | 14 | 12 [10-12] | 9-15 | yes |
+
+Counting the 28 mode and feature pairs outside their band: v5 rules engine, 17 (dev) and 17 (holdout); tune engine, 0
+and 0. Mean symbolic score of the chosen candidates (tune scale): 3.22 on the dev matrix and 3.20 on the holdout.
+
+### 10.5 What remains open
+
+- **Whether anyone likes the tunes.** The statistics are necessary, not sufficient (section 7). The user's listening to
+  `compose-samples/2026-11-16-v6/` is the real test; their comments start the next round.
+- **Thin margins.** Several dev medians sit at a band edge: minor `rhythm_variety` 0.750 against a top of 0.750,
+  `rhythm_lag4` 0.5 against 0.5, major `offbeat` 0.391 against a low of 0.389, minor `chord_tone_strong` 0.750 against
+  0.714, major `third` 0.236 against 0.257. A change to the statistics file, the constants or the arranger may move
+  one over its band.
+- **T2 on the holdout.** Major `rhythm_variety` spread is 0.125 against the 0.152 the dev gate asks for; the holdout
+  test does not check T2.
+- **The pilot's timing is too noisy** for rhythm tables, so rhythm comes from POP909 (Chinese pop) alone. The pilot
+  corrected the pitch side (degrees averaged), not the rhythm side.
+- **Best of 12 and the score.** The tune score is on a smaller scale than v5's and picks by closeness to the bands,
+  which says nothing about taste; `--rank-audio` is unchanged.
+- **Not started:** the melody-aware shape choice, sixteenth notes, ties across bar lines, more scale types (section 9).

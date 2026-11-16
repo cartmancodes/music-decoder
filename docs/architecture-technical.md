@@ -1232,8 +1232,9 @@ counts and percentiles:
 - `notes_per_second`: the 25th, 50th and 75th percentile.
 - `bands`: per mode and per feature of `tune_metrics.FEATURES`, the 25th, 50th
   and 75th percentile over eight-bar windows.
-- `meta` (sources and licences, song and window counts, the date built) and,
-  when pilot data went in, `pilot`.
+- `meta` (sources and licences, song and window counts, the date built) and
+  `pilot` (the pilot's pitch statistics as merged; the shipped file includes
+  400 vocal lines, see below).
 
 No melody is stored; the longest context is a pair of consecutive moves.
 Statistics are counted on the eighth-grid view: a bar counts only if every
@@ -1259,9 +1260,17 @@ JSON-lines vocal lines of the project's own YouTube pilot
 pitch statistics (`pilot_stats`: interval shares, pentatonic share, degree
 shares and range) under `pilot`, and from 100 songs on (`MIN_PILOT_SONGS`)
 widens the pitch bands to cover both sources and averages the degree shares.
-The rhythm and move tables are always POP909's, because the pilot's timing is
-too noisy. Rebuilding from the same inputs gives the same file apart from
-`meta.built`. Only statistics leave a dataset.
+The shipped file was built with the pilot's 400 extracted vocal lines (88 of
+the 488 songs were skipped), so its repeat band reaches 0.34, its step band
+starts at 0.333, its minor pentatonic band at 0.772 and its range band is 8.875
+to 15 (the pilot's 75th-percentile range, 14.0, was within 4 semitones of
+POP909's, so it was let widen the range band). The vocal-line files come from a
+throwaway extractor under `spikes/` and are not in the repository; rebuilding
+with the same `--pilot` files reproduces the shipped file, and without
+`--pilot` gives a POP909-only file. The rhythm and move tables are always
+POP909's, because the pilot's timing is too noisy. Rebuilding from the same
+inputs gives the same file apart from `meta.built`. Only statistics leave a
+dataset.
 
 **The engine** ([compose/tune.py](../src/music_decoder/compose/tune.py)).
 `generate_tune(...) -> list[Note]` keeps `generate_melody`'s contract: notes on
@@ -1290,7 +1299,7 @@ tests). Two halves:
    below `CONTEXT_MIN_COUNT` = 20 observations; moves are counted in scale
    steps of the bar's chord scale, `scale_steps`); the **harmony** (the
    chord-tone share of the slot's metric class, split over the candidates of
-   each kind); the **degree** (share of the degree in the mode over the mean
+   each kind, to `HARMONY_EXPONENT` 0.7, ruling R15); the **degree** (share of the degree in the mode over the mean
    share, to `DEGREE_EXPONENT` 0.8; phrase-final shares at a phrase end); the
    **register** (a normal curve around `tessitura_center`, `REGISTER_SIGMA` 6
    semitones); and the **prior** from `--melody-model amt` when present.
@@ -1318,9 +1327,15 @@ tests). Two halves:
    0.95. There is no hook, arch or peak rule; figures return through the cell
    memory.
 
-The tuned constants (`DENSITY_SIGMA`, `P_RESTATE_CELL`, `DEGREE_EXPONENT`,
-`REGISTER_SIGMA`) are pinned in `tune.py`; they were tuned only to bring the
-features into the bands of the statistics, never the other way round.
+The tuned constants (`DENSITY_SIGMA` 2.5, `P_RESTATE_CELL` 0.75,
+`DEGREE_EXPONENT` 0.8, `HARMONY_EXPONENT` 0.7, `REGISTER_SIGMA` 6;
+`P_RESTATE_RHYTHM` 0.5 and `MAX_LEAP` 7 are fixed) are pinned in `tune.py`;
+they were tuned only to bring the features into the bands of the statistics,
+never the other way round. `HARMONY_EXPONENT` is an exponent on the learned
+chord-tone factor (1.0 is the learned share as is), added when the pilot
+merge pushed the minor third share just over its band; the repeat rule
+(`_hold_repeat_share`) sees it through the same non-move product. The spec's
+section 10 lists every ruling and the measured results.
 
 **Features and the tune score** ([compose/tune_metrics.py](../src/music_decoder/compose/tune_metrics.py)).
 `tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)` returns
@@ -1345,7 +1360,9 @@ is about a dozen).
 Two fixed matrices build fingerstyle pieces with the tune engine through
 `arrange_candidates`: `dev` (six major and six minor keys, three progressions
 per mode, tempos 72, 96 and 120, two seeds, 8 bars, plus 16-bar pieces in four
-keys per mode) and `holdout` (other keys and seeds, evaluated once at the end).
+keys per mode) and `holdout` (160 pieces, other keys and seeds; its test,
+`test_holdout_meets_t1_and_t3`, asserts T1 and T3 only and was run once, on the
+final constants).
 Each configuration has its own seed (`base + 2 k`). A `TuneCase` keeps the
 best-of-12 arrangement and the features of candidate 0. The gates:
 
