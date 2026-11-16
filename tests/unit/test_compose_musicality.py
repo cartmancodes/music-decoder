@@ -321,8 +321,9 @@ def test_same_seed_same_music():
 @pytest.mark.parametrize("matrix", ALL_MATRICES)
 def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix):
     o = {**all_reports, **reserve_report}[matrix]["overall"]
-    # v5 ruling F2b: reserve measured P3 0.9888 with the full repair, so it is gated at 0.98
-    assert o["P3"]["mean"] >= (0.98 if matrix == "reserve" else 0.99)
+    # v5 ruling F5f: back to the spec target on every matrix. F2b had gated reserve at
+    # 0.98 (0.9888 at one candidate); best of 12 measures 1.0 there.
+    assert o["P3"]["mean"] >= 0.99
     # v5 ruling F2a: the +2 target moves to feature 3; feature 2 must not narrow the melody
     if matrix != "reserve":
         assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] - 0.5
@@ -336,9 +337,9 @@ def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix)
 @pytest.mark.parametrize("matrix", ALL_MATRICES)
 def test_phrase_shaping_targets(all_reports, reserve_report, matrix):
     o = {**all_reports, **reserve_report}[matrix]["overall"]
-    # v5 rulings F2a/F2d: +2 semitones over v4. v5 ruling F3b: the v3 guards below win;
-    # with them holding, holdout reaches +1.88 (12.54 vs v4 10.66), so it is gated at +1.85.
-    assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + (1.85 if matrix == "holdout" else 2)
+    # v5 rulings F2a/F2d: +2 semitones over v4. v5 ruling F5f: back to +2 on every matrix.
+    # F3c had gated holdout at +1.85 (+1.88 at one candidate); best of 12 measures +2.20.
+    assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + 2
     if matrix == "validation":
         assert o["F.hook"]["mean"] >= 0.75
         assert o["F.peak"]["mean"] >= 0.9

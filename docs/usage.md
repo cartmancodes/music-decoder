@@ -1373,7 +1373,7 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   - **Hooks, an arch, peaks and form.** The first bar's first two to four
     notes are the **hook**: every opening phrase restates it, transposed to
     the chord, and the answering phrase restates it with exactly one
-    interval or one rhythm changed. Each four-bar phrase follows an
+    interval changed (by a semitone; the rhythm is kept). Each four-bar phrase follows an
     **arch**, rising to **one** unique highest note (its peak, 55-75% of
     the way through) and falling to the cadence. Pieces of four phrases or
     more (13 bars or more) follow **A A' B A'**, where B has a contrasting
@@ -1403,10 +1403,13 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
     `compose/scoring.py`). `--rank-audio` re-ranks the best 4 with
     Audiobox Aesthetics.
   - **Melody model.** `--melody-model amt` asks the Anticipatory Music
-    Transformer for one tune per piece over the thumb pattern. Its notes
-    are quantised to the eighth-note grid and become a soft bonus in the
-    pitch scoring: the hard rules, the reach sets and the cadence still
-    decide, so the result is as playable as without the model.
+    Transformer for one tune per piece over the thumb pattern (the first
+    40 seconds at most). Each melody note's target is the highest proposed
+    note sounding at its onset, or else the nearest proposed note starting
+    within an eighth after it; a note close to the target, in any octave,
+    gets a soft bonus in the pitch scoring. The hard rules, the reach sets
+    and the cadence still decide, so the result is as playable as without
+    the model.
 
   Limits. The melody's pitches are never changed to fit the chord, and in
   rare cases an accompaniment bar still lacks an essential tone, which

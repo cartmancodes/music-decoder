@@ -1143,11 +1143,18 @@ piece's seed, so a seed repeats. The model mostly answers silence or drums
 when given a lone bass line, so generation is constrained at the logits: rests
 and drums are masked, a duplicate note at one onset is masked, and after
 4 events per second of the piece the next onset is forced past the end
-(this bounds the run time; proposals cover the first 100 s). The top line,
-quantised to the eighth grid, is `pitch_prior`, a `Sequence[Note]`;
-`generate_melody` adds `PRIOR_WEIGHT * exp(-d / PRIOR_WIDTH)` to
+(this bounds the event count). The model proposes for at most the first
+`AMT_MAX_SECONDS = 40` s of the piece, and the context is clipped there before
+it is encoded (AMT's onset tokens end at 100 s; a later control would land in
+the duration range), so a proposal's cost stops growing past 40 s of music.
+The bars after it get no prior; `metadata["melody_model_seconds"]` records the
+seconds covered and the CLI notes a shorter cover on stderr. The model's
+monophonic top line (not quantised) is `pitch_prior`, a `Sequence[Note]`; at
+each melody slot the target is the highest prior note sounding at the slot's
+onset, else the highest at the nearest prior onset within an eighth after it,
+else none. `generate_melody` adds `PRIOR_WEIGHT * exp(-d / PRIOR_WIDTH)` to
 `score_pitch` (`PRIOR_WEIGHT = 2.0`, `PRIOR_WIDTH = 2` semitones, `d` the
-semitones to the nearest octave of the proposed pitch at that onset). With `pitch_prior=None` the generator's output is
+semitones to the nearest octave of the target). With `pitch_prior=None` the generator's output is
 byte-identical to before. The hard rules, reach sets and cadence still decide.
 
 **Optional install.** Everything under `compose/ml/` imports its libraries
