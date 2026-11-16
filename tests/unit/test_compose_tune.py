@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from music_decoder.compose import metrics
+from music_decoder.compose import tune as tune_module
 from music_decoder.compose.harmony import chord_scale_pcs, scale_pcs
 from music_decoder.compose.melody import cadence_pc
 from music_decoder.compose.rhythm import split_phrases
@@ -218,7 +219,10 @@ def test_approach_drops_the_chord_scale_before_the_final_approach():
         assert sizes[-1] <= 7
 
 
-def test_approach_drops_the_chord_change_limit_before_the_final_approach():
+def test_approach_drops_the_chord_change_limit_before_the_final_approach(monkeypatch):
+    # The tier order is tested with an octave as the general limit; since ruling R10 the
+    # shipped general limit equals the chord-change limit (a fifth), so this tier is moot.
+    monkeypatch.setattr(tune_module, "MAX_LEAP", 12)
     one_note_bars = {role: {(0,): 10} for role in ("open", "body", "cadence")}
     stats = replace(STATS, rhythm=one_note_bars, rhythm_pairs={r: {} for r in one_note_bars})
     scale = Scale.parse("C:major")
@@ -286,3 +290,14 @@ def _spot_for(chord, scale):
         feasible_wide=None,
         phrase_end=False,
     )
+
+
+def test_no_move_is_larger_than_a_fifth():
+    # Ruling R10: a hard filter, so v3's L2 and L3 (no unrecovered or unjustified leap over a
+    # fifth) hold by construction, on wide ranges and on narrow, shifting ones alike.
+    narrow = [frozenset(range(lo, lo + 15)) for lo in (55, 62, 57, 64, 55, 60, 59, 62)]
+    for seed in range(100):
+        for allowed in (None, narrow):
+            notes = tune(seed, allowed=allowed)
+            assert metrics.max_interval(notes) <= 7
+            assert metrics.unjustified_large_leap_count(notes, [C, G, AM, F], 2, 96.0) == 0

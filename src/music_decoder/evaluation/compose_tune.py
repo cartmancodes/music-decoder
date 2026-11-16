@@ -8,6 +8,14 @@ mode's three progressions x three tempos x two seeds at two bars per chord
 96 BPM x the two seeds at four bars per chord (16 bars). Every piece is
 arranged best of :data:`CANDIDATES`, as ``compose()`` does.
 
+The two seeds of a matrix are seed bases (ruling R9): the k-th configuration
+(key, progression, tempo, bars per chord, in :func:`tune_inputs` order) uses
+``base + SEED_STRIDE * k``. The engine draws its rhythm plan from the seed
+alone, so with one seed for every key the matrix had only six rhythm plans
+per mode; now every piece has its own. The bases differ by one and the stride
+is two, so no two cases share a seed, and the dev seeds (5000-5231) stay
+below the holdout's (6000-6159).
+
 A :class:`TuneCase` keeps the best candidate (``arrangement``, what T3
 checks) and the tune features of candidate 0 (``features``, what T1 and T2
 check): the score picks by the same bands, so gating its pick would pass by
@@ -38,12 +46,13 @@ HOLDOUT_KEYS_MINOR = ("G", "C#", "F", "A#")
 MAJOR_PROGRESSIONS = ("I V vi IV", "I vi IV V", "I IV V I")
 MINOR_PROGRESSIONS = ("i VI III VII", "i iv V i", "i VII VI V")
 TEMPOS = (72.0, 96.0, 120.0)
-DEV_SEEDS, HOLDOUT_SEEDS = (5000, 5001), (6000, 6001)
+DEV_SEEDS, HOLDOUT_SEEDS = (5000, 5001), (6000, 6001)  # seed bases (ruling R9)
+SEED_STRIDE = 2  # configuration k uses base + SEED_STRIDE * k
 CANDIDATES = 12  # compose()'s default (v5 spec 5.4)
 LONG_TEMPO = 96.0
 LONG_KEYS = 4  # the 16-bar pieces use the first four keys of each mode
 
-# T3 limits (v6 spec 5.5)
+# T3 limits (v6 spec 5.5; L2 and L3 by ruling R10)
 MAX_MOVE = 12  # no move over an octave
 MAX_CHANGE_MOVE = 7  # chord-change and final-approach moves at most a fifth
 MIN_FINAL_BEATS = 1.5
@@ -80,26 +89,30 @@ def _keys_and_seeds(
 
 
 def tune_inputs(matrix: Matrix) -> list[TuneInputs]:
-    """The inputs of one matrix, in a fixed order (8-bar pieces, then 16-bar)."""
-    major_keys, minor_keys, seeds = _keys_and_seeds(matrix)
+    """The inputs of one matrix, in a fixed order (8-bar pieces, then 16-bar),
+    each configuration with its own seeds (see the module docstring)."""
+    major_keys, minor_keys, bases = _keys_and_seeds(matrix)
     modes: tuple[tuple[Literal["major", "minor"], tuple[str, ...], tuple[str, ...]], ...] = (
         ("major", major_keys, MAJOR_PROGRESSIONS),
         ("minor", minor_keys, MINOR_PROGRESSIONS),
     )
-    out: list[TuneInputs] = []
+    configs: list[tuple[Scale, tuple[ChordSymbol, ...], int, float]] = []
     for mode, keys, progressions in modes:
         for key in keys:
             scale = Scale(key, mode)
             for numerals in progressions:
                 progression = tuple(realize(scale, n) for n in numerals.split())
-                for tempo in TEMPOS:
-                    out.extend(TuneInputs(scale, progression, 2, tempo, s) for s in seeds)
+                configs.extend((scale, progression, 2, tempo) for tempo in TEMPOS)
     for mode, keys, progressions in modes:
         for key in keys[:LONG_KEYS]:
             scale = Scale(key, mode)
             progression = tuple(realize(scale, n) for n in progressions[0].split())
-            out.extend(TuneInputs(scale, progression, 4, LONG_TEMPO, s) for s in seeds)
-    return out
+            configs.append((scale, progression, 4, LONG_TEMPO))
+    return [
+        TuneInputs(scale, progression, bars, tempo, base + SEED_STRIDE * k)
+        for k, (scale, progression, bars, tempo) in enumerate(configs)
+        for base in bases
+    ]
 
 
 def build_tune_case(inputs: TuneInputs, tuning: Tuning = STANDARD_EADGBE) -> TuneCase:
@@ -188,6 +201,14 @@ def guarantee_failures(case: TuneCase, tuning: Tuning = STANDARD_EADGBE) -> list
     ivs = metrics.intervals(a.melody)
     if ivs and abs(ivs[-1]) > MAX_CHANGE_MOVE:
         failures.append(f"final_approach={abs(ivs[-1])}")
+    leaps, recovered = metrics.large_leap_recovery_counts(a.melody)
+    if recovered != leaps:
+        failures.append(f"L2={recovered}/{leaps}")
+    unjustified = metrics.unjustified_large_leap_count(
+        a.melody, case.progression, case.bars_per_chord, case.tempo_bpm
+    )
+    if unjustified:
+        failures.append(f"L3={unjustified}")
     if metrics.final_note_beats(a.melody, case.tempo_bpm) < MIN_FINAL_BEATS:
         failures.append(f"final_beats={metrics.final_note_beats(a.melody, case.tempo_bpm):.3f}")
     if not metrics.final_resolution(a.melody, case.scale, case.progression):

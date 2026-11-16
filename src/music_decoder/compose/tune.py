@@ -49,13 +49,13 @@ DENSITY_SIGMA = 2.5  # width of the onsets-per-bar preference, in onsets (tuned,
 DENSITY_MIN, DENSITY_MAX = 3.0, 6.5  # clamp on the target onsets per bar
 PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row to count
 
-P_RESTATE_CELL = 0.5  # chance a bar with a used pattern replays that bar's moves
+P_RESTATE_CELL = 0.75  # chance a bar with a used pattern replays that bar's moves (tuned)
 DEGREE_EXPONENT = 1.0  # tuned (v6 spec 5.5): the degree shares as they are
-REGISTER_SIGMA = 5.0  # semitones
+REGISTER_SIGMA = 6.0  # semitones (tuned, v6 spec 5.5)
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
 
-MAX_LEAP = 12  # no move larger than an octave
+MAX_LEAP = 7  # no move larger than a fifth (ruling R10; L2 and L3 hold by construction)
 CHANGE_LEAP = 7  # into a new chord and into the final note: at most a fifth
 FORBIDDEN_SIZES = frozenset({6, 10, 11})  # tritone, sevenths
 MAX_STEPS = 7  # scale-step moves are clipped to this size

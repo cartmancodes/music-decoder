@@ -33,14 +33,9 @@ STATS = load_tune_stats()
 SPREAD_FEATURES = ("repeat", "notes_per_second", "rhythm_variety", "figure_recurrence")
 KNOWN_MISSES: dict[tuple[str, str], str] = {}
 PENDING_REASON = "pending tuning (Task 7 part B)"
-# Dev-matrix misses left after the Part B tuning, awaiting the controller's ruling; the value
-# starts with the gate it misses. Both are rhythm features, which the dev matrix measures on
-# only six rhythm plans per mode (two seeds x three tempos; key and progression do not change
-# the plan), and both are inside their bands on a ten-times-larger matrix (seeds 7000-7019).
-PENDING_TUNING: dict[tuple[str, str], str] = {
-    ("major", "offbeat"): "T1: median 0.373 below band 0.389-0.514",
-    ("minor", "rhythm_variety"): "T1: median 0.844 above band 0.500-0.750",
-}
+# Dev-matrix misses awaiting a ruling (none since round 2 of Task 7 part B); the value
+# starts with the gate it misses.
+PENDING_TUNING: dict[tuple[str, str], str] = {}
 MIN_TRIAD_IDENTITY = 0.99
 
 
