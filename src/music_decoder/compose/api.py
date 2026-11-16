@@ -10,7 +10,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 import pretty_midi
@@ -32,9 +32,11 @@ from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.ml import MelodyProposer
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
+from music_decoder.compose.scoring import MelodyEngine as MelodyEngine
 from music_decoder.compose.scoring import candidate_seeds, score_arrangement
 from music_decoder.compose.shapes import choose_bar_shapes, repair_identity
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
+from music_decoder.compose.tune import generate_tune
 from music_decoder.compose.voicings import voicings_for
 from music_decoder.errors import InvalidProgressionError, InvalidScaleError
 from music_decoder.synth import render_wav
@@ -53,7 +55,9 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 5
+COMPOSER_VERSION = 6
+
+# MelodyEngine is re-exported from scoring, which defines it because api imports scoring.
 
 # A* fingering parameters for the melody tab. Pinned here (values as tuned on
 # GuitarSet dev for analyze(), 2026-10) rather than read from
@@ -117,6 +121,11 @@ def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: 
 def _validate_candidates(candidates: int) -> None:
     if candidates < 1:
         raise ValueError(f"candidates must be >= 1, got {candidates}")
+
+
+def _validate_engine(melody_engine: str) -> None:
+    if melody_engine not in get_args(MelodyEngine):
+        raise ValueError(f"melody_engine must be 'tune' or 'rules', got {melody_engine!r}")
 
 
 def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
@@ -243,13 +252,15 @@ def _arrange_fingerstyle(
     tuning: Tuning,
     seed: int | None,
     pitch_prior: Sequence[Note] | None = None,
+    melody_engine: MelodyEngine = "rules",
 ) -> Arrangement:
     """The fingerstyle arrangement: a shape per bar (v5 spec 5.2), a melody
-    drawn from the pitches each bar's shape can reach (spec 5.5) and shaped
-    into hooked, arched phrases (v5 spec 5.3), pulled toward ``pitch_prior``
-    if given (v5 spec 5.5), then the
-    one-guitar part around it, its identity repair (v5 spec 5.2) and its
-    performance: dynamics and let-ring (v5 spec 5.1)."""
+    drawn from the pitches each bar's shape can reach (spec 5.5), pulled
+    toward ``pitch_prior`` if given (v5 spec 5.5), then the one-guitar part
+    around it, its identity repair (v5 spec 5.2) and its performance:
+    dynamics and let-ring (v5 spec 5.1). The melody comes from
+    ``melody_engine``: the tune engine's statistics of real tunes (v6), or
+    the rules engine's hooked, arched phrases (v5 spec 5.3)."""
     bars = choose_bar_shapes(progression, bars_per_chord=bars_per_chord, tuning=tuning)
     hands = [hand_shape(v, tuning) for v in bars]
     n_bars = len(bars)
@@ -258,20 +269,35 @@ def _arrange_fingerstyle(
         hands[-1], cadence_pc(scale, progression[-1]), essential_pcs(progression[-1])
     )
     center = statistics.median_low([p for pitches in allowed for p in sorted(pitches)])
-    melody = tuple(
-        generate_melody(
-            scale=scale,
-            progression=progression,
-            bars_per_chord=bars_per_chord,
-            tempo_bpm=tempo_bpm,
-            seed=seed,
-            tessitura_center=center,
-            allowed_pitches=allowed,
-            final_whole_note=True,
-            phrase_shaping=True,
-            pitch_prior=pitch_prior,
+    if melody_engine == "tune":
+        melody = tuple(
+            generate_tune(
+                scale=scale,
+                progression=progression,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+                seed=seed,
+                tessitura_center=center,
+                allowed_pitches=allowed,
+                final_whole_note=True,
+                pitch_prior=pitch_prior,
+            )
         )
-    )
+    else:
+        melody = tuple(
+            generate_melody(
+                scale=scale,
+                progression=progression,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+                seed=seed,
+                tessitura_center=center,
+                allowed_pitches=allowed,
+                final_whole_note=True,
+                phrase_shaping=True,
+                pitch_prior=pitch_prior,
+            )
+        )
     # One shape and hand per bar, so the part is arranged bar by bar.
     part = arrange_fingerstyle(bars, melody, hands, bars_per_chord=1, tempo_bpm=tempo_bpm)
     part, bars = repair_identity(
@@ -308,6 +334,7 @@ def arrange_candidates(
     seed: int | None = None,
     candidates: int = 1,
     melody_proposer: MelodyProposer | None = None,
+    melody_engine: MelodyEngine = "rules",
 ) -> tuple[Arrangement, ...]:
     """Every candidate :func:`arrange` considers, best first.
 
@@ -318,11 +345,15 @@ def arrange_candidates(
     ``seed=None`` a base seed is drawn once. With a ``melody_proposer``
     (fingerstyle only), its melody over the thumb pattern of the piece's
     per-bar shapes, seeded with the base seed, is made once and is every
-    candidate's ``pitch_prior`` (v5 spec 5.5). Strum and arpeggio ignore
-    ``candidates`` and ``melody_proposer`` and give their single arrangement.
+    candidate's ``pitch_prior`` (v5 spec 5.5). ``melody_engine`` picks the
+    fingerstyle melody generator and the matching score (v6 spec 5.3, 5.4);
+    the default ``"rules"`` is v5's. Strum and arpeggio ignore ``candidates``,
+    ``melody_proposer`` and ``melody_engine`` and give their single
+    arrangement, its melody from the rules engine.
     """
     _validate(scale, progression, bars_per_chord)
     _validate_candidates(candidates)
+    _validate_engine(melody_engine)
     if style != "fingerstyle":
         return (
             _arrange_single(scale, progression, bars_per_chord, tempo_bpm, style, tuning, seed),
@@ -334,12 +365,20 @@ def arrange_candidates(
         else _propose_melody(melody_proposer, progression, bars_per_chord, tempo_bpm, tuning, base)
     )
     arrangements = [
-        _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s, prior)
+        _arrange_fingerstyle(
+            scale, progression, bars_per_chord, tempo_bpm, tuning, s, prior, melody_engine
+        )
         for s in candidate_seeds(base, candidates)
     ]
     scores = [
         score_arrangement(
-            a, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm, tuning=tuning
+            a,
+            progression,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            tuning=tuning,
+            scale=scale,
+            melody_engine=melody_engine,
         )
         for a in arrangements
     ]
@@ -363,6 +402,7 @@ def arrange(
     seed: int | None = None,
     candidates: int = 1,
     melody_proposer: MelodyProposer | None = None,
+    melody_engine: MelodyEngine = "rules",
 ) -> Arrangement:
     """Pure core of compose(): voicings, melody, accompaniment and melody tab.
 
@@ -377,8 +417,11 @@ def arrange(
     :func:`score_arrangement` (ties go to the lowest k; v5 spec 5.4): the
     first of :func:`arrange_candidates`. With ``seed=None`` a base seed is
     drawn once. A ``melody_proposer`` (fingerstyle only) proposes one melody
-    per piece, every candidate's soft pitch prior (v5 spec 5.5). Strum and
-    arpeggio ignore ``candidates`` and ``melody_proposer``.
+    per piece, every candidate's soft pitch prior (v5 spec 5.5).
+    ``melody_engine`` (fingerstyle only) picks the melody generator: the
+    default ``"rules"`` is v5's, note for note; :func:`compose_with_options`
+    defaults to ``"tune"`` (v6 spec 5.3). Strum and arpeggio ignore
+    ``candidates``, ``melody_proposer`` and ``melody_engine``.
     """
     return arrange_candidates(
         scale,
@@ -390,6 +433,7 @@ def arrange(
         seed=seed,
         candidates=candidates,
         melody_proposer=melody_proposer,
+        melody_engine=melody_engine,
     )[0]
 
 
@@ -528,6 +572,7 @@ def _rank_by_audio(
     sound: Literal["soundfont", "plucked"],
     humanize_seed: int,
     melody_proposer: MelodyProposer | None = None,
+    melody_engine: MelodyEngine = "rules",
 ) -> tuple[Arrangement, dict[str, float]]:
     """The fingerstyle candidate the audio re-rank keeps, and its ``CE`` and
     ``PQ``: the top ``RANK_AUDIO_TOP_K`` by symbolic score are rendered to
@@ -545,6 +590,7 @@ def _rank_by_audio(
         seed=seed,
         candidates=candidates,
         melody_proposer=melody_proposer,
+        melody_engine=melody_engine,
     )[:RANK_AUDIO_TOP_K]
     with tempfile.TemporaryDirectory(prefix="music-decoder-rank-") as tmp:
         wavs = [Path(tmp) / f"candidate-{i}.wav" for i in range(len(top))]
@@ -577,10 +623,17 @@ def compose_with_options(
     rank_audio: bool = False,
     melody_model: Literal["amt"] | None = None,
     candidates: int = 12,
+    melody_engine: MelodyEngine = "tune",
 ) -> Composition:
     """compose() plus the choice of ``sound``, of the number of fingerstyle
     ``candidates`` and of the audio re-rank (v5 spec 5.4; strum and arpeggio
     ignore both).
+
+    ``melody_engine`` picks the fingerstyle melody generator (v6 spec 5.3):
+    ``"tune"`` (the default, and what compose() uses) builds it from the
+    statistics of real tunes; ``"rules"`` is composer v5's, note for note.
+    Strum and arpeggio always use the rules engine.
+    ``metadata["melody_engine"]`` records the engine that made the melody.
 
     ``metadata["seed_used"]`` is the seed the piece was made with: ``seed``,
     or the one drawn when ``seed`` is ``None``. Passing it back as ``seed``
@@ -612,8 +665,10 @@ def compose_with_options(
     """
     _validate(scale, progression, bars_per_chord)  # before any model loads
     _validate_candidates(candidates)
+    _validate_engine(melody_engine)
     rank_audio = rank_audio and style == "fingerstyle"
     melody_model = melody_model if style == "fingerstyle" else None
+    melody_engine = melody_engine if style == "fingerstyle" else "rules"
     seed_used = seed if seed is not None else int(np.random.default_rng().integers(2**31))
     proposer: MelodyProposer | None = None
     melody_model_seconds: float | None = None
@@ -637,6 +692,7 @@ def compose_with_options(
             sound=sound,
             humanize_seed=humanize_seed,
             melody_proposer=proposer,
+            melody_engine=melody_engine,
         )
     else:
         arrangement = arrange(
@@ -649,10 +705,15 @@ def compose_with_options(
             seed=seed_used,
             candidates=candidates,
             melody_proposer=proposer,
+            melody_engine=melody_engine,
         )
 
     payload_hash = hashlib.sha1(
-        f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}".encode()
+        (
+            f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}"
+            f"|{melody_engine}|{tuning.name}|{candidates}|{sound}|{bars_per_chord}"
+            f"|{rank_audio}|{melody_model}"
+        ).encode()
     ).hexdigest()[:8]
     ts = time.strftime("%Y%m%dT%H%M%S")
     work = out_dir / f"{ts}-{payload_hash}"
@@ -732,5 +793,6 @@ def compose_with_options(
             "audio_scores": audio_scores,
             "melody_model": melody_model,
             "melody_model_seconds": melody_model_seconds,
+            "melody_engine": melody_engine,
         },
     )

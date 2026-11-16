@@ -252,7 +252,8 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
                        [--tempo BPM] [--bars N] [--seed N]
                        [--tuning ...] [--sound soundfont | plucked]
                        [--candidates N] [--rank-audio]
-                       [--melody-model none | amt] --out DIR
+                       [--melody-model none | amt]
+                       [--melody-engine tune | rules] --out DIR
                        [--format pretty | json]
 ```
 
@@ -301,6 +302,15 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   bars after 40 s are composed without the hint; the command says so on
   stderr (`note: the melody model guides the first 40 s`) and
   `metadata.melody_model_seconds` records the seconds it covered.
+- `--melody-engine tune | rules` — `fingerstyle` only. Which generator
+  writes the melody. `tune` (the default, new in composer version 6) builds it
+  from the statistics of real tunes: real bar rhythms, real note-to-note
+  moves, real chord-tone and scale-degree habits (see
+  [what the tune engine does](#what-the-tune-engine-does-composer-version-6)).
+  `rules` is composer version 5's hand-written generator, note for note, so
+  a seed from version 5 still gives its old melody. `strum` and `arpeggio` always use the rules
+  engine and ignore the option without a message. It works together with
+  `--melody-model amt`, `--candidates` and `--rank-audio`.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
 
@@ -316,7 +326,8 @@ music-decoder compose \
   --out ./out
 ```
 
-Expected pretty output (paths will differ):
+Expected pretty output (paths will differ; the notes are what the tune
+engine of composer version 6 writes for this seed on the shipped statistics):
 
 ```text
 MIDI:    out/20260508T142510-7c4a3b21/composition.mid
@@ -324,21 +335,21 @@ WAV:     out/20260508T142510-7c4a3b21/composition.wav
 ASCII tab:
 Fingerstyle
    Cmaj7             Am7               Dm7               G7
-e|-3---5---0---3---|-5---3-0-0---1---|-1---3---1---3---|-3---------------|
-B|-------0-------0-|-----------3---1-|-------1-------1-|-3---------------|
-G|-----------------|-------0---------|-----------------|-0---------------|
-D|-----2-------2---|-----2-------2---|-0---3---0---3---|-3---------------|
-A|-3-------3-------|-0-------0-------|-----------------|-2---------------|
+e|-0---------------|-----0-----------|-0---------------|-----------------|
+B|---0---3-1---1---|-3-----1---------|---3-----------0-|-----------------|
+G|---------------2-|---0-----2---0-2-|---5-5-5-5---5---|-0---------------|
+D|-----2-------2---|-----2-------2---|-----3-------3---|-3---------------|
+A|-3-------3-------|-0-------0-------|-5-------5-------|-2---------------|
 E|-----------------|-----------------|-----------------|-3---------------|
    1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &   1 & 2 & 3 & 4 &
 
 Chords
    Cmaj7  Am7  Dm7  G7
-e|-0------0----1----1--|
-B|-0------1----1----0--|
-G|-0------0----2----0--|
-D|-2------2----0----0--|
-A|-3------0----x----2--|
+e|-0------0----5----3--|
+B|-0------1----6----3--|
+G|-0------0----5----0--|
+D|-2------2----3----3--|
+A|-3------0----5----2--|
 E|-x------x----x----3--|
 ```
 
@@ -351,7 +362,7 @@ again, and a fret of 10 or more widens its column for every string.
 The **Chords** block under it shows each chord shape under its name
 (`x` = muted string). In the example, the bass notes on the A and D strings
 are the thumb, the notes on the top strings are the melody, and in the last
-bar a rolled G7 sits under the final melody note, a held G4 on the top string.
+bar a rolled G7 sits under the final melody note, a held G3 on the G string.
 `strum` and `arpeggio` still print the older two-part text: a **Melody**
 block (one column per note, no rhythm) and the **Chords** block. The MIDI
 file has the exact timing in every style.
@@ -383,8 +394,8 @@ music-decoder compose --scale C:major --progression "C G Am F" \
   --seed 1 --out ./out --format json | jq '.metadata'
 ```
 
-The v5 options, on a fingerstyle piece (the second and third need the `ml`
-extra, see [Optional models](#optional-models-the-ml-extra)):
+The v5 and v6 options, on a fingerstyle piece (the second and third need the
+`ml` extra, see [Optional models](#optional-models-the-ml-extra)):
 
 ```bash
 # the plucked-string sound instead of the soundfont guitar
@@ -403,6 +414,10 @@ music-decoder compose --scale E:minor --progression "Em C G D" --bars 2 \
 # one single piece, no choice among candidates
 music-decoder compose --scale C:major --progression "C G Am F" \
   --seed 1 --candidates 1 --out ./out
+
+# composer version 5's hand-written melody instead of the tune engine
+music-decoder compose --scale C:major --progression "C G Am F" --bars 2 \
+  --seed 601 --melody-engine rules --out ./out
 ```
 
 Measured on an Apple M4 (CPU), an 8-bar fingerstyle piece takes about 1–2
@@ -686,9 +701,10 @@ print(result.wav_path)    # ./out/20260508T...-.../composition.wav
 print(result.ascii_tab)
 ```
 
-`compose()`'s signature is frozen. In composer version 5 it keeps the best of
-12 fingerstyle candidates. To choose the sound, the number of candidates or the
-optional models, call `compose_with_options()` from
+`compose()`'s signature is frozen. In composer version 6 it keeps the best of
+12 fingerstyle candidates, with the tune engine writing each melody. To choose
+the sound, the number of candidates, the melody engine or the optional models,
+call `compose_with_options()` from
 `music_decoder.compose.api` (it is not exported from the package):
 
 ```python
@@ -702,11 +718,16 @@ result = compose_with_options(
     candidates=12,            # fingerstyle pieces to write; the best is kept
     rank_audio=False,         # True needs the `ml` extra and the weights
     melody_model=None,        # "amt" needs the `ml` extra and the weights
+    melody_engine="tune",     # or "rules": composer v5's melody, note for note
 )
 ```
 
 Asking for `rank_audio` or `melody_model="amt"` without the extra or the
-weights raises `music_decoder.compose.ml.MLUnavailableError`.
+weights raises `music_decoder.compose.ml.MLUnavailableError`. Any other
+`melody_engine` raises `ValueError`; for `strum` and `arpeggio` it is ignored.
+`compose_with_options()` defaults to `"tune"`, but the lower-level
+`arrange()` and `arrange_candidates()` default to `"rules"` (and to fewer
+candidates), so code that calls them directly is unchanged.
 
 ### `productionize()`
 
@@ -1009,17 +1030,18 @@ same conventions:
     "seed": 42,
     "seed_used": 42,
     "tuning": "EADGBE",
-    "composer_version": 5,
+    "composer_version": 6,
     "sound": "soundfont",
     "candidates": 12,
-    "chosen_candidate": 7,
-    "score": 12.80,
+    "chosen_candidate": 9,
+    "score": 1.86,
     "final_fallback": false,
     "identity_misses": [],
     "rank_audio": false,
     "audio_scores": null,
     "melody_model": null,
-    "melody_model_seconds": null
+    "melody_model_seconds": null,
+    "melody_engine": "tune"
   }
 }
 ```
@@ -1037,6 +1059,15 @@ essential tone; `null` for strum and arpeggio, which do not count them); `rank_a
 `melody_model` (`"amt"` or `null`) and `melody_model_seconds` (how many
 seconds from the start the melody model proposed for, at most 40; `null`
 without it).
+
+The metadata key added in version 6: `melody_engine` (`"tune"` or
+`"rules"`: the generator that wrote the melody; always `"rules"` for strum
+and arpeggio). With the tune engine `score` is on a smaller scale than in version 5
+(a few points, not a dozen) and can drop below zero: it is the same kind of
+sum, but the melody terms are replaced by a penalty for lying outside the
+ranges of real tunes (see
+[what the tune engine does](#what-the-tune-engine-does-composer-version-6)),
+so compare scores only within one engine.
 
 In `chord_voicings[i].positions`, `fret = -1` means the string is
 muted (not played).
@@ -1355,7 +1386,9 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   ballads, folk and slow tempos. It is the default because it sounds
   reasonable on most progressions.
 
-  What composer version 5 adds to fingerstyle:
+  What composer version 5 adds to fingerstyle (the hook, arch and peak
+  bullet below describes the version 5 melody, so it holds only with
+  `--melody-engine rules`; the other bullets hold with both engines):
 
   - **Per-bar shapes.** Each bar may use a different shape of its chord
     (open, or a barre up to the 9th fret). The composer picks the
@@ -1370,8 +1403,9 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
     removes the old 2-6% of seventh-chord bars that lost their seventh,
     and widens the melody by 2-3 semitones. The **Chords** block under the
     tab lists every shape the piece used, in order of first use.
-  - **Hooks, an arch, peaks and form.** The first bar's first two to four
-    notes are the **hook**: every opening phrase restates it, transposed to
+  - **Hooks, an arch, peaks and form** (`--melody-engine rules` only; the
+    default tune engine has no hook, arch or peak rule, see below). The first
+    bar's first two to four notes are the **hook**: every opening phrase restates it, transposed to
     the chord, and the answering phrase restates it with exactly one
     interval changed (by a semitone; the rhythm is kept). Each four-bar phrase follows an
     **arch**, rising to **one** unique highest note (its peak, 55-75% of
@@ -1397,10 +1431,13 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   - **Best of 12.** The composer writes 12 pieces (`--candidates`) and
     keeps the one with the best score. The score is a weighted sum of the
     tool's own measures: accompaniment identity, melody above the
-    accompaniment, chord tones on strong beats, stepwise motion, rhythm
-    variety, hook, peak, arch and range, minus repeated notes, hand
-    movement and a final-chord fallback (the weights are in
-    `compose/scoring.py`). `--rank-audio` re-ranks the best 4 with
+    accompaniment, hand movement and a final-chord fallback, plus the
+    measures of the melody. With the version 5 melody (`--melody-engine
+    rules`) those are chord tones on strong beats, stepwise motion, rhythm
+    variety, hook, peak, arch and range, minus repeated notes. With the
+    tune engine (the default) they are replaced by one penalty: how far
+    the melody lies outside the ranges real tunes occupy. The weights are
+    in `compose/scoring.py`. `--rank-audio` re-ranks the best 4 with
     Audiobox Aesthetics.
   - **Melody model.** `--melody-model amt` asks the Anticipatory Music
     Transformer for one tune per piece over the thumb pattern (the first
@@ -1410,6 +1447,14 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
     gets a soft bonus in the pitch scoring. The hard rules, the reach sets
     and the cadence still decide, so the result is as playable as without
     the model.
+
+  Composer version 6 changes the melody only: see
+  [What the tune engine does](#what-the-tune-engine-does-composer-version-6)
+  below. Everything above works as in version 5 except the hook, arch and
+  peak bullet, which is rules-engine only: the shapes, thumb, fills,
+  performance, best of 12 and the models apply to both engines. The A A' B A'
+  form still sets which bars copy an earlier rhythm, but B's contrasting
+  rhythm and higher arch are rules-engine behaviour.
 
   Limits. The melody's pitches are never changed to fit the chord, and in
   rare cases an accompaniment bar still lacks an essential tone, which
@@ -1440,6 +1485,108 @@ Use `--bars 2` or higher when the chord changes feel too fast at
 default. Use `--tempo 60-80` for ballads, `--tempo 100-120` for pop,
 `--tempo 140+` for upbeat material.
 
+### What the tune engine does (composer version 6)
+
+Listeners found the version 5 melodies unlike real tunes, so version 6
+measured real melodies and writes the fingerstyle melody to match. In plain
+words, compared with the version 5 melody (`--melody-engine rules`):
+
+- **Repeated notes are allowed.** A real tune repeats the same note in about
+  one move out of five; version 5 almost never did.
+- **More notes, and more kinds of bar.** The number of notes per bar follows
+  the tempo (a slow piece gets more notes per bar), and a piece uses several
+  different bar rhythms instead of one reused pattern. Bar rhythms are real
+  ones, drawn according to how often each follows the bar before it.
+- **Off-the-beat notes and late entries.** About two notes in five fall off
+  the beat and some bars start after beat 1, which is how real tunes swing
+  and lead into a phrase. The first note of the piece is still on beat 1, and the
+  piece still ends on one held note over one rolled chord.
+- **Figures come back.** A short figure (a few notes, as steps in the scale)
+  is replayed in a later bar with the same rhythm, so a listener hears a
+  tune return. The answering phrase of A A' (and A A' A') often copies the
+  rhythm of the first phrase. The tune engine has no separate hook, arch or
+  peak rules; returning figures do that work.
+- **Chord tones are likely, not forced.** Strong beats favour chord tones at
+  the rate real melodies use them (about three in four on beats 1 and 3),
+  and the melody leans on the scale degrees real melodies lean on. Phrases
+  end on a chord tone, and not on the tonic unless nothing else fits, so
+  they sound open until the last note.
+- **The highest note can come anywhere** in a phrase; version 5 forced it
+  into the second half.
+- **No move is larger than a fifth** between two consecutive melody notes
+  (version 5 allowed up to an octave, rarely), and the hard rules of version
+  3 still hold: no tritone, no seventh, and the move into a new chord and into
+  the last note at most a fifth. The melody is still chosen from the notes
+  the held chord shape can reach, so everything about playability is as
+  before.
+
+A repeated note keeps the share that real tunes give it, but a repeat that
+fits the harmony and the register poorly is made less likely, never more.
+
+Best of 12 uses the same measure: each candidate is scored by how far its
+features lie outside the 25th to 75th percentile range of eight-bar windows
+of real tunes in its mode (repeat, step, third and leap shares, notes per
+second, rhythm variety, recurring bar rhythms and figures, off-beat and
+late-entry shares, chord tones on strong beats, pentatonic share and range),
+so the tool keeps the candidate closest to a real tune.
+
+`--melody-engine tune` is for `fingerstyle` only. `strum` and `arpeggio`
+always use the rules engine, as before.
+
+**Where the statistics come from.** The engine reads one small file,
+`src/music_decoder/compose/data/tune_stats.json`, shipped with the package.
+It holds counts and percentiles, nothing else: how often each one-bar rhythm
+occurs and follows another, how often each scale-step move follows another,
+chord-tone and scale-degree shares, notes per second and the percentile
+ranges above. No melody is stored or copied: the longest context in it is a
+pair of consecutive moves.
+
+- **POP909, cleaned by Dai et al.** (MIT licence): 909 pop songs with the
+  melody, chords, key and human phrase labels
+  (<https://github.com/Dsqvival/hierarchical-structure-analysis>, built on
+  POP909 by Wang et al., ISMIR 2020). The dataset itself is not in this
+  repository.
+- **The project's own pilot recordings.** The pitch statistics (interval
+  shares, pentatonic share, scale-degree shares, range) of the vocal lines of
+  400 songs of the project's own YouTube pilot (the other 88 of its 488 songs
+  could not be extracted). The shipped file includes them: the scale-degree
+  shares are the mean of the two sources, and the pitch ranges are widened to
+  cover both (for example the range band is 8.9 to 15 semitones, and the repeat
+  band reaches 0.34). The rhythm and move tables are POP909's alone, because
+  the pilot's timing is too noisy. Only these statistics are stored, never audio
+  or notes. `meta.sources` in `tune_stats.json` names both sources.
+
+To rebuild the file, fetch the dataset once and run the builder. It reads the
+dataset from disk and takes a few seconds:
+
+```bash
+git clone --depth 1 https://github.com/Dsqvival/hierarchical-structure-analysis \
+  ~/.music-decoder/datasets/pop909-hsa
+
+python scripts/build_tune_stats.py \
+  --pop909 ~/.music-decoder/datasets/pop909-hsa/POP909 \
+  --out src/music_decoder/compose/data/tune_stats.json \
+  [--pilot FILE...]
+```
+
+`--pop909` is the `POP909` folder inside the clone. `--pilot` takes one or
+more JSON-lines files of vocal lines (one song per line,
+`{"tonic_pc": 0, "mode": "major", "notes": [[eighth_slot, midi_pitch], ...]}`),
+written by a throwaway extractor (`extract_vocal_lines.py` in
+`spikes/preference-pilot/`) that is not part of the repository, and neither
+are its output files (`vocal_lines_*.jsonl`). The shipped file was built with
+all 400 lines, and rebuilding with the same `--pilot` files reproduces it
+exactly, apart from `meta.built` (the date of the build). Without `--pilot`
+the result is POP909 only, which is a different file from the shipped one (no
+`pilot` entry, other degree shares and bands), so the gates are not
+guaranteed to pass on it: use it for a comparison, not as a replacement. The
+script prints the counts and the bands it measured.
+
+A rebuilt file that differs in content changes the tune the engine writes for
+a given seed. After a rebuild, run `pytest tests/unit/test_compose_tune_gates.py`:
+it checks the engine against the new bands (see
+[the technical doc](architecture-technical.md#533-composer-v6-the-tune-engine)).
+
 ### Seed reproducibility
 
 `--seed N` makes `compose()` fully deterministic. Same `(scale,
@@ -1457,7 +1604,7 @@ guarantee its random streams across releases). Useful for:
   MIDI, tab and WAV.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `5`). Version 2 (November
+in `metadata.composer_version` (currently `6`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
 (more musical) take. Version 3 (November 2026) plays a faithful,
@@ -1473,8 +1620,13 @@ bar, writes a hook and a phrase arch, performs the part with dynamics and
 let-ring, and keeps the best of 12 candidates. A seed saved from version 4
 therefore gives a different `fingerstyle` piece, and the seed now
 names the best of 12 pieces, not one (the chosen index is
-`metadata.chosen_candidate`). `--candidates`, `--rank-audio` and
-`--melody-model` change which piece a seed gives; `--sound` and the audio
+`metadata.chosen_candidate`). Version 6 (November 2026) changes only the
+`fingerstyle` melody: the default tune engine writes it from the statistics
+of real tunes, so a seed saved from version 5 gives a different melody. To
+get the version 5 melody back for a seed, pass `--melody-engine rules`.
+`strum` and `arpeggio` are still unchanged from version 3.
+`--candidates`, `--rank-audio`, `--melody-model` and `--melody-engine`
+change which piece a seed gives; `--sound` and the audio
 micro-timing change only the WAV. The same seed with the same options is
 reproducible with or without the models. Compose
 output does not depend on `config/hyperparameters.yaml` or
@@ -1593,6 +1745,10 @@ music-decoder compose --scale C:major --progression "Cmaj7 Am7 Dm7 G7" \
 # and `music-decoder fetch-models --composer-models` first)
 music-decoder compose --scale C:major --progression "C G Am F" --bars 2 --seed 601 \
                        --sound plucked --rank-audio --melody-model amt --out ./out
+
+# ...with composer version 5's melody instead of the tune engine
+music-decoder compose --scale C:major --progression "C G Am F" --bars 2 --seed 601 \
+                       --melody-engine rules --out ./out
 
 # Master it for release (WAV + MP3 + stems + checks)
 music-decoder productionize ./out/<take-folder> --out ./release --name my_track

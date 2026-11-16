@@ -202,6 +202,16 @@ def cli_analyze(
         '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
     ),
 )
+@click.option(
+    "--melody-engine",
+    type=click.Choice(["tune", "rules"]),
+    default="tune",
+    show_default=True,
+    help=(
+        "fingerstyle: the melody generator; tune builds it from the statistics of real "
+        "tunes, rules is composer v5's"
+    ),
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -216,6 +226,7 @@ def cli_compose(
     candidates: int,
     rank_audio: bool,
     melody_model: str,
+    melody_engine: str,
     out: str,
     fmt: str,
 ) -> None:
@@ -241,6 +252,7 @@ def cli_compose(
                 candidates=candidates,
                 rank_audio=rank_audio,
                 melody_model=None if melody_model == "none" else "amt",
+                melody_engine=cast(Literal["tune", "rules"], melody_engine),
             )
     except (MusicDecoderError, ValueError, MLUnavailableError) as e:
         raise click.ClickException(str(e)) from e
