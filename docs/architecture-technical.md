@@ -1299,17 +1299,17 @@ tests). Two halves:
    below `CONTEXT_MIN_COUNT` = 20 observations; moves are counted in scale
    steps of the bar's chord scale, `scale_steps`); the **harmony** (the
    chord-tone share of the slot's metric class, split over the candidates of
-   each kind, to `HARMONY_EXPONENT` 0.7, ruling R15); the **degree** (share of the degree in the mode over the mean
-   share, to `DEGREE_EXPONENT` 0.8; phrase-final shares at a phrase end); the
-   **register** (a normal curve around `tessitura_center`, `REGISTER_SIGMA` 6
-   semitones); and the **prior** from `--melody-model amt` when present.
-   Hard rules, applied before weighting and relaxed in tiers when they leave
-   nothing (the chord-scale restriction first, the approach to the final note
-   last; the interval limits go only in the last resort, the allowed pitch
-   nearest the previous note, because `allowed_pitches`, what the hand can
-   reach, outranks them, ruling R12): no
-   move of more than a fifth (`MAX_LEAP` = 7, ruling R10, so L2 and L3 of
-   §5.4.1 hold by construction), no tritone, no seventh, the move into a new
+   each kind, to `HARMONY_EXPONENT` 0.7, ruling R15); the **degree** (share of
+   the degree in the mode over the mean share, to `DEGREE_EXPONENT` 0.8;
+   phrase-final shares at a phrase end); the **register** (a normal curve
+   around `tessitura_center`, `REGISTER_SIGMA` 6 semitones); and the **prior**
+   from `--melody-model amt` when present. Hard rules, applied before
+   weighting and relaxed in tiers when they leave nothing (the chord-scale
+   restriction first, the approach to the final note last; the interval limits
+   go only in the last resort, the allowed pitch nearest the previous note,
+   because `allowed_pitches`, what the hand can reach, outranks them, ruling
+   R12): no move of more than a fifth (`MAX_LEAP` = 7, ruling R10, so L2 and L3
+   of §5.4.1 hold by construction), no tritone, no seventh, the move into a new
    chord at most a fifth, and the approach to the final note stays inside
    `feasible_sets` so the cadence pitch is reachable (`final_target`, as in v5).
    A **repeated note** takes the move table's own repeat odds against the

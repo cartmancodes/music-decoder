@@ -150,7 +150,7 @@ Contents:
 - `bands`: for every feature of section 5.4, the 25th, 50th and 75th percentile over eight-bar windows, per mode.
   A window starts at a labelled 8-bar phrase or at two consecutive 4-bar phrases, and counts only if every bar in it
   that has notes is an eighths-only bar and it has at least 12 notes. Windows with any other bar are skipped whole.
-- `pilot` (optional): interval-class shares, pentatonic share, degree shares and range from the pilot dataset's
+- `pilot` (optional; the shipped file includes it, see section 10.2): interval-class shares, pentatonic share, degree shares and range from the pilot dataset's
   vocal lines (section 5.6). When present, `degrees` is the mean of the two sources and each pitch band is widened to
   cover both.
 - `meta`: source names, licences, counts, the date built.
@@ -307,6 +307,10 @@ are tuned against one final statistics file: tuning starts when the run has fini
 hours after it started, with the POP909-only file, and the merge becomes a recorded follow-up. The holdout set is
 evaluated once, against that same file.
 
+Outcome: the run finished (400 vocal lines, 88 skipped). The first tuning ran on the POP909-only file while it was
+running (ruling R8); after the merge the gates were re-run, the engine was re-tuned (rulings R14 and R15), and the
+holdout was judged once against the merged file. See section 10.2.
+
 ### 5.7 Listening checkpoint
 
 As soon as the engine is wired in (before the gates are tuned), ten pieces are generated with the same commands and
@@ -356,8 +360,8 @@ All numbers below were measured on the shipped statistics file and constants, wi
      spread features in both modes, T3 has 0 failing pieces (P1 and P2 = 1, P4 true, no forbidden interval, no move
      over a fifth, largest move 7, final note on the cadence pitch), pooled triad identity P3 = 1.000 over 1,984 bars,
      T4 (same seed, same music) and T5 (every key and mode, the edge and tunings inputs) pass.
-   - Holdout (160 pieces, keys A, D#, B, G# major and G, C#, F, A# minor, seed bases 6000/6001), **run once**, after
-     the constants were final: T1 passes for all 28 mode and feature pairs, T3 has 0 failing pieces, pooled triad
+   - Holdout (160 pieces, keys A, D#, B, G# major and G, C#, F, A# minor, seed bases 6000/6001), **judged once**, on
+     the final constants (the unit suite runs it again deterministically, so it gives the same result each time): T1 passes for all 28 mode and feature pairs, T3 has 0 failing pieces, pooled triad
      identity P3 = 1.000 over 1,408 bars, largest move 7.
    - The holdout test asserts T1 and T3 only. Measured afterwards, the T2 spread of the holdout is below its minimum
      for major `rhythm_variety` (inter-quartile range 0.125 against 0.152 needed); the other seven T2 checks hold on the
