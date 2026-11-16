@@ -72,11 +72,11 @@ Source layout under [src/music_decoder/](../src/music_decoder/):
 - [chords/](../src/music_decoder/chords/) — chord recognition (templates + 97-state Viterbi, optional madmom backend).
 - [transcription/](../src/music_decoder/transcription/) — basic-pitch wrapper + post-processing.
 - [tabs/](../src/music_decoder/tabs/) — A* fret search + ASCII/SVG renderers.
-- [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`. Composer v5 adds, for fingerstyle: [shapes.py](../src/music_decoder/compose/shapes.py) (per-bar shapes and the identity repair), [performance.py](../src/music_decoder/compose/performance.py) (dynamics, let-ring, micro-timing), [scoring.py](../src/music_decoder/compose/scoring.py) (the symbolic score for best-of-N) and [ml/](../src/music_decoder/compose/ml/) (the opt-in models: [aesthetics.py](../src/music_decoder/compose/ml/aesthetics.py), [amt.py](../src/music_decoder/compose/ml/amt.py)).
+- [compose/](../src/music_decoder/compose/) — voicings, melody generator, arrangement, public `compose()`. Composer v5 adds, for fingerstyle: [shapes.py](../src/music_decoder/compose/shapes.py) (per-bar shapes and the identity repair), [performance.py](../src/music_decoder/compose/performance.py) (dynamics, let-ring, micro-timing), [scoring.py](../src/music_decoder/compose/scoring.py) (the symbolic score for best-of-N) and [ml/](../src/music_decoder/compose/ml/) (the opt-in models: [aesthetics.py](../src/music_decoder/compose/ml/aesthetics.py), [amt.py](../src/music_decoder/compose/ml/amt.py)). Composer v6 adds the tune engine, the default fingerstyle melody generator (§5.3.3): [tune.py](../src/music_decoder/compose/tune.py) (the engine), [tune_stats.py](../src/music_decoder/compose/tune_stats.py) (the typed loader of the shipped statistics), [tune_metrics.py](../src/music_decoder/compose/tune_metrics.py) (features and band distance), [tune_corpus.py](../src/music_decoder/compose/tune_corpus.py) (reads POP909 and builds the statistics) and [data/tune_stats.json](../src/music_decoder/compose/data/tune_stats.json) (the statistics, shipped as package data).
 - [synth/](../src/music_decoder/synth/) — MIDI to WAV via fluidsynth or sine fallback; [plucked.py](../src/music_decoder/synth/plucked.py), the numpy plucked-string renderer (v5).
 - [assets.py](../src/music_decoder/assets.py) — model/asset provisioning: bundled soundfont, soundfont download + validation, Demucs weight cache check/fetch (used by `fetch-models`, `doctor`, `setup.sh`).
 - [config/](../src/music_decoder/config/) — runtime + hyperparameter loaders.
-- [evaluation/](../src/music_decoder/evaluation/) — mir_eval wrappers + synthetic fixture loader.
+- [evaluation/](../src/music_decoder/evaluation/) — mir_eval wrappers + synthetic fixture loader; the composer's evaluation matrices ([compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py), and for the v6 tune engine [compose_tune.py](../src/music_decoder/evaluation/compose_tune.py), §5.3.3).
 - [cli/](../src/music_decoder/cli/) — Click entry point.
 - [ui/](../src/music_decoder/ui/) — Streamlit single-page app + display components.
 
@@ -86,6 +86,7 @@ The IO/ML/DSP/rule-based boundaries:
 - **ML (pre-trained, optional, composer v5)**: [compose/ml/](../src/music_decoder/compose/ml/): Audiobox Aesthetics (`--rank-audio`) and the Anticipatory Music Transformer (`--melody-model amt`). Everything here needs the `ml` extra, imports its libraries lazily and is never touched by default code or tests.
 - **ML (pre-trained, no training in v2)**: [separation/demucs.py](../src/music_decoder/separation/demucs.py) (Demucs htdemucs_6s), [transcription/basic_pitch_wrapper.py](../src/music_decoder/transcription/basic_pitch_wrapper.py) (Spotify basic-pitch), [chords/backends/madmom_deep_chroma.py](../src/music_decoder/chords/backends/madmom_deep_chroma.py) (madmom DeepChromaChordRecognitionProcessor).
 - **DSP**: [dsp/](../src/music_decoder/dsp/), [key/](../src/music_decoder/key/), [chords/recognize.py](../src/music_decoder/chords/recognize.py).
+- **Statistics (composer v6)**: [compose/tune.py](../src/music_decoder/compose/tune.py) samples a melody from tables of counts built offline from real tunes ([scripts/build_tune_stats.py](../scripts/build_tune_stats.py), §5.3.3). No model is trained or loaded at run time; only the shipped JSON is read.
 - **Rule-based**: [tabs/](../src/music_decoder/tabs/), [compose/](../src/music_decoder/compose/), [chords/templates.py](../src/music_decoder/chords/templates.py), [chords/voicings.py](../src/music_decoder/chords/voicings.py).
 
 ---
@@ -671,12 +672,14 @@ arrange(...)                                   # pure: no files, no YAML
   │ fingerstyle (one playable part, §5.3.1; v5 §5.3.2), for each of N candidates:
   │   choose_bar_shapes(...)                   # one shape per bar (Viterbi)
   │   hand_shape(shape, tuning) for each bar   # what the held shape can reach
-  │   generate_melody(..., allowed_pitches=, tessitura_center=, final_whole_note=True,
-  │                   phrase_shaping=True, pitch_prior=)
+  │   melody_engine="tune" (default):  generate_tune(..., allowed_pitches=, tessitura_center=,
+  │                   final_whole_note=True, pitch_prior=)           # §5.3.3, statistics of real tunes
+  │   melody_engine="rules" (v5):      generate_melody(..., allowed_pitches=, tessitura_center=,
+  │                   final_whole_note=True, phrase_shaping=True, pitch_prior=)
   │   arrange_fingerstyle(...)                 # melody tab + accompaniment tab, bar by bar
   │   repair_identity(...)                     # re-voice bars that still miss a tone
   │   shape_dynamics(...); let_ring(...)       # velocities and lengths (still on the grid)
-  │   score_arrangement(...)                   # the symbolic score of the candidate
+  │   score_arrangement(..., melody_engine=)   # the symbolic score of the candidate
   │ keep the best candidate (ties: the lowest k)
   ▼
 Arrangement(melody, voicings, accompaniment, melody_tab,
@@ -717,18 +720,29 @@ writes the accompaniment notes it is given instead of generating the pattern
 for `style`, and `compose()` passes `arrangement.accompaniment` for
 fingerstyle (fingerstyle without it raises).
 
+Composer v6 adds a `melody_engine` parameter (`"tune"` or `"rules"`) to
+`compose_with_options()` (default `"tune"`, which is what `compose()` uses),
+`arrange()` and `arrange_candidates()` (default `"rules"`, so direct callers
+and the tests written for v5 are unchanged), and `metadata["melody_engine"]`
+records the engine that made the melody. Strum and arpeggio always use
+`generate_melody` (the `compose_with_options` call resets the engine to
+`"rules"` for them). Any other value raises `ValueError`.
+
 `compose()` is fully synchronous. Determinism: the randomness is
-`numpy.random.default_rng(seed)` inside the melody generator, which drives
-both the rhythm plan and the pitch choices (v5 fingerstyle draws the seed of
+`numpy.random.default_rng(seed)` inside the melody generator (either
+engine), which drives both the rhythm plan and the pitch choices (v5 fingerstyle draws the seed of
 candidate k from `candidate_seeds(seed, N)`, which does not depend on
 `PYTHONHASHSEED`; the optional models add their own seeded CPU RNG, §5.3.2),
 so the same seed and options give the same music.
-`metadata["composer_version"]` (currently `5`) is bumped whenever the
-composer changes what a given seed produces. Versions 4 and 5 change only
-`style="fingerstyle"` (§5.3.1, §5.3.2); strum and arpeggio output is unchanged
-from version 3 for the same inputs (`tests/unit/test_compose_frozen.py`). In
-version 5 the seed names the best of N pieces, so the same seed gives a
-different fingerstyle piece than in version 4. Seeds from before version 2
+`metadata["composer_version"]` (currently `6`) is bumped whenever the
+composer changes what a given seed produces. Versions 4, 5 and 6 change only
+`style="fingerstyle"` (§5.3.1, §5.3.2, §5.3.3); strum and arpeggio output is
+unchanged from version 3 for the same inputs
+(`tests/unit/test_compose_frozen.py`). In version 5 the seed names the best of
+N pieces, so the same seed gives a different fingerstyle piece than in
+version 4. In version 6 the default tune engine writes the melody, so a seed
+gives a different fingerstyle melody than in version 5;
+`melody_engine="rules"` reproduces the version 5 melody note for note. Seeds from before version 2
 (the uniform quarter-note generator) give different melodies now, and so do
 version-2 seeds: version 3 changed the chord shapes in every tuning and the
 melody's leap rules. The melody
@@ -1105,11 +1119,14 @@ strings (`tab_for_midi_notes`).
 
 **Best of N** ([compose/scoring.py](../src/music_decoder/compose/scoring.py)).
 `arrange_candidates(..., candidates=N)` arranges N pieces, candidate k from the
-k-th of `candidate_seeds`, scores each with `score_arrangement` (a weighted sum
+k-th of `candidate_seeds`, scores each with `score_arrangement` and returns them best first, ties to the
+lower k. For the `"rules"` engine the score is a weighted sum
 of P3 (+3), A2 (+1), M1 (+2), M2 (+1), rhythm entropy (+1), M3 (-1.5), M5 (+1),
 M11b (+1), hook (+1), peak (+1), arch (+1), ambitus (+1), shape moves (-0.5)
 and a final-voicing fallback (-3), with a neutral value for a term with nothing
-to count), and returns them best first, ties to the lower k. `arrange()`
+to count. For the `"tune"` engine (v6, §5.3.3) the melody terms (M1, M2,
+rhythm entropy, M3, M5, M11b, hook, peak, arch, ambitus) are replaced by
+`-W_CORPUS x band_distance`, with P3, A2, shape moves and the fallback kept. `arrange()`
 defaults to `candidates=1`; `compose()` and `compose_with_options()` use 12.
 Strum and arpeggio ignore `candidates`.
 
@@ -1167,6 +1184,190 @@ raise `MLUnavailableError`, which the CLI turns into a one-line error naming
 both fixes, before any work is done. The opt-in tests
 (`MUSIC_DECODER_ML_E2E=1`, `tests/integration/test_compose_ml_e2e.py`) run with
 the real weights; unit tests use fakes.
+
+### 5.3.3 Composer v6: the tune engine
+
+Everything here is fingerstyle only, and is the default. Spec:
+[the v6 design](superpowers/specs/2026-11-16-composer-v6-melody-design.md).
+v5 wrote the melody from hand-made rules that had never been measured against
+real melodies; v6 measured them (repeated notes, steps, rhythm variety, how
+often a bar's rhythm recurs, off-beat onsets, chord-tone rate on strong
+beats, the position of the highest note) and found the rules far outside what
+real tunes do. The tune engine samples the melody from tables of counts taken
+from real tunes instead. `generate_melody` is untouched and still serves the
+`"rules"` engine, strum and arpeggio.
+
+**Where it sits.** `_arrange_fingerstyle` picks the bar shapes and the
+`allowed_pitches` of each bar exactly as in v5, then calls `generate_tune`
+(`melody_engine="tune"`) or `generate_melody` (`"rules"`) with the same
+arguments (scale, progression, `bars_per_chord`, tempo, seed,
+`tessitura_center`, `allowed_pitches`, `final_whole_note=True`,
+`pitch_prior`). Everything after the melody (the one-guitar part, identity
+repair, dynamics, let-ring, the tab) is the same code, so the v4 guarantees
+(P1 playable moments, P2 melody on top, P3 chord identity, P4 tab equals MIDI,
+P5 final fallback) are inherited. `score_arrangement` takes the engine too
+(below), and `--melody-model amt` feeds `pitch_prior` to either engine.
+
+**The statistics** ([compose/data/tune_stats.json](../src/music_decoder/compose/data/tune_stats.json)).
+One JSON file in the package, loaded once per process by
+`tune_stats.load_tune_stats()` into frozen dataclasses (`TuneStats`; a pattern
+is its eighth slots joined by commas in the JSON, a move is a decimal string,
+`START = 99` is the "previous move" of a chain's first move). It holds only
+counts and percentiles:
+
+- `rhythm`, `rhythm_pairs`: per bar role (`open` = first bar of a phrase,
+  `cadence` = last, `body`) the counts of one-bar onset patterns on the eighth
+  grid (a tuple of the slots 0 to 7 with an onset) and of (previous pattern,
+  this pattern) pairs. Patterns seen fewer than 5 times are dropped.
+- `steps`, `steps_base`: counts of the next move in scale steps (-7 to +7, 0 a
+  repeat), by metric class of the target slot (`strong` slots 0 and 4, `beat`
+  2 and 6, `off` odd) and the previous move, with the counts without the
+  previous move for backoff.
+- `chord_tone`: share of chord tones per metric class (0.76, 0.65 and 0.60
+  for strong, beat and off).
+- `degrees`, `final_degrees`: per mode, the share of each of the 12 semitones
+  above the tonic over all notes, and over phrase-final notes.
+- `notes_per_second`: the 25th, 50th and 75th percentile.
+- `bands`: per mode and per feature of `tune_metrics.FEATURES`, the 25th, 50th
+  and 75th percentile over eight-bar windows.
+- `meta` (sources and licences, song and window counts, the date built) and,
+  when pilot data went in, `pilot`.
+
+No melody is stored; the longest context is a pair of consecutive moves.
+Statistics are counted on the eighth-grid view: a bar counts only if every
+onset is on an eighth, and windows with any other bar are skipped whole.
+
+**The builder** ([scripts/build_tune_stats.py](../scripts/build_tune_stats.py),
+[compose/tune_corpus.py](../src/music_decoder/compose/tune_corpus.py)).
+`--pop909` takes the `POP909` folder of the hierarchical-structure release of
+POP909 as cleaned by Dai, Zhang and Dannenberg (MIT licence; fetched with
+`git clone --depth 1 https://github.com/Dsqvival/hierarchical-structure-analysis ~/.music-decoder/datasets/pop909-hsa`,
+never copied into the repository). `read_song` reads one song folder
+(`melody.txt` on a sixteenth grid with rests, `finalized_chord.txt`,
+`analyzed_key.txt`, `tempo.txt`, `human_label1.txt`; a song with several keys
+gives each labelled segment the listed key that covers most of its notes);
+`build_stats` counts rhythm, moves, chord tones and degrees and takes the
+bands over eight-bar windows that start at a labelled phrase and have at
+least 12 notes. The window's features are computed by the same
+`tune_metrics.grid_features` that measures generated melodies, so real and
+generated melodies are measured by one function. With `--out` the script
+writes the JSON and prints counts and bands; `--pilot FILE...` takes
+JSON-lines vocal lines of the project's own YouTube pilot
+(`{"tonic_pc", "mode", "notes": [[eighth_slot, pitch], ...]}`), stores their
+pitch statistics (`pilot_stats`: interval shares, pentatonic share, degree
+shares and range) under `pilot`, and from 100 songs on (`MIN_PILOT_SONGS`)
+widens the pitch bands to cover both sources and averages the degree shares.
+The rhythm and move tables are always POP909's, because the pilot's timing is
+too noisy. Rebuilding from the same inputs gives the same file apart from
+`meta.built`. Only statistics leave a dataset.
+
+**The engine** ([compose/tune.py](../src/music_decoder/compose/tune.py)).
+`generate_tune(...) -> list[Note]` keeps `generate_melody`'s contract: notes on
+the eighth grid, each note of bar `b` in `allowed_pitches[b]`, none crossing a
+bar line, the last bar one held cadence note, deterministic for a seed
+(`numpy.random.default_rng(seed)` only; `stats=` can pass other statistics for
+tests). Two halves:
+
+1. *Rhythm plan* (`plan_rhythm`). The phrase layout and form labels are
+   v5's (`split_phrases`, `form_labels`: A A' for 8 bars, A A' A' for 9 to 12,
+   A A' B A' from 13), and each bar has a role (`open`, `body`, `cadence`).
+   The target onsets per bar are the median notes per second times the bar's
+   length, clamped to 3 to 6.5. A non-cadence bar of an A' phrase copies the
+   pattern of the matching bar of phrase A with probability
+   `P_RESTATE_RHYTHM` (0.5); every other bar draws a pattern with the weight
+   `P(pattern | role, previous pattern) x exp(-(onsets - target)^2 / (2 x
+   DENSITY_SIGMA^2))`, where the conditional probability is half the pair
+   table's share (when the previous pattern has at least `PAIR_MIN_COUNT` = 20
+   followers) and half the role's share. The last bar is one whole note and
+   the first bar of the piece must attack slot 0.
+2. *Pitch plan* (`generate_tune`). Notes are chosen left to right on those
+   onsets. The pool of a note is the bar's allowed pitches on the bar's chord
+   scale (`chord_scale_pcs`; all allowed pitches if that leaves none),
+   filtered by the hard rules. The weight of each candidate is the product of:
+   the **move** (`steps[class][previous move]`, backed off to `steps_base`
+   below `CONTEXT_MIN_COUNT` = 20 observations; moves are counted in scale
+   steps of the bar's chord scale, `scale_steps`); the **harmony** (the
+   chord-tone share of the slot's metric class, split over the candidates of
+   each kind); the **degree** (share of the degree in the mode over the mean
+   share, to `DEGREE_EXPONENT` 0.8; phrase-final shares at a phrase end); the
+   **register** (a normal curve around `tessitura_center`, `REGISTER_SIGMA` 6
+   semitones); and the **prior** from `--melody-model amt` when present.
+   Hard rules, applied before weighting and relaxed in tiers when they leave
+   nothing (the chord-scale restriction first, the approach to the final note
+   last; the interval limits go only in the last resort, the allowed pitch
+   nearest the previous note, because `allowed_pitches`, what the hand can
+   reach, outranks them, ruling R12): no
+   move of more than a fifth (`MAX_LEAP` = 7, ruling R10, so L2 and L3 of
+   §5.4.1 hold by construction), no tritone, no seventh, the move into a new
+   chord at most a fifth, and the approach to the final note stays inside
+   `feasible_sets` so the cadence pitch is reachable (`final_target`, as in v5).
+   A **repeated note** takes the move table's own repeat odds against the
+   other candidates, and the harmony, degree and register factors may only
+   lower it (`_hold_repeat_share`, rulings R11 and R11b): a repeat that fits
+   poorly is less likely, and never more than the real share. The **cell
+   memory** replays the moves of an earlier bar that had the same rhythm
+   pattern (always for a copied bar in the first two bars of a phrase, else
+   with probability `P_RESTATE_CELL` 0.75) from the start pitch that gives the
+   most chord tones on the strong slots; a replayed note that breaks a rule or
+   leaves `allowed_pitches` is replaced by a sampled one, and the replay stops
+   after two replacements (`MAX_REPLAY_REPLACEMENTS`). The last note of a
+   phrase is a chord tone, not the tonic when another chord tone is there.
+   A note lasts to the next onset or the bar's end times `LENGTH_FACTOR`
+   0.95. There is no hook, arch or peak rule; figures return through the cell
+   memory.
+
+The tuned constants (`DENSITY_SIGMA`, `P_RESTATE_CELL`, `DEGREE_EXPONENT`,
+`REGISTER_SIGMA`) are pinned in `tune.py`; they were tuned only to bring the
+features into the bands of the statistics, never the other way round.
+
+**Features and the tune score** ([compose/tune_metrics.py](../src/music_decoder/compose/tune_metrics.py)).
+`tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)` returns
+14 features on the eighth grid, per eight-bar window averaged over the
+piece's windows (a shorter piece is one window): the interval-class shares
+`repeat`, `step`, `third`, `leap`; `notes_per_second`; `rhythm_variety`;
+`rhythm_lag2` and `rhythm_lag4`; `figure_recurrence` (share of three-move
+figures that occur more than once); `offbeat`; `late_entry` (bars with no onset
+on slot 0); `chord_tone_strong`; `pentatonic`; `range`.
+`band_distance(features, bands)` sums, over the features, how far each lies
+outside its 25 to 75% band in units of the band's width (0 inside, with a
+floor on the width). `scoring._tune_score` is the best-of-12 score for the
+`"tune"` engine: the identity (+3), melody-above (+1), shape-move (-0.5) and
+fallback (-3) terms of v5 minus `W_CORPUS` (2.0) x `band_distance` against the
+statistics of the scale's mode. So the best candidate is the one closest to
+the ranges of real tunes, with the guitar guarantees kept. Scores of the two
+engines are on different scales (a tune score is a few points; a rules score
+is about a dozen).
+
+**Gates and harness** ([evaluation/compose_tune.py](../src/music_decoder/evaluation/compose_tune.py),
+[tests/unit/test_compose_tune_gates.py](../tests/unit/test_compose_tune_gates.py)).
+Two fixed matrices build fingerstyle pieces with the tune engine through
+`arrange_candidates`: `dev` (six major and six minor keys, three progressions
+per mode, tempos 72, 96 and 120, two seeds, 8 bars, plus 16-bar pieces in four
+keys per mode) and `holdout` (other keys and seeds, evaluated once at the end).
+Each configuration has its own seed (`base + 2 k`). A `TuneCase` keeps the
+best-of-12 arrangement and the features of candidate 0. The gates:
+
+- **T1** the median of every feature, per mode, lies inside the statistics'
+  25 to 75% band; **T2** the matrix's own spread of `repeat`,
+  `notes_per_second`, `rhythm_variety` and `figure_recurrence` is at least
+  half the band's width (pieces are not all alike). Both are measured on
+  *single candidates* (candidate 0, before any selection): the best-of-12
+  score picks by the same bands, so gating its output would pass by
+  construction.
+- **T3** the guitar guarantees, on the pieces as `compose()` writes them
+  (best of 12): P1 and P2 equal 1, P4 holds, P3 of triad bars is at least
+  0.99, no forbidden interval, no move over an octave, the chord-change and
+  final-approach moves at most a fifth, a final note of at least 1.5 beats on
+  the cadence pitch.
+- **T4** the same seed gives the same music; **T5** every key and mode
+  composes, as do the edge and tunings inputs of the v3 harness.
+- A band that cannot be met together with a guitar guarantee is a recorded
+  ruling, listed by name in `KNOWN_MISSES` (only the controller adds to it);
+  the guarantee wins.
+
+The existing musicality harness ([compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py))
+builds its fingerstyle cases with `melody_engine="rules"`, so every v3 to v5
+gate keeps guarding the rules engine unchanged.
 
 ### 5.4 ASCII tab for the composition
 
@@ -1251,7 +1452,9 @@ tuning):
 - a 110-melody edge matrix: 3/5/7/9 bars, a single chord, secondary
   dominants including B7→Em in C, a borrowed chord, final suspended chords
 
-It summarises every metric overall and per mode and bar length.
+It summarises every metric overall and per mode and bar length. From composer
+version 6 its fingerstyle cases are built with `melody_engine="rules"`; the
+tune engine has its own matrices and gates (§5.3.3).
 `scripts/compose_musicality_report.py` prints that summary.
 `tests/fixtures/compose/musicality_baseline.json` is the same summary for
 the pre-change composer, measured on identical inputs.
@@ -1410,6 +1613,8 @@ five subcommands:
   - `--rank-audio` (fingerstyle only; needs the `ml` extra and weights).
   - `--melody-model none | amt` (default `none`; fingerstyle only; needs the
     `ml` extra and weights).
+  - `--melody-engine tune | rules` (default `tune`; fingerstyle only, ignored
+    for strum and arpeggio without a message).
   - `--out DIR` (required).
   - `--format pretty | json`.
 - `ui` — launches Streamlit via `subprocess` on
@@ -1731,6 +1936,15 @@ and composition output folders).
   `tests/unit/test_compose_voicings.py` (every chord in every preset
   tuning); the composer voices them through `harmony.chord_pcs`. Run
   `pytest -q tests/unit/test_compose_harmony.py tests/unit/test_compose_api.py tests/unit/test_compose_musicality.py tests/unit/test_chord_detection_voicings.py tests/unit/test_compose_voicings.py`.
+- **Retune or rebuild the tune engine's statistics (composer v6)**: re-run
+  `python scripts/build_tune_stats.py --pop909 ~/.music-decoder/datasets/pop909-hsa/POP909 --out src/music_decoder/compose/data/tune_stats.json [--pilot FILE...]`
+  (fetch the dataset with `git clone --depth 1
+  https://github.com/Dsqvival/hierarchical-structure-analysis
+  ~/.music-decoder/datasets/pop909-hsa`), then run
+  `pytest tests/unit/test_compose_tune_gates.py tests/unit/test_compose_tune_corpus.py tests/unit/test_compose_tune_stats.py`.
+  The constants that shape the melody are at the top of
+  [compose/tune.py](../src/music_decoder/compose/tune.py); change them only to
+  bring the gate features (§5.3.3) into the bands, and never edit the bands.
 - **Tweak A* weights**: edit `tab_assignment.weights` in
   [`config/hyperparameters.yaml`](../config/hyperparameters.yaml) (re-tune
   with `scripts/benchmark_guitarset.py --sweep-tabs`). `_DEFAULT_WEIGHTS` in

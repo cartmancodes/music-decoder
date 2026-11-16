@@ -86,6 +86,32 @@ seed, get a different piece.
 Why this matters: it's a fast way to sketch an idea — pick a scale and
 some chords, hit a button, hear it. No music theory degree required.
 
+**What version 6 of the composer adds (fingerstyle only).** Listening to
+version 5, the melodies did not sound like tunes. So version 6 measured real
+ones and changed how the fingerstyle melody is written. It is the default;
+`--melody-engine rules` brings version 5's melody back.
+
+- The melody is **built from what real tunes do**, not from hand-written
+  rules. The tool learned, from about 900 pop songs, which bar rhythms are
+  common and which follow which, how far a melody usually moves from one note
+  to the next (a note is repeated about one move in five), how often it lands
+  on a chord tone, and which notes of the scale it favours. Notes are then
+  picked by those odds, always from the notes the hand's chord shape can
+  reach, with no jump bigger than a fifth.
+- Tunes now have **repeated notes, several kinds of bar, off-beat notes and
+  figures that come back** in later bars, and the high point can fall
+  anywhere in a phrase.
+- Of those songs, only **statistics** are kept in the tool, such as counts
+  and ranges. No melody is copied, and the song collection itself is not part
+  of the tool. It is the cleaned POP909 collection of Dai et al. (MIT
+  licence), and, when present, pitch statistics from the project's own
+  pilot recordings.
+- Best of 12 now picks the candidate **closest to a real tune** (its note
+  habits measured against the ranges real tunes occupy), while still
+  insisting on the guitar qualities of version 5: playable, melody on top,
+  chords recognisable.
+- `strum` and `arpeggio` are unchanged and keep the older melody writer.
+
 **What version 5 of the composer adds (fingerstyle only).** Fingerstyle is
 the one style meant to be played by a person, and version 5 makes it sound
 more like one:
@@ -288,6 +314,9 @@ You give the tool a scale, a chord progression, and a few options
    styles, but for fingerstyle the shape comes first and the melody follows
    it.
 
+   (Version 6 replaces the melody writer described in step 2 for
+   fingerstyle, by default: see below.)
+
    Version 5 refines the fingerstyle part in four ways. First, the shape
    can change from bar to bar: the tool searches for the series of shapes
    that keep the chord recognisable, reach the melody's notes and need the
@@ -304,6 +333,21 @@ You give the tool a scale, a chord progression, and a few options
    peak, arch, range; minus repeated notes, hand movement and a thinned
    final chord). With the optional models, an audio-taste model can
    re-rank the best four, and a melody model can propose the tune.
+
+   Version 6 changes who writes the fingerstyle melody. The tool no longer
+   draws a rhythm from a library of eleven made-up bar patterns and scores
+   notes by hand-written preferences. It draws each bar's rhythm from real bar
+   rhythms (favouring those that tend to follow the previous bar's, with as
+   many notes as suits the tempo) and chooses each note by the odds real melodies give for
+   that kind of move, chord tone, scale degree and register. A bar that repeats
+   an earlier rhythm often repeats its melodic figure too. The rules that keep
+   it a guitar part stay: the note must be one the held chord shape can reach,
+   no move is bigger than a fifth, and the last bar is one held note on the
+   cadence pitch. The "best of 12" score now measures how near each piece's
+   note habits lie to the ranges of real tunes, instead of v5's hand-picked
+   targets (stepwise motion, fewest repeated notes and so on). The odds come
+   from a small file of statistics built offline from the POP909 song
+   collection; the engine reads that file and nothing else.
 
 4. **Render the audio**. The melody and accompaniment together get
    written to a MIDI file (a digital score) and then synthesized to a
@@ -351,7 +395,13 @@ A few things the tool deliberately stays out of:
   shipped; there's no training, no model improvement loop. That includes
   the two optional composer models (Audiobox Aesthetics and the
   Anticipatory Music Transformer): they are downloaded, used and never
-  trained, and the default composer needs neither.
+  trained, and the default composer needs neither. The fingerstyle melody
+  engine of version 6 uses a file of counts and percentiles measured once
+  from real songs; nothing is learned while it runs.
+- **It doesn't copy other people's tunes**. The statistics behind the
+  fingerstyle melody are counts of rhythms, moves and scale degrees; no
+  melody is stored, and the song collection they were measured on is not
+  part of the tool.
 
 ---
 
