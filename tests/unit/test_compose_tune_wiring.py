@@ -72,6 +72,19 @@ def test_arrange_defaults_to_rules_and_compose_to_tune(tmp_path, fake_wav):
     assert [n.pitch for n in c.melody_notes] != [n.pitch for n in r.melody_notes]
 
 
+def test_output_folder_hash_depends_on_the_melody_engine_and_other_options(tmp_path, fake_wav):
+    # The folder is {timestamp}-{hash}; compare the hash alone, so a second tick proves nothing.
+    def tag(sub, **kw):
+        r = compose_with_options(SCALE, PROG, seed=3, out_dir=tmp_path / sub, **kw)
+        return r.midi_path.parent.name.rsplit("-", 1)[1]
+
+    base = tag("a", melody_engine="tune")
+    assert tag("b", melody_engine="tune") == base
+    assert tag("c", melody_engine="rules") != base
+    assert tag("d", melody_engine="tune", candidates=3) != base
+    assert tag("e", melody_engine="tune", sound="plucked") != base
+
+
 def test_compose_with_options_tune_is_arrange_with_tune(tmp_path, fake_wav):
     c = compose_with_options(SCALE, PROG, seed=3, out_dir=tmp_path, candidates=3)
     arr = arrange(SCALE, PROG, seed=3, candidates=3, melody_engine="tune")
@@ -140,7 +153,7 @@ def test_guitar_guarantees_hold_with_the_tune_engine(tuning, key, mode):
             PRESETS[tuning],
         )
         assert metrics.forbidden_interval_count(arr.melody) == 0
-        assert metrics.max_interval(arr.melody) <= 12
+        assert metrics.max_interval(arr.melody) <= 7
 
 
 @pytest.mark.parametrize("tempo", [40.0, 200.0])

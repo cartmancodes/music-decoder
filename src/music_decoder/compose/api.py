@@ -709,7 +709,11 @@ def compose_with_options(
         )
 
     payload_hash = hashlib.sha1(
-        f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}".encode()
+        (
+            f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}"
+            f"|{melody_engine}|{tuning.name}|{candidates}|{sound}|{bars_per_chord}"
+            f"|{rank_audio}|{melody_model}"
+        ).encode()
     ).hexdigest()[:8]
     ts = time.strftime("%Y%m%dT%H%M%S")
     work = out_dir / f"{ts}-{payload_hash}"

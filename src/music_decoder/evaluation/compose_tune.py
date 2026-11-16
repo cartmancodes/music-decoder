@@ -32,6 +32,7 @@ import numpy as np
 
 from music_decoder.compose import metrics
 from music_decoder.compose.api import Arrangement, arrange_candidates
+from music_decoder.compose.tune import MAX_LEAP
 from music_decoder.compose.tune_metrics import FEATURES, tune_features
 from music_decoder.evaluation.compose_musicality import SEVENTH_QUALITIES, realize
 from music_decoder.tabs.tuning import STANDARD_EADGBE, Tuning
@@ -53,7 +54,7 @@ LONG_TEMPO = 96.0
 LONG_KEYS = 4  # the 16-bar pieces use the first four keys of each mode
 
 # T3 limits (v6 spec 5.5; L2 and L3 by ruling R10)
-MAX_MOVE = 12  # no move over an octave
+MAX_MOVE = MAX_LEAP  # no move over a fifth (ruling R10)
 MAX_CHANGE_MOVE = 7  # chord-change and final-approach moves at most a fifth
 MIN_FINAL_BEATS = 1.5
 
