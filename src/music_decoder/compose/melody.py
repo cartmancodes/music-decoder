@@ -79,22 +79,23 @@ CHORD_CHANGE_STEP_BONUS = 1.0  # step (1-2 semitones) into a new chord
 # Tuned from the plan's starting values (hook 3.0/1.5, variation 2, contour
 # 0.8, span 7, foot -3, peak -1.5/+1.0/-2.0) to meet the feature-3 targets
 # while the v3 singability guards hold (v5 ruling F3b): light enough that
-# chord fit and leap recovery still win on strong beats.
-HOOK_EXACT = 6.0  # a phrase opening restates the hook interval exactly
-HOOK_NEAR = 6.0  # ... or within a semitone of it (transposed to fit the chord)
+# chord fit and leap recovery still win on strong beats. Re-tuned for ruling
+# F3d (the varied A' slot withholds the original interval's reward).
+HOOK_EXACT = 4.0  # a phrase opening restates the hook interval exactly
+HOOK_NEAR = 4.0  # ... or within a semitone of it (transposed to fit the chord)
 # The varied interval of an A' restatement widens by this much; 1 keeps the
 # restatement within metrics.hook_restatements' semitone tolerance (ruling F3a).
 HOOK_VARIATION = 1
 CONTOUR_WEIGHT = 0.35  # pull toward the phrase's arch (replaces register gravity)
 CONTOUR_WIDTH = 4.0
-ARCH_SPAN = 24  # semitones from the arch's foot to its apex
+ARCH_SPAN = 23  # semitones from the arch's foot to its apex
 ARCH_BASE_OFFSET = -5  # the arch's foot, relative to the tessitura centre
 B_REGISTER_LIFT = 2  # the B phrase's arch sits this much higher
-PEAK_TIE = -2.5  # reaching the phrase's running maximum before the peak window
-PEAK_BONUS = 3.0  # a new phrase maximum inside the peak window
+PEAK_TIE = -2.25  # reaching the phrase's running maximum before the peak window
+PEAK_BONUS = 2.5  # a new phrase maximum inside the peak window
 # Tying the phrase maximum inside the window (the final note included), or
 # reaching it after the window.
-PEAK_AFTER = -6.5
+PEAK_AFTER = -7.0
 
 PeakPhase = Literal["before", "inside", "after"]
 
@@ -146,6 +147,9 @@ class NoteContext:
     # and the phrase's highest pitch so far with where this note falls
     # relative to the peak window.
     hook_interval: int | None = None
+    # An A' phrase's varied slot: the hook's own interval there, which earns
+    # no hook reward, so the restatement really changes (v5 ruling F3d).
+    hook_original: int | None = None
     contour_target: float | None = None
     phrase_max: int | None = None
     peak_phase: PeakPhase | None = None
@@ -184,7 +188,7 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
                 score += MOTIF_SIGN_BONUS
             if abs(interval - ctx.motif_interval) <= 1:
                 score += MOTIF_SIZE_BONUS
-        if ctx.hook_interval is not None:
+        if ctx.hook_interval is not None and interval != ctx.hook_original:
             if interval == ctx.hook_interval:
                 score += HOOK_EXACT
             elif abs(interval - ctx.hook_interval) <= 1:
@@ -522,10 +526,12 @@ def generate_melody(
     ``final_whole_note`` makes the last bar one held note (phrase rhythms only).
     ``phrase_shaping`` (phrase rhythms only; v5 spec 5.3) shapes every phrase:
     after the first, each opens by restating the hook (bar 0's first
-    intervals; an A' phrase varies one of them by ``HOOK_VARIATION``), pitches
-    follow the phrase's arch instead of the register gravity (the B phrase's
-    sits ``B_REGISTER_LIFT`` higher, and it draws rhythms of its own), and the
-    phrase's high note is saved for the peak window. The hard rules still win.
+    intervals; an A' phrase varies one of them by ``HOOK_VARIATION``, and the
+    original interval earns nothing there), pitches follow the phrase's arch
+    instead of the register gravity (the B phrase's sits ``B_REGISTER_LIFT``
+    higher and draws rhythms of its own; the A' after it echoes phrase A),
+    and the phrase's high note is saved for the peak window. The hard rules
+    still win.
     """
     rng = np.random.default_rng(seed)
     n_bars = len(progression) * bars_per_chord
@@ -612,13 +618,16 @@ def generate_melody(
         motif = bar_intervals[bar.motif_from] if bar.motif_from is not None else None
         phrase = phrases[bar_idx] if phrase_shaping else None
         hook_here: list[int] = []
+        # An A' restatement varies one hook interval: the first, from a random
+        # index on, whose varied form the candidates can play there (if none
+        # can, the restatement stays plain).
+        varied: int | None = None
         if phrase is not None and phrase.start == bar_idx:
             phrase_max = None
             if bar_idx > 0 and hook:
                 hook_here = list(hook)
                 if phrase.label == "A'":
                     varied = int(rng.integers(len(hook)))
-                    hook_here[varied] += HOOK_VARIATION * (_sign(hook[varied]) or 1)
         here: list[int] = []
         for k, slot in enumerate(bar.slots):
             last = k == len(bar.slots) - 1
@@ -661,6 +670,16 @@ def generate_melody(
                         final_choices=(tuple(final_approach) if approach_bar and last else None),
                     )
                 scores, _ = ranked_scores(candidates, ctx, tessitura_center)
+                h = ctx.hook_interval
+                if varied is not None and h is not None and prev is not None and k > varied:
+                    v = h + HOOK_VARIATION * (_sign(h) or 1)
+                    if any(
+                        c - prev == v and math.isfinite(x)
+                        for c, x in zip(candidates, scores, strict=True)
+                    ):
+                        ctx = replace(ctx, hook_interval=v, hook_original=h)
+                        scores, _ = ranked_scores(candidates, ctx, tessitura_center)
+                        varied = None
                 pitch = _sample(candidates, scores, rng, prev)
             interval = pitch - prev if prev is not None else 0
             here.append(interval)

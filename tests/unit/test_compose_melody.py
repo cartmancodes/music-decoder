@@ -1,3 +1,4 @@
+import itertools
 import math
 import statistics
 
@@ -520,6 +521,34 @@ def test_hook_term_rewards_exact_and_near_restatements():
     assert _hook_gain(70, hook_interval=2) == pytest.approx(0.0)  # the hook's direction reversed
 
 
+def test_hook_term_in_a_varied_slot_withholds_the_original_interval():
+    # A' varies hook interval 2 to 3 (v5 ruling F3d): the original earns nothing
+    varied = dict(hook_interval=3, hook_original=2)
+    assert _hook_gain(75, **varied) == pytest.approx(HOOK_EXACT)  # the varied interval
+    assert _hook_gain(76, **varied) == pytest.approx(HOOK_NEAR)  # its other neighbour
+    assert _hook_gain(74, **varied) == pytest.approx(0.0)  # the original interval
+    assert score_pitch(74, _ctx(**varied), 72) < score_pitch(75, _ctx(**varied), 72)
+
+
+def test_a_prime_openings_rarely_restate_the_hook_unchanged():
+    identical = 0
+    for seed in range(100):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        hook = metrics.hook_cell(mel, 120.0)
+        bar4 = [n for n in mel if 8.0 <= n.start_s < 10.0][: len(hook) + 1]  # A' opens bar 4
+        identical += tuple(b.pitch - a.pitch for a, b in itertools.pairwise(bar4)) == hook
+    # 19 here; 24 when the varied slot still rewarded the original interval (finding I1).
+    # The rest: the varied interval was unplayable in every slot left, or not sampled.
+    assert identical <= 20
+
+
 def test_the_a_prime_after_b_echoes_phrase_a_at_16_bars():
     def onsets(mel, bar):  # bar-relative onsets at 120 bpm (2 s bars)
         return [
@@ -567,7 +596,7 @@ def test_phrase_shaping_meets_the_melody_targets():
     peak = [r[1] for r in rows]
     arch = [r[2] for r in rows]
     assert statistics.fmean(hook) >= 0.75
-    # v5 ruling F3b: with the v3 singability guards holding, this sample reaches 0.875
+    # v5 ruling F3b: with the v3 singability guards holding, this sample reaches 0.9
     assert statistics.fmean(peak) >= 0.85
     assert statistics.fmean(arch) >= 0.5
 

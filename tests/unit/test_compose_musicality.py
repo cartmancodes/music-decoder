@@ -337,7 +337,7 @@ def test_per_bar_shapes_meet_the_v5_targets(all_reports, reserve_report, matrix)
 def test_phrase_shaping_targets(all_reports, reserve_report, matrix):
     o = {**all_reports, **reserve_report}[matrix]["overall"]
     # v5 rulings F2a/F2d: +2 semitones over v4. v5 ruling F3b: the v3 guards below win;
-    # with them holding, holdout reaches +1.90 (12.56 vs v4 10.66), so it is gated at +1.85.
+    # with them holding, holdout reaches +1.88 (12.54 vs v4 10.66), so it is gated at +1.85.
     assert o["F.M6"]["mean"] >= V4_FS[matrix]["F.M6"] + (1.85 if matrix == "holdout" else 2)
     if matrix == "validation":
         assert o["F.hook"]["mean"] >= 0.75
