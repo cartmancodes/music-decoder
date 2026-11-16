@@ -66,7 +66,27 @@ def test_rank_by_audio_blends_audio_and_symbolic(tmp_path):
     scorer = _FakeScorer(
         {w.name: _row(ce) for w, ce in zip(wavs, (5.0, 5.0, 8.0, 5.0), strict=True)}
     )
-    assert rank_by_audio(arrs, wavs, scorer) == 2  # audio wins over a 1-point symbolic gap
+    # z_symbolic (1, 2/3, 1/3, 0) * 0.5, z_audio (0, 0, 1, 0): totals 0.5, 0.33, 1.17, 0
+    assert rank_by_audio(arrs, wavs, scorer) == 2
+
+
+def test_rank_by_audio_a_small_audio_gap_decides_against_the_symbolic_order(tmp_path):
+    arrs = [replace(base_arr, score=s) for s in (4.0, 3.0, 2.0, 1.0)]
+    wavs = [tmp_path / f"{k}.wav" for k in range(4)]
+    means = (6.00, 6.02, 6.10, 6.01)  # the real model's spread is about this small
+    scorer = _FakeScorer({w.name: _row(m, pq=m) for w, m in zip(wavs, means, strict=True)})
+    # z_audio (0, 0.2, 1, 0.1), z_symbolic * 0.5 (0.5, 0.33, 0.17, 0): 0.5, 0.53, 1.17, 0.1
+    assert rank_by_audio(arrs, wavs, scorer) == 2
+    assert aesthetics.SYMBOLIC_WEIGHT == 0.5
+
+
+def test_rank_by_audio_a_larger_symbolic_gap_keeps_the_symbolic_best(tmp_path):
+    arrs = [replace(base_arr, score=s) for s in (9.0, 1.0, 0.0)]
+    wavs = [tmp_path / f"{k}.wav" for k in range(3)]
+    means = (6.0, 6.1, 5.0)
+    scorer = _FakeScorer({w.name: _row(m, pq=m) for w, m in zip(wavs, means, strict=True)})
+    # z_audio (0.91, 1, 0), z_symbolic * 0.5 (0.5, 0.06, 0): 1.41, 1.06, 0
+    assert rank_by_audio(arrs, wavs, scorer) == 0
 
 
 def test_rank_by_audio_symbolic_breaks_an_audio_tie(tmp_path):
