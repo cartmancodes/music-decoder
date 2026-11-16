@@ -51,7 +51,8 @@ PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row t
 
 P_RESTATE_CELL = 0.75  # chance a bar with a used pattern replays that bar's moves (tuned)
 DEGREE_EXPONENT = 0.8  # tuned (v6 spec 5.5)
-HARMONY_EXPONENT = 0.7  # tuned (v6 spec 5.5): exponent on the chord-tone share factor
+# Exponent on the chord-tone share factor (ruling R15); 1.0 is the learned share as-is.
+HARMONY_EXPONENT = 0.7  # tuned (v6 spec 5.5)
 REGISTER_SIGMA = 6.0  # semitones (tuned, v6 spec 5.5)
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
