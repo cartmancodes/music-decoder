@@ -118,5 +118,23 @@ def test_plan_bars_contrast_b_gives_the_b_phrase_its_own_rhythms():
         b = plan_bars(16, np.random.default_rng(seed), contrast_b=True)
         plain += not (bodies(a, 0) & bodies(a, 8))
         contrasted += not (bodies(b, 0) & bodies(b, 8))
-        assert [p.motif_from for p in a] == [p.motif_from for p in b]
+        # only the A' after B changes its echo source (see the test below)
+        assert [p.motif_from for p in a[:12]] == [p.motif_from for p in b[:12]]
     assert contrasted == 40 and plain < 40
+
+
+@pytest.mark.parametrize(
+    ("n_bars", "a_prime"),
+    [(13, (11, 1)), (14, (12, 1)), (15, (12, 2)), (16, (12, 3)), (17, (12, 2))],
+)
+def test_plan_bars_contrast_b_echoes_phrase_a_after_b(n_bars, a_prime):
+    # v5 ruling F3f: A A' B A' -- the last A' restates A, not B
+    start, body = a_prime
+    for seed in range(40):
+        plain = plan_bars(n_bars, np.random.default_rng(seed))
+        b = plan_bars(n_bars, np.random.default_rng(seed), contrast_b=True)
+        echoes = b[start : start + body]
+        assert [p.motif_from for p in echoes] == list(range(body))
+        assert [p.rhythm for p in echoes] == [p.rhythm for p in b[:body]]
+        # without contrast it echoes B (bars 8 on), as phrase_layout pairs it
+        assert [p.motif_from for p in plain[start : start + body]] == [8 + i for i in range(body)]

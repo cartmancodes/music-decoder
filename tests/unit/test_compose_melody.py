@@ -6,6 +6,8 @@ import pytest
 from music_decoder.compose import metrics
 from music_decoder.compose.melody import (
     CHORD_CHANGE_STEP_BONUS,
+    HOOK_EXACT,
+    HOOK_NEAR,
     MAX_INTERVAL,
     NoteContext,
     admissible,
@@ -489,8 +491,6 @@ def test_score_pitch_phrase_shaping_terms():
     def s(candidate, **kw):
         return score_pitch(candidate, _ctx(**kw), 72)
 
-    # the hook: an exact restatement beats a near one, which beats none
-    assert s(74, hook_interval=2) > s(75, hook_interval=2) + 1 > s(76, hook_interval=2) + 2
     # the arch target replaces the register gravity
     assert s(76, contour_target=76.0) > s(72, contour_target=76.0)
     assert s(76) < s(72)
@@ -503,6 +503,39 @@ def test_score_pitch_phrase_shaping_terms():
     # the forced final note would tie the phrase's peak
     tie = s(74, phrase_max=76, peak_phase="before", final_choices=(76,))
     assert tie < s(74, phrase_max=76, peak_phase="before")
+
+
+def _hook_gain(candidate, **kw):
+    """What the hook term alone adds to ``candidate``'s score (prev pitch 72)."""
+    return score_pitch(candidate, _ctx(**kw), 72) - score_pitch(candidate, _ctx(), 72)
+
+
+def test_hook_term_rewards_exact_and_near_restatements():
+    assert _hook_gain(74, hook_interval=2) == pytest.approx(HOOK_EXACT)  # the hook's own interval
+    assert _hook_gain(75, hook_interval=2) == pytest.approx(HOOK_NEAR)  # within a semitone
+    assert _hook_gain(73, hook_interval=2) == pytest.approx(HOOK_NEAR)
+    assert _hook_gain(76, hook_interval=2) == pytest.approx(
+        0.0
+    )  # two semitones off: no restatement
+    assert _hook_gain(70, hook_interval=2) == pytest.approx(0.0)  # the hook's direction reversed
+
+
+def test_the_a_prime_after_b_echoes_phrase_a_at_16_bars():
+    def onsets(mel, bar):  # bar-relative onsets at 120 bpm (2 s bars)
+        return [
+            round(n.start_s - 2.0 * bar, 6) for n in mel if 2.0 * bar <= n.start_s < 2.0 * (bar + 1)
+        ]
+
+    for seed in range(20):
+        mel = generate_melody(
+            scale=Scale("C", "major"),
+            progression=PROG8 * 2,
+            tempo_bpm=120.0,
+            seed=seed,
+            phrase_shaping=True,
+            final_whole_note=True,
+        )
+        assert [onsets(mel, 12 + i) for i in range(3)] == [onsets(mel, i) for i in range(3)]
 
 
 def test_phrase_shaping_off_is_unchanged():

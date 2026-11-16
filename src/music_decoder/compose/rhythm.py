@@ -13,7 +13,7 @@ phrase boundaries and echo pairs the planner uses:
 
 :func:`form_labels` names each phrase's role in the piece's form (A, A' or
 B, v5 spec 5.3); with ``contrast_b`` the planner gives the B phrase body
-rhythms of its own.
+rhythms of its own, and the A' after it echoes phrase A rather than B.
 """
 
 from __future__ import annotations
@@ -133,7 +133,8 @@ def plan_bars(n_bars: int, rng: np.random.Generator, contrast_b: bool = False) -
 
     With ``contrast_b`` the B phrase (see :func:`form_labels`) redraws its
     fresh body rhythms, up to ``_CONTRAST_REDRAWS`` times, while any it plays
-    is one of phrase A's.
+    is one of phrase A's; and the A' after B echoes phrase A's bars (rhythms
+    and motif intervals) instead of B's, so the form returns to A.
     """
     layout = phrase_layout(n_bars)
     echo_of = {target: source for source, target in layout.echo_pairs}
@@ -155,6 +156,8 @@ def plan_bars(n_bars: int, rng: np.random.Generator, contrast_b: bool = False) -
         for i in range(length - 1):
             bar = start + i
             source = echo_of.get(bar)
+            if contrast_b and index == _B_PHRASE + 1 and source is not None:
+                source = i  # phrase A's bar (phrase A starts at bar 0)
             if source is not None:
                 rhythm = rhythms[source]
             elif index % 2 == 0:
