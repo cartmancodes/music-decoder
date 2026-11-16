@@ -283,7 +283,9 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
 - `--rank-audio` — `fingerstyle` only. Instead of trusting the score
   alone, render the best 4 candidates and let Audiobox Aesthetics (a
   pretrained model that rates how enjoyable and how well produced a clip
-  sounds) break the tie. Needs the `ml` extra, see
+  sounds) break the tie. An audio difference under 0.3 on the model's
+  1–10 scale counts only in proportion, so a gap that small does not
+  overturn the score's order by itself. Needs the `ml` extra, see
   [Optional models](#optional-models-the-ml-extra).
 - `--melody-model none | amt` — `fingerstyle` only. With `amt` a pretrained
   melody model, the Anticipatory Music Transformer, proposes a tune over

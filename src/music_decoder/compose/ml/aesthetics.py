@@ -4,12 +4,16 @@ The top candidates by symbolic score are rendered and scored by Audiobox
 Aesthetics (Meta, ``facebook/audiobox-aesthetics``, CC-BY-4.0), which rates
 a clip on four axes from 1 to 10: content enjoyment ``CE``, content
 usefulness ``CU``, production complexity ``PC`` and production quality
-``PQ``. Both signals are min-max normalised to [0, 1] across the rendered
-candidates (0 when all are equal): ``z_audio`` from ``(CE + PQ) / 2`` and
-``z_symbolic`` from the symbolic score. A candidate's final score is
+``PQ``. Both signals are normalised across the rendered candidates:
+``z_symbolic`` is the min-max of the symbolic score (0 when all are equal),
+and ``z_audio`` is ``(x - min) / max(span, AUDIO_SPAN_FLOOR)`` of
+``x = (CE + PQ) / 2``. A candidate's final score is
 ``z_audio + SYMBOLIC_WEIGHT * z_symbolic``. The audio model's raw spread
 between candidates of one piece is small (about 0.05-0.3 on its 1-10
-scale), so it is normalised too, else the symbolic order would always win.
+scale), so it is normalised too, else the symbolic order would always win;
+the floor keeps a gap under the model's resolution from being stretched to
+a full 1.0 (v5 ruling F4e), so such a gap cannot overturn the symbolic
+order by itself.
 
 The model runs on the CPU only, one clip at a time, so results repeat.
 ``torch``, ``torchaudio`` and ``audiobox_aesthetics`` are imported only by
@@ -31,6 +35,10 @@ AXES = ("CE", "CU", "PC", "PQ")
 # Weight of the normalised symbolic score next to the normalised audio score:
 # half, so the audio model decides unless the symbolic gap is the larger one.
 SYMBOLIC_WEIGHT = 0.5
+# The smallest audio span (on the model's 1-10 scale) the audio score is
+# scaled by: a smaller gap between the candidates counts only in proportion
+# (v5 ruling F4e).
+AUDIO_SPAN_FLOOR = 0.3
 # Audiobox Aesthetics reads 16 kHz mono in 10 s windows with a 10 s hop.
 SAMPLE_RATE = 16000
 WINDOW_S = 10
@@ -100,10 +108,11 @@ def load_scorer() -> AestheticScorer:
     return AestheticScorer(model)
 
 
-def _min_max(values: Sequence[float]) -> list[float]:
-    """``values`` scaled to [0, 1]; all 0 when they are all equal."""
+def _min_max(values: Sequence[float], *, span_floor: float = 0.0) -> list[float]:
+    """``values`` less their minimum, over their span or ``span_floor``,
+    whichever is larger: in [0, 1], and all 0 when they are all equal."""
     low, high = min(values), max(values)
-    span = high - low
+    span = max(high - low, span_floor)
     return [(v - low) / span if span > 0 else 0.0 for v in values]
 
 
@@ -111,10 +120,10 @@ def choose_by_audio(
     arrangements: Sequence[Arrangement], audio_scores: Sequence[Mapping[str, float]]
 ) -> int:
     """Index of the best of ``arrangements`` given each one's audio scores:
-    ``z_audio + SYMBOLIC_WEIGHT * z_symbolic``, ``z_audio`` the min-max
-    normalised ``(CE + PQ) / 2`` and ``z_symbolic`` the min-max normalised
-    symbolic score across them (each 0 when all are equal). Ties go to the
-    lowest index."""
+    ``z_audio + SYMBOLIC_WEIGHT * z_symbolic``. ``z_audio`` is
+    ``(x - min) / max(span, AUDIO_SPAN_FLOOR)`` of ``x = (CE + PQ) / 2``
+    across them, and ``z_symbolic`` the min-max normalised symbolic score
+    (each 0 when all are equal). Ties go to the lowest index."""
     if len(arrangements) != len(audio_scores) or not arrangements:
         raise ValueError("need one audio score per arrangement, and at least one")
     symbolic = []
@@ -122,7 +131,9 @@ def choose_by_audio(
         if a.score is None:
             raise ValueError("the audio re-rank needs scored (fingerstyle) arrangements")
         symbolic.append(a.score)
-    z_audio = _min_max([(row["CE"] + row["PQ"]) / 2 for row in audio_scores])
+    z_audio = _min_max(
+        [(row["CE"] + row["PQ"]) / 2 for row in audio_scores], span_floor=AUDIO_SPAN_FLOOR
+    )
     z_symbolic = _min_max(symbolic)
     totals = [a + SYMBOLIC_WEIGHT * z for a, z in zip(z_audio, z_symbolic, strict=True)]
     return max(range(len(totals)), key=totals.__getitem__)  # max() keeps the first best

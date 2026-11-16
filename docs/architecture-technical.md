@@ -1116,12 +1116,17 @@ With `rank_audio=True` the top `RANK_AUDIO_TOP_K = 4` candidates are rendered
 (with the chosen `sound`) to temporary WAVs and scored by Audiobox Aesthetics
 (`facebook/audiobox-aesthetics`, CC-BY-4.0, 415 MB, a CPU re-implementation of
 the predictor's forward pass from the pinned safetensors revision, no token).
-Both signals are min-max normalised across the four candidates:
-`final = z_audio + 0.5 * z_symbolic`, `z_audio` from `(CE + PQ) / 2`
-(`CE` content enjoyment, `PQ` production quality). Normalising matters:
-the audio model's raw spread between candidates is about 0.05-0.3, so the raw
-sum would never override the symbolic order. `metadata["audio_scores"]` holds
-the chosen candidate's `CE` and `PQ`.
+Both signals are normalised across the four candidates:
+`final = z_audio + 0.5 * z_symbolic`, `z_symbolic` the min-max of the symbolic
+score and `z_audio = (x - min) / max(span, AUDIO_SPAN_FLOOR)` of
+`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality;
+`AUDIO_SPAN_FLOOR = 0.3` on the model's 1-10 scale; each 0 when all are
+equal). Normalising matters: the audio model's raw spread between candidates
+is about 0.05-0.3, so the raw sum would never override the symbolic order.
+The floor keeps a gap of a few hundredths, about the model's noise, from
+being stretched to a full 1.0: such a gap counts only in proportion and does
+not overturn the symbolic order by itself (v5 ruling F4e).
+`metadata["audio_scores"]` holds the chosen candidate's `CE` and `PQ`.
 
 **Melody model** ([compose/ml/amt.py](../src/music_decoder/compose/ml/amt.py)).
 With `melody_model="amt"` the Anticipatory Music Transformer
