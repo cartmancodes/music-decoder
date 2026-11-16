@@ -8,11 +8,12 @@ resolution, motif echo, register gravity and, in the final bar, a pull
 toward the cadence target. With ``phrase_shaping`` (v5 spec 5.3) each phrase
 also restates the opening hook, follows a rise-and-fall arch in place of the
 register gravity and saves its unique high note for the peak window, in an
-A A' B A' form. Hard rules keep the line singable (no tritones
-or sevenths, large leaps only as recovered arpeggiations, every chord change
-and the final approach within a fifth); see :func:`admissible`. The only
-randomness is ``numpy.random.default_rng(seed)``, so output is deterministic
-for a seed.
+A A' B A' form. With a ``pitch_prior`` (v5 spec 5.5), a proposed line such as
+a melody model's adds a soft pull toward its pitch at each onset. Hard rules
+keep the line singable (no tritones or sevenths, large leaps only as recovered
+arpeggiations, every chord change and the final approach within a fifth); see
+:func:`admissible`. The only randomness is ``numpy.random.default_rng(seed)``,
+so output is deterministic for a seed.
 """
 
 from __future__ import annotations
@@ -97,6 +98,14 @@ PEAK_BONUS = 2.5  # a new phrase maximum inside the peak window
 # reaching it after the window.
 PEAK_AFTER = -7.0
 
+# The soft pitch prior (v5 spec 5.5), only with generate_melody(pitch_prior=):
+# PRIOR_WEIGHT * exp(-d / PRIOR_WIDTH), d the semitones to the nearest octave
+# of the proposed pitch. Small enough that the hard rules, the reach sets and
+# the cadence still decide.
+PRIOR_WEIGHT = 2.0
+PRIOR_WIDTH = 2.0  # semitones
+_PRIOR_EPS_S = 1e-6  # onsets this close count as equal
+
 PeakPhase = Literal["before", "inside", "after"]
 
 
@@ -156,6 +165,9 @@ class NoteContext:
     # The next note is the one-note final bar: the cadence pitches it takes,
     # the one nearest this note.
     final_choices: tuple[int, ...] | None = None
+    # The pitch prior's target here (v5 spec 5.5), any octave of it; None
+    # without a prior or when the prior has nothing at this onset.
+    prior_target: int | None = None
 
 
 def _sign(x: int) -> int:
@@ -223,6 +235,9 @@ def score_pitch(candidate: int, ctx: NoteContext, tessitura_center: int) -> floa
                 score += PEAK_AFTER  # the final note would tie the phrase's peak
     if ctx.target is not None:
         score -= CADENCE_PULL * abs(candidate - ctx.target)
+    if ctx.prior_target is not None:
+        r = (candidate - ctx.prior_target) % 12
+        score += PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH)
     if ctx.cadence_end and not is_chord_tone:
         score += CADENCE_END_NON_CHORD_TONE
     return score
@@ -306,6 +321,23 @@ def ranked_scores(
         if any(math.isfinite(s) for s in scores):
             return scores, level
     return plain, 2
+
+
+def _prior_target(prior: Sequence[Note], onset_s: float, eighth_s: float) -> int | None:
+    """The prior's pitch at ``onset_s``: the highest note sounding then, else
+    the highest at the nearest onset at most ``eighth_s`` later, else None."""
+    sounding = [
+        n.pitch
+        for n in prior
+        if n.start_s <= onset_s + _PRIOR_EPS_S and onset_s < n.end_s - _PRIOR_EPS_S
+    ]
+    if sounding:
+        return max(sounding)
+    ahead = [n for n in prior if onset_s < n.start_s <= onset_s + eighth_s + _PRIOR_EPS_S]
+    if not ahead:
+        return None
+    first = min(n.start_s for n in ahead)
+    return max(n.pitch for n in ahead if n.start_s <= first + _PRIOR_EPS_S)
 
 
 def _sample(
@@ -511,6 +543,7 @@ def generate_melody(
     allowed_pitches: Sequence[frozenset[int]] | None = None,
     final_whole_note: bool = False,
     phrase_shaping: bool = False,
+    pitch_prior: Sequence[Note] | None = None,
 ) -> list[Note]:
     """Generate a list of Notes spanning the given progression.
 
@@ -532,6 +565,12 @@ def generate_melody(
     higher and draws rhythms of its own; the A' after it echoes phrase A),
     and the phrase's high note is saved for the peak window. The hard rules
     still win.
+    ``pitch_prior`` (v5 spec 5.5) is a proposed line, such as a melody
+    model's: each note's score gains ``PRIOR_WEIGHT * exp(-d / PRIOR_WIDTH)``,
+    ``d`` the semitones from the candidate to the nearest octave of the
+    prior's pitch at its onset (the highest prior note sounding then, else the
+    nearest prior onset within an eighth after it; none, no bonus). The hard
+    rules, the reach sets and the cadence target are unchanged.
     """
     rng = np.random.default_rng(seed)
     n_bars = len(progression) * bars_per_chord
@@ -661,6 +700,13 @@ def generate_melody(
                     ),
                     allowed=feas[k] if feas else None,
                 )
+                if pitch_prior is not None:
+                    ctx = replace(
+                        ctx,
+                        prior_target=_prior_target(
+                            pitch_prior, bar_idx * bar_s + slot.offset_s, beat_s / 2.0
+                        ),
+                    )
                 if phrase is not None:
                     ctx = _shaped(ctx, phrase, bar_idx, slot.offset_s / bar_s, tessitura_center)
                     ctx = replace(

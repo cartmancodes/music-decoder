@@ -191,6 +191,17 @@ def cli_analyze(
         '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
     ),
 )
+@click.option(
+    "--melody-model",
+    type=click.Choice(["none", "amt"]),
+    default="none",
+    show_default=True,
+    help=(
+        "fingerstyle: a pretrained melody model (the Anticipatory Music Transformer) "
+        "proposes the tune as a soft prior "
+        '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
+    ),
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -204,6 +215,7 @@ def cli_compose(
     sound: str,
     candidates: int,
     rank_audio: bool,
+    melody_model: str,
     out: str,
     fmt: str,
 ) -> None:
@@ -224,6 +236,7 @@ def cli_compose(
                 sound=cast(Literal["soundfont", "plucked"], sound),
                 candidates=candidates,
                 rank_audio=rank_audio,
+                melody_model=None if melody_model == "none" else "amt",
             )
     except (MusicDecoderError, ValueError, MLUnavailableError) as e:
         raise click.ClickException(str(e)) from e

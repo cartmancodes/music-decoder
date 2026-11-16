@@ -21,9 +21,16 @@ from music_decoder.compose.arrangement import (
     _voiced_pitches,
     build_midi,
 )
-from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pitches, hand_shape
+from music_decoder.compose.fingerstyle import (
+    THUMB_EIGHTHS,
+    THUMB_VELOCITY,
+    arrange_fingerstyle,
+    final_bar_pitches,
+    hand_shape,
+)
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
+from music_decoder.compose.ml import MelodyProposer
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
 from music_decoder.compose.scoring import candidate_seeds, score_arrangement
 from music_decoder.compose.shapes import choose_bar_shapes, repair_identity
@@ -177,6 +184,52 @@ def accompany(
     )
 
 
+def _thumb_context(
+    bar_voicings: Sequence[VoicedChord], tuning: Tuning, *, tempo_bpm: float
+) -> tuple[Note, ...]:
+    """The thumb pattern of each bar's hand: the root on beats 1 and 3, the
+    alternate bass on 2 and 4, as the fingerstyle part plays it before any
+    melody exists. A melody model's conditioning (v5 spec 5.5)."""
+    beat_s = 60.0 / tempo_bpm
+    out: list[Note] = []
+    for b, voicing in enumerate(bar_voicings):
+        hand = hand_shape(voicing, tuning)
+        for k in THUMB_EIGHTHS:
+            position = hand.root if k % 4 == 0 else hand.alternate
+            start = b * 4 * beat_s + k * beat_s / 2
+            out.append(
+                Note(
+                    start_s=start,
+                    end_s=start + 0.95 * beat_s,
+                    pitch=tuning.open_pitches[position.string] + position.fret,
+                    velocity=THUMB_VELOCITY,
+                    confidence=1.0,
+                )
+            )
+    return tuple(out)
+
+
+def _propose_melody(
+    proposer: MelodyProposer,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+    seed: int,
+) -> tuple[Note, ...]:
+    """``proposer``'s melody over the thumb pattern of the piece's per-bar
+    shapes, made once per piece (v5 rulings F5a, F5b)."""
+    bars = choose_bar_shapes(progression, bars_per_chord=bars_per_chord, tuning=tuning)
+    return tuple(
+        proposer.propose(
+            _thumb_context(bars, tuning, tempo_bpm=tempo_bpm),
+            end_s=len(bars) * 4 * 60.0 / tempo_bpm,
+            tempo_bpm=tempo_bpm,
+            seed=seed,
+        )
+    )
+
+
 def _arrange_fingerstyle(
     scale: Scale,
     progression: Sequence[ChordSymbol],
@@ -184,10 +237,12 @@ def _arrange_fingerstyle(
     tempo_bpm: float,
     tuning: Tuning,
     seed: int | None,
+    pitch_prior: Sequence[Note] | None = None,
 ) -> Arrangement:
     """The fingerstyle arrangement: a shape per bar (v5 spec 5.2), a melody
     drawn from the pitches each bar's shape can reach (spec 5.5) and shaped
-    into hooked, arched phrases (v5 spec 5.3), then the
+    into hooked, arched phrases (v5 spec 5.3), pulled toward ``pitch_prior``
+    if given (v5 spec 5.5), then the
     one-guitar part around it, its identity repair (v5 spec 5.2) and its
     performance: dynamics and let-ring (v5 spec 5.1)."""
     bars = choose_bar_shapes(progression, bars_per_chord=bars_per_chord, tuning=tuning)
@@ -209,6 +264,7 @@ def _arrange_fingerstyle(
             allowed_pitches=allowed,
             final_whole_note=True,
             phrase_shaping=True,
+            pitch_prior=pitch_prior,
         )
     )
     # One shape and hand per bar, so the part is arranged bar by bar.
@@ -246,6 +302,7 @@ def arrange_candidates(
     tuning: Tuning = STANDARD_EADGBE,
     seed: int | None = None,
     candidates: int = 1,
+    melody_proposer: MelodyProposer | None = None,
 ) -> tuple[Arrangement, ...]:
     """Every candidate :func:`arrange` considers, best first.
 
@@ -253,8 +310,11 @@ def arrange_candidates(
     :func:`candidate_seeds`, each recording its own k (``chosen_candidate``)
     and :func:`score_arrangement` (``score``). They are sorted by score,
     highest first, ties going to the lower k (v5 spec 5.4). With
-    ``seed=None`` a base seed is drawn once. Strum and arpeggio ignore
-    ``candidates`` and give their single arrangement.
+    ``seed=None`` a base seed is drawn once. With a ``melody_proposer``
+    (fingerstyle only), its melody over the thumb pattern of the piece's
+    per-bar shapes, seeded with the base seed, is made once and is every
+    candidate's ``pitch_prior`` (v5 spec 5.5). Strum and arpeggio ignore
+    ``candidates`` and ``melody_proposer`` and give their single arrangement.
     """
     _validate(scale, progression, bars_per_chord)
     if candidates < 1:
@@ -264,8 +324,13 @@ def arrange_candidates(
             _arrange_single(scale, progression, bars_per_chord, tempo_bpm, style, tuning, seed),
         )
     base = seed if seed is not None else int(np.random.default_rng().integers(2**31))
+    prior = (
+        None
+        if melody_proposer is None
+        else _propose_melody(melody_proposer, progression, bars_per_chord, tempo_bpm, tuning, base)
+    )
     arrangements = [
-        _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s)
+        _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s, prior)
         for s in candidate_seeds(base, candidates)
     ]
     scores = [
@@ -293,6 +358,7 @@ def arrange(
     tuning: Tuning = STANDARD_EADGBE,
     seed: int | None = None,
     candidates: int = 1,
+    melody_proposer: MelodyProposer | None = None,
 ) -> Arrangement:
     """Pure core of compose(): voicings, melody, accompaniment and melody tab.
 
@@ -303,7 +369,9 @@ def arrange(
     :func:`candidate_seeds`, and keeps the one with the best
     :func:`score_arrangement` (ties go to the lowest k; v5 spec 5.4): the
     first of :func:`arrange_candidates`. With ``seed=None`` a base seed is
-    drawn once. Strum and arpeggio ignore ``candidates``.
+    drawn once. A ``melody_proposer`` (fingerstyle only) proposes one melody
+    per piece, every candidate's soft pitch prior (v5 spec 5.5). Strum and
+    arpeggio ignore ``candidates`` and ``melody_proposer``.
     """
     return arrange_candidates(
         scale,
@@ -314,6 +382,7 @@ def arrange(
         tuning=tuning,
         seed=seed,
         candidates=candidates,
+        melody_proposer=melody_proposer,
     )[0]
 
 
@@ -451,6 +520,7 @@ def _rank_by_audio(
     candidates: int,
     sound: Literal["soundfont", "plucked"],
     humanize_seed: int,
+    melody_proposer: MelodyProposer | None = None,
 ) -> tuple[Arrangement, dict[str, float]]:
     """The fingerstyle candidate the audio re-rank keeps, and its ``CE`` and
     ``PQ``: the top ``RANK_AUDIO_TOP_K`` by symbolic score are rendered to
@@ -467,6 +537,7 @@ def _rank_by_audio(
         tuning=tuning,
         seed=seed,
         candidates=candidates,
+        melody_proposer=melody_proposer,
     )[:RANK_AUDIO_TOP_K]
     with tempfile.TemporaryDirectory(prefix="music-decoder-rank-") as tmp:
         wavs = [Path(tmp) / f"candidate-{i}.wav" for i in range(len(top))]
@@ -497,6 +568,7 @@ def compose_with_options(
     out_dir: Path,
     sound: Literal["soundfont", "plucked"] = "soundfont",
     rank_audio: bool = False,
+    melody_model: Literal["amt"] | None = None,
     candidates: int = 12,
 ) -> Composition:
     """compose() plus the choice of ``sound``, of the number of fingerstyle
@@ -516,8 +588,19 @@ def compose_with_options(
     top ``RANK_AUDIO_TOP_K`` candidates by symbolic score are rendered with
     ``sound`` to temporary WAVs and scored by Audiobox Aesthetics; only the
     chosen one is written.
+
+    With ``melody_model="amt"`` (fingerstyle only, needs the ``ml`` extra and
+    the weights, else :class:`~music_decoder.compose.ml.MLUnavailableError`),
+    the Anticipatory Music Transformer proposes one melody per piece over the
+    thumb pattern, a soft pitch prior for every candidate (v5 spec 5.5).
     """
     rank_audio = rank_audio and style == "fingerstyle"
+    melody_model = melody_model if style == "fingerstyle" else None
+    proposer: MelodyProposer | None = None
+    if melody_model == "amt":
+        from music_decoder.compose.ml import amt
+
+        proposer = amt.load_proposer()  # fails before any work without the extra
     humanize_seed = seed if seed is not None else 0
     audio_scores: dict[str, float] | None = None
     if rank_audio:
@@ -531,6 +614,7 @@ def compose_with_options(
             candidates=candidates,
             sound=sound,
             humanize_seed=humanize_seed,
+            melody_proposer=proposer,
         )
     else:
         arrangement = arrange(
@@ -542,6 +626,7 @@ def compose_with_options(
             tuning=tuning,
             seed=seed,
             candidates=candidates,
+            melody_proposer=proposer,
         )
 
     payload_hash = hashlib.sha1(
@@ -620,5 +705,6 @@ def compose_with_options(
             "identity_misses": list(arrangement.identity_misses),
             "rank_audio": rank_audio,
             "audio_scores": audio_scores,
+            "melody_model": melody_model,
         },
     )

@@ -10,7 +10,10 @@ from music_decoder.compose.melody import (
     HOOK_EXACT,
     HOOK_NEAR,
     MAX_INTERVAL,
+    PRIOR_WEIGHT,
+    PRIOR_WIDTH,
     NoteContext,
+    _prior_target,
     admissible,
     feasible_sets,
     final_target,
@@ -19,7 +22,7 @@ from music_decoder.compose.melody import (
     score_pitch,
 )
 from music_decoder.compose.rhythm import form_labels, phrase_layout
-from music_decoder.types import ChordSymbol, Scale
+from music_decoder.types import ChordSymbol, Note, Scale
 
 C_MAJOR_PCS = {0, 2, 4, 5, 7, 9, 11}
 
@@ -627,3 +630,37 @@ def test_form_labels_follow_the_phrase_layout():
     assert form_labels(8) == ("A", "A'")
     assert form_labels(9) == ("A", "A'", "B")
     assert form_labels(4) == ("A",)
+
+
+# ---- v5 feature 5: the soft pitch prior (spec 2026-11-16 section 5.5) ---------
+
+
+def _prior_gain(candidate, target):
+    """What the prior term alone adds to ``candidate``'s score."""
+    return score_pitch(candidate, _ctx(prior_target=target), 72) - score_pitch(
+        candidate, _ctx(), 72
+    )
+
+
+def test_prior_bonus_falls_off_with_octave_aware_distance():
+    assert PRIOR_WEIGHT == 2.0 and PRIOR_WIDTH == 2.0
+    assert _prior_gain(74, 74) == pytest.approx(PRIOR_WEIGHT)
+    assert _prior_gain(74, 74 + 24) == pytest.approx(PRIOR_WEIGHT)  # octaves away: same pull
+    assert _prior_gain(76, 74) == pytest.approx(PRIOR_WEIGHT * math.exp(-2 / PRIOR_WIDTH))
+    assert _prior_gain(72, 83) == pytest.approx(PRIOR_WEIGHT * math.exp(-1 / PRIOR_WIDTH))
+    assert _prior_gain(74, None) == 0.0
+
+
+def _n(start, end, pitch):
+    return Note(start_s=start, end_s=end, pitch=pitch, velocity=80, confidence=1.0)
+
+
+def test_prior_target_is_the_highest_sounding_note_else_the_next_onset_within_an_eighth():
+    prior = [_n(0.0, 1.0, 60), _n(0.5, 1.0, 67), _n(1.3, 1.5, 64), _n(1.3, 1.5, 65)]
+    eighth = 0.25
+    assert _prior_target(prior, 0.0, eighth) == 60
+    assert _prior_target(prior, 0.5, eighth) == 67  # the highest of those sounding
+    assert _prior_target(prior, 1.0, eighth) is None  # both end here; 1.3 is over an eighth on
+    assert _prior_target(prior, 1.05, eighth) == 65  # the highest at the nearest onset ahead
+    assert _prior_target(prior, 1.5, eighth) is None
+    assert _prior_target([], 0.0, eighth) is None

@@ -7,6 +7,11 @@ dependencies lazily, when a model is loaded.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
+
+from music_decoder.types import Note
+
 INSTALL_HINT = (
     'install the ml extra with `pip install -e ".[ml]"` and fetch the weights with '
     "`music-decoder fetch-models --composer-models`"
@@ -20,4 +25,18 @@ class MLUnavailableError(RuntimeError):
         super().__init__(f"{reason}; {INSTALL_HINT}")
 
 
-__all__ = ["INSTALL_HINT", "MLUnavailableError"]
+@runtime_checkable
+class MelodyProposer(Protocol):
+    """Proposes a melody over an accompaniment (v5 spec 5.5).
+
+    ``context`` is the accompaniment the melody goes over, ``end_s`` where the
+    piece ends. The same arguments give the same proposal. The composer uses
+    it as a soft prior only (see ``generate_melody(pitch_prior=)``).
+    """
+
+    def propose(
+        self, context: Sequence[Note], *, end_s: float, tempo_bpm: float, seed: int
+    ) -> list[Note]: ...
+
+
+__all__ = ["INSTALL_HINT", "MLUnavailableError", "MelodyProposer"]
