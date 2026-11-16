@@ -114,6 +114,11 @@ def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: 
         raise InvalidProgressionError(f"bars_per_chord must be >= 1, got {bars_per_chord}")
 
 
+def _validate_candidates(candidates: int) -> None:
+    if candidates < 1:
+        raise ValueError(f"candidates must be >= 1, got {candidates}")
+
+
 def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
     """The most playable single position: the string giving the lowest fret."""
     best: tuple[int, int] | None = None  # (fret, string)
@@ -317,8 +322,7 @@ def arrange_candidates(
     ``candidates`` and ``melody_proposer`` and give their single arrangement.
     """
     _validate(scale, progression, bars_per_chord)
-    if candidates < 1:
-        raise ValueError(f"candidates must be >= 1, got {candidates}")
+    _validate_candidates(candidates)
     if style != "fingerstyle":
         return (
             _arrange_single(scale, progression, bars_per_chord, tempo_bpm, style, tuning, seed),
@@ -363,7 +367,10 @@ def arrange(
     """Pure core of compose(): voicings, melody, accompaniment and melody tab.
 
     Reads no files or configuration: the result depends only on the
-    arguments and ``COMPOSER_VERSION``.
+    arguments and ``COMPOSER_VERSION``. ``compose()`` and
+    :func:`compose_with_options` arrange with ``candidates=12``; ``arrange()``
+    defaults to ``candidates=1``, a single fingerstyle candidate, so pass
+    ``candidates=12`` for what ``compose()`` writes.
 
     Fingerstyle arranges ``candidates`` pieces, candidate k from the k-th of
     :func:`candidate_seeds`, and keeps the one with the best
@@ -575,6 +582,12 @@ def compose_with_options(
     ``candidates`` and of the audio re-rank (v5 spec 5.4; strum and arpeggio
     ignore both).
 
+    ``metadata["seed_used"]`` is the seed the piece was made with: ``seed``,
+    or the one drawn when ``seed`` is ``None``. Passing it back as ``seed``
+    with the same other arguments rebuilds the same piece (MIDI, WAV and
+    tab). ``metadata["identity_misses"]`` is ``None`` for strum and arpeggio,
+    which do not count them.
+
     ``composition.mid`` and the tab are the on-grid part, whatever the sound.
     With ``sound="soundfont"`` the fingerstyle WAV is rendered from a
     temporary performance MIDI whose strokes are micro-timed by
@@ -597,8 +610,11 @@ def compose_with_options(
     ``metadata["melody_model_seconds"]`` says how many seconds it covered
     (``None`` without the model).
     """
+    _validate(scale, progression, bars_per_chord)  # before any model loads
+    _validate_candidates(candidates)
     rank_audio = rank_audio and style == "fingerstyle"
     melody_model = melody_model if style == "fingerstyle" else None
+    seed_used = seed if seed is not None else int(np.random.default_rng().integers(2**31))
     proposer: MelodyProposer | None = None
     melody_model_seconds: float | None = None
     if melody_model == "amt":
@@ -607,7 +623,7 @@ def compose_with_options(
         proposer = amt.load_proposer()  # fails before any work without the extra
         piece_s = len(progression) * bars_per_chord * 4 * 60.0 / tempo_bpm
         melody_model_seconds = amt.proposal_seconds(piece_s)
-    humanize_seed = seed if seed is not None else 0
+    humanize_seed = seed_used
     audio_scores: dict[str, float] | None = None
     if rank_audio:
         arrangement, audio_scores = _rank_by_audio(
@@ -616,7 +632,7 @@ def compose_with_options(
             bars_per_chord=bars_per_chord,
             tempo_bpm=tempo_bpm,
             tuning=tuning,
-            seed=seed,
+            seed=seed_used,
             candidates=candidates,
             sound=sound,
             humanize_seed=humanize_seed,
@@ -630,7 +646,7 @@ def compose_with_options(
             tempo_bpm=tempo_bpm,
             style=style,
             tuning=tuning,
-            seed=seed,
+            seed=seed_used,
             candidates=candidates,
             melody_proposer=proposer,
         )
@@ -701,6 +717,7 @@ def compose_with_options(
             "tempo_bpm": tempo_bpm,
             "style": style,
             "seed": seed,
+            "seed_used": seed_used,
             "tuning": tuning.name,
             "composer_version": COMPOSER_VERSION,
             "sound": sound,
@@ -708,7 +725,9 @@ def compose_with_options(
             "chosen_candidate": arrangement.chosen_candidate,
             "score": arrangement.score,
             "final_fallback": arrangement.final_fallback,
-            "identity_misses": list(arrangement.identity_misses),
+            "identity_misses": (
+                list(arrangement.identity_misses) if style == "fingerstyle" else None
+            ),
             "rank_audio": rank_audio,
             "audio_scores": audio_scores,
             "melody_model": melody_model,

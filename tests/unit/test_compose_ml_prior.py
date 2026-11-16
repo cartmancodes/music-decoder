@@ -543,6 +543,22 @@ def test_cli_says_when_the_melody_model_covers_only_the_start(tmp_path):
         assert r.exit_code == 0 and "melody model" not in r.stderr  # 2 bars: covered whole
 
 
+@pytest.mark.parametrize("style", ["strum", "arpeggio"])
+def test_cli_notes_that_the_models_are_fingerstyle_only(tmp_path, style):
+    with mock.patch("music_decoder.cli.main.compose_with_options") as c:
+        c.return_value = _cli_result(tmp_path, {})
+        args = _compose_args(tmp_path, "--style", style, "--rank-audio", "--melody-model", "amt")
+        r = CliRunner().invoke(main, args)
+        assert r.exit_code == 0, r.output
+        assert f"note: --rank-audio is fingerstyle-only; ignored for {style}" in r.stderr
+        assert f"note: --melody-model is fingerstyle-only; ignored for {style}" in r.stderr
+        assert "fingerstyle-only" not in r.stdout
+        r = CliRunner().invoke(main, _compose_args(tmp_path, "--style", style))
+        assert r.exit_code == 0 and r.stderr == ""
+        r = CliRunner().invoke(main, _compose_args(tmp_path, "--rank-audio"))
+        assert r.exit_code == 0 and "fingerstyle-only" not in r.stderr
+
+
 def test_cli_melody_model_unavailable_is_a_clear_error(tmp_path, monkeypatch):
     _no_amt_weights(monkeypatch)
     r = CliRunner().invoke(main, _compose_args(tmp_path, "--melody-model", "amt"))

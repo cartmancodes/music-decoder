@@ -269,7 +269,9 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
 - `--bars` — bars per chord; must be ≥ 1 (`0` or a negative number is
   rejected with an error). Default `1`.
 - `--seed` — integer; same seed → same music (for a given
-  `metadata.composer_version`). Default: a fresh random seed each run.
+  `metadata.composer_version`). Default: a fresh random seed each run,
+  recorded as `metadata.seed_used` (see
+  [Seed reproducibility](#seed-reproducibility)).
 - `--tuning` — same set as `analyze`. Default `EADGBE`.
 - `--sound soundfont | plucked` — how the WAV sounds. `soundfont`
   (default) is the General MIDI guitar from the soundfont; `plucked` is a
@@ -286,13 +288,15 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   sounds) break the tie. An audio difference under 0.3 on the model's
   1–10 scale counts only in proportion, so a gap that small does not
   overturn the score's order by itself. Needs the `ml` extra, see
-  [Optional models](#optional-models-the-ml-extra).
+  [Optional models](#optional-models-the-ml-extra). With `strum` or
+  `arpeggio` it is ignored, and the command says so on stderr.
 - `--melody-model none | amt` — `fingerstyle` only. With `amt` a pretrained
   melody model, the Anticipatory Music Transformer, proposes a tune over
   the bass line, and the composer uses the proposal as a soft hint: its own
   rules still decide every note. Needs the `ml` extra. Default `none`.
+  With `strum` or `arpeggio` it is ignored, with a note on stderr.
   The model works in seconds, not bars, and proposes for the first **40
-  seconds** of the piece at most (16 bars at 100 bpm, 10 bars at 60 bpm),
+  seconds** of the piece at most (about 16 bars at 100 bpm, 10 bars at 60 bpm),
   so its run time stops growing past that length. In a longer piece the
   bars after 40 s are composed without the hint; the command says so on
   stderr (`note: the melody model guides the first 40 s`) and
@@ -1003,6 +1007,7 @@ same conventions:
     "tempo_bpm": 100.0,
     "style": "fingerstyle",
     "seed": 42,
+    "seed_used": 42,
     "tuning": "EADGBE",
     "composer_version": 5,
     "sound": "soundfont",
@@ -1019,13 +1024,15 @@ same conventions:
 }
 ```
 
-The metadata keys added in version 5: `sound` (`soundfont` or `plucked`);
+The metadata keys added in version 5: `seed_used` (the seed the piece was
+made with: `seed`, or the one drawn when no `--seed` was given);
+`sound` (`soundfont` or `plucked`);
 `candidates` (how many fingerstyle pieces were written; `1` for strum and
 arpeggio) and `chosen_candidate` (the index of the one kept); `score` (its
 symbolic score, `null` for strum and arpeggio); `final_fallback` (true when
 the final chord could not be re-voiced under the final note);
 `identity_misses` (the 0-based bars whose accompaniment alone lacks an
-essential tone); `rank_audio` (was the audio re-rank on), `audio_scores`
+essential tone; `null` for strum and arpeggio, which do not count them); `rank_audio` (was the audio re-rank on), `audio_scores`
 (`{"CE": ..., "PQ": ...}` of the chosen candidate, or `null`),
 `melody_model` (`"amt"` or `null`) and `melody_model_seconds` (how many
 seconds from the start the melody model proposed for, at most 40; `null`
@@ -1441,6 +1448,10 @@ guarantee its random streams across releases). Useful for:
 - Sharing a seed in a bug report so we can reproduce.
 - Generating multiple takes by sweeping seed: `for s in 1 2 3 4 5; do
   music-decoder compose --seed $s ...; done`.
+- Keeping a take you made without `--seed`: every run records the seed
+  it used as `metadata.seed_used` (`--format json`). Run the same command
+  again with `--seed <seed_used>` to rebuild the same piece: the same
+  MIDI, tab and WAV.
 
 Seeds are reproducible within one composer version, which is recorded
 in `metadata.composer_version` (currently `5`). Version 2 (November

@@ -462,4 +462,47 @@ def test_compose_strum_records_one_candidate(tmp_path):
         )
     m = r.metadata
     assert m["candidates"] == 1 and m["chosen_candidate"] == 0 and m["score"] is None
-    assert m["final_fallback"] is False and m["identity_misses"] == []
+    assert m["final_fallback"] is False and m["identity_misses"] is None  # not counted
+
+
+def _silent_render(midi_path, out_path):
+    out_path.write_bytes(b"RIFF")
+
+
+@pytest.mark.parametrize("style", ["fingerstyle", "strum"])
+def test_compose_records_the_seed_it_used_and_rebuilds_from_it(tmp_path, style):
+    with mock.patch("music_decoder.compose.api.render_wav", side_effect=_silent_render):
+        given = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, seed=4, out_dir=tmp_path, candidates=2
+        )
+        assert given.metadata["seed"] == 4 and given.metadata["seed_used"] == 4
+        drawn = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, out_dir=tmp_path, candidates=2
+        )
+        used = drawn.metadata["seed_used"]
+        assert drawn.metadata["seed"] is None and isinstance(used, int)
+        again = compose_with_options(
+            Scale("C", "major"), _PROG8, style=style, seed=used, out_dir=tmp_path, candidates=2
+        )
+    assert again.melody_notes == drawn.melody_notes and again.ascii_tab == drawn.ascii_tab
+    assert again.midi_path.read_bytes() == drawn.midi_path.read_bytes()
+
+
+def test_compose_validates_before_loading_any_model(tmp_path, monkeypatch):
+    from music_decoder.compose.ml import aesthetics, amt
+
+    def fail():
+        raise AssertionError("no model may load for invalid arguments")
+
+    monkeypatch.setattr(aesthetics, "load_scorer", fail)
+    monkeypatch.setattr(amt, "load_proposer", fail)
+    for kw in ({"rank_audio": True}, {"melody_model": "amt"}):
+        with pytest.raises(ValueError, match="candidates must be >= 1"):
+            compose_with_options(Scale("C", "major"), _PROG8, out_dir=tmp_path, candidates=0, **kw)
+        with pytest.raises(InvalidProgressionError):
+            compose_with_options(Scale("C", "major"), [], out_dir=tmp_path, **kw)
+        with pytest.raises(InvalidProgressionError):
+            compose_with_options(
+                Scale("C", "major"), _PROG8, bars_per_chord=0, out_dir=tmp_path, **kw
+            )
+    assert list(tmp_path.iterdir()) == []

@@ -220,6 +220,10 @@ def cli_compose(
     fmt: str,
 ) -> None:
     """Generate a simple arrangement from a scale + chord progression."""
+    if style != "fingerstyle":
+        for flag, on in (("--rank-audio", rank_audio), ("--melody-model", melody_model != "none")):
+            if on:
+                click.echo(f"note: {flag} is fingerstyle-only; ignored for {style}", err=True)
     try:
         s = Scale.parse(scale)
         chords = [ChordSymbol.parse(c) for c in progression.split()]
