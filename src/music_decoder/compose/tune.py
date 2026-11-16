@@ -10,8 +10,9 @@ Two halves, both driven by ``tune_stats.TuneStats`` and a passed-in
 * Pitch plan (:func:`generate_tune`): notes chosen left to right on those
   onsets, each weighted by the real move tables (in scale steps), chord-tone
   share, degree shares, register and an optional pitch prior, after the hard
-  interval rules. A bar whose pattern was used before often replays that bar's
-  moves (cell memory); phrases end on chord tones, the piece on the cadence pitch.
+  interval rules; a repeat keeps the real share the move table gives it. A bar
+  whose pattern was used before often replays that bar's moves (cell memory);
+  phrases end on chord tones, the piece on the cadence pitch.
 """
 
 from __future__ import annotations
@@ -44,12 +45,12 @@ from music_decoder.compose.tune_stats import (
 from music_decoder.types import ChordSymbol, Note, Scale
 
 P_RESTATE_RHYTHM = 0.5  # chance an A' bar copies the matching bar of phrase A
-DENSITY_SIGMA = 1.5  # width of the onsets-per-bar preference, in onsets
+DENSITY_SIGMA = 2.5  # width of the onsets-per-bar preference, in onsets (tuned, v6 spec 5.5)
 DENSITY_MIN, DENSITY_MAX = 3.0, 6.5  # clamp on the target onsets per bar
 PAIR_MIN_COUNT = 20  # following bars a previous pattern needs for its own row to count
 
 P_RESTATE_CELL = 0.5  # chance a bar with a used pattern replays that bar's moves
-DEGREE_EXPONENT = 0.5
+DEGREE_EXPONENT = 1.0  # tuned (v6 spec 5.5): the degree shares as they are
 REGISTER_SIGMA = 5.0  # semitones
 CONTEXT_MIN_COUNT = 20  # observations a previous move needs for its own row to count
 MAX_REPLAY_REPLACEMENTS = 2  # replaced notes after which a replay gives up for the bar
@@ -282,7 +283,8 @@ def _degree_factors(shares: Sequence[float]) -> list[float]:
 
 
 def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> list[float]:
-    """Move x harmony x degree x register x prior, per candidate (spec 5.2)."""
+    """Move x harmony x degree x register x prior, per candidate (spec 5.2), with
+    the repeat held at the move row's share (:func:`_hold_repeat_share`)."""
     stats, mode = piece.stats, piece.scale.mode
     tones = chord_pcs(spot.chord)
     n_tones = sum(c % 12 in tones for c in pool)
@@ -303,11 +305,36 @@ def _weights(pool: Sequence[int], spot: _Spot, voice: _Voice, piece: _Piece) -> 
         w *= share / n_tones if c % 12 in tones else (1.0 - share) / (len(pool) - n_tones)
         w *= degrees[(c - tonic) % 12]
         w *= math.exp(-((c - piece.center) ** 2) / (2.0 * REGISTER_SIGMA**2))
-        if target is not None:
-            r = (c - target) % 12
-            w *= math.exp(PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH))
         weights.append(w)
+    if row is not None and voice.prev is not None:
+        _hold_repeat_share(weights, pool, voice.prev, row)
+    if target is not None:
+        for i, c in enumerate(pool):
+            r = (c - target) % 12
+            weights[i] *= math.exp(PRIOR_WEIGHT * math.exp(-min(r, 12 - r) / PRIOR_WIDTH))
     return weights
+
+
+def _hold_repeat_share(
+    weights: list[float], pool: Sequence[int], prev: int, row: Mapping[int, int]
+) -> None:
+    """Give repeating ``prev`` the move row's own repeat share, in place.
+
+    The harmony, degree and register factors favour the pitch the line is on
+    (a chord tone on a common degree near the centre), and dropping the moves
+    the pool cannot make leaves their share to the rest; both inflate repeats
+    far past real tunes'. So the repeat keeps its real share of the row, and
+    the factors only choose among the moves.
+    """
+    if prev not in pool:
+        return
+    i = pool.index(prev)
+    others = sum(weights) - weights[i]
+    if others <= 0.0:
+        return
+    share = (row.get(0) or MISSING_COUNT) / sum(row.values())
+    if share < 1.0:  # a row of repeats only leaves the weights as they are
+        weights[i] = others * share / (1.0 - share)
 
 
 def _sample(rng: np.random.Generator, pool: Sequence[int], weights: Sequence[float]) -> int:
@@ -317,11 +344,13 @@ def _sample(rng: np.random.Generator, pool: Sequence[int], weights: Sequence[flo
     return int(pool[int(rng.choice(len(pool), p=p / p.sum()))])
 
 
-def _replay_start(
-    pool: Sequence[int], moves: Sequence[int], pattern: Pattern, spot: _Spot, ref: int
-) -> int:
-    """The start giving the most chord tones on slots 0 and 4 when ``moves`` are
-    replayed from it; ties go to the pitch nearest ``ref``, then the lower."""
+def _replay_starts(
+    pool: Sequence[int], moves: Sequence[int], pattern: Pattern, spot: _Spot
+) -> list[int]:
+    """The starts giving the most chord tones on slots 0 and 4 when ``moves`` are
+    replayed from them. The caller draws one by the usual weights, so the move
+    into a replayed bar is as real as any other (a nearest-pitch tie-break
+    made it a repeat about half the time)."""
     tones = chord_pcs(spot.chord)
 
     def strong_tones(start: int) -> int:
@@ -332,17 +361,8 @@ def _replay_start(
             hits += slot in STRONG_SLOTS and pitch % 12 in tones
         return hits
 
-    return min(pool, key=lambda p: (-strong_tones(p), abs(p - ref), p))
-
-
-def _replayed(
-    pool: Sequence[int], moves: Sequence[int], k: int, pattern: Pattern, spot: _Spot, ref: int
-) -> int:
-    """The pitch a replay of ``moves`` asks for at note ``k`` (``ref`` is the
-    previous pitch, or the register centre before the first note)."""
-    if k == 0:
-        return _replay_start(pool, moves, pattern, spot, ref)
-    return _step_by(ref, moves[k - 1], spot.ladder)
+    best = max(strong_tones(p) for p in pool)
+    return [p for p in pool if strong_tones(p) == best]
 
 
 def _approach_sets(
@@ -469,8 +489,11 @@ def generate_tune(
                 pool = _pool(spot, allowed_pitches[bar], voice.prev, scale)
                 want = None
                 if replay is not None and replaced < MAX_REPLAY_REPLACEMENTS:
-                    want = _replayed(pool, replay, k, rhythm.pattern, spot, voice.ref(center))
-                    replaced += want not in pool
+                    if k == 0:
+                        pool = _replay_starts(pool, replay, rhythm.pattern, spot)
+                    else:
+                        want = _step_by(voice.ref(center), replay[k - 1], spot.ladder)
+                        replaced += want not in pool
                 if want is not None and want in pool:
                     pitch = want
                 else:

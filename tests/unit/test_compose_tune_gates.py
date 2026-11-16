@@ -6,9 +6,9 @@ and T5 that every key, mode, edge input and tuning composes.
 
 ``KNOWN_MISSES`` holds the controller's rulings on bands that cannot be met
 together with a guitar guarantee; only the controller adds to it.
-``PENDING_TUNING`` holds the dev-matrix misses measured before the tuning of
-Task 7 part B, each value naming the gate it misses; such a gate is an
-expected failure until that tuning lands, and passes normally once met.
+``PENDING_TUNING`` holds the dev-matrix misses left after the tuning of Task 7
+part B, awaiting a ruling, each value naming the gate it misses; such a gate
+is an expected failure, and passes normally once met.
 """
 
 import pytest
@@ -33,16 +33,13 @@ STATS = load_tune_stats()
 SPREAD_FEATURES = ("repeat", "notes_per_second", "rhythm_variety", "figure_recurrence")
 KNOWN_MISSES: dict[tuple[str, str], str] = {}
 PENDING_REASON = "pending tuning (Task 7 part B)"
-# Measured on the dev matrix before tuning; the value starts with the gate it misses.
+# Dev-matrix misses left after the Part B tuning, awaiting the controller's ruling; the value
+# starts with the gate it misses. Both are rhythm features, which the dev matrix measures on
+# only six rhythm plans per mode (two seeds x three tempos; key and progression do not change
+# the plan), and both are inside their bands on a ten-times-larger matrix (seeds 7000-7019).
 PENDING_TUNING: dict[tuple[str, str], str] = {
-    ("major", "repeat"): "T1: median 0.383 above band 0.115-0.282",
-    ("major", "step"): "T1: median 0.360 below band 0.371-0.556",
-    ("minor", "repeat"): "T1: median 0.363 above band 0.105-0.308",
-    ("minor", "rhythm_variety"): "T1: median 0.812 above band 0.500-0.750",
-    ("minor", "range"): "T1: median 11.5 below band 12-15",
-    ("major", "notes_per_second"): "T2: spread 0.225 below half the band width 0.318",
-    ("minor", "notes_per_second"): "T2: spread 0.225 below half the band width 0.302",
-    ("minor", "figure_recurrence"): "T2: spread 0.160 below half the band width 0.178",
+    ("major", "offbeat"): "T1: median 0.373 below band 0.389-0.514",
+    ("minor", "rhythm_variety"): "T1: median 0.844 above band 0.500-0.750",
 }
 MIN_TRIAD_IDENTITY = 0.99
 

@@ -5,10 +5,17 @@ import numpy as np
 import pytest
 
 from music_decoder.compose import metrics
-from music_decoder.compose.harmony import scale_pcs
+from music_decoder.compose.harmony import chord_scale_pcs, scale_pcs
 from music_decoder.compose.melody import cadence_pc
 from music_decoder.compose.rhythm import split_phrases
-from music_decoder.compose.tune import generate_tune, plan_rhythm, scale_steps
+from music_decoder.compose.tune import (
+    _hold_repeat_share,
+    _replay_starts,
+    _Spot,
+    generate_tune,
+    plan_rhythm,
+    scale_steps,
+)
 from music_decoder.compose.tune_metrics import tune_features
 from music_decoder.compose.tune_stats import load_tune_stats
 from music_decoder.types import ChordSymbol, Note, Scale
@@ -222,3 +229,60 @@ def test_approach_drops_the_chord_change_limit_before_the_final_approach():
         # 79 is the only pitch from which the final C 84 is a smooth move; reaching it from
         # G 67 over the new chord takes an octave, beyond the chord-change limit.
         assert [n.pitch for n in notes][-2:] == [79, 84]
+
+
+def test_a_repeat_keeps_the_move_rows_share():
+    # The harmony, degree and register factors (all 1 here) may not raise the repeat's share.
+    weights, pool = [1.0, 4.0, 1.0, 1.0], [60, 62, 64, 65]
+    _hold_repeat_share(weights, pool, 62, {0: 25, 1: 50, -1: 25})
+    assert weights[1] / sum(weights) == pytest.approx(0.25)
+    weights = [2.0, 1.0]
+    _hold_repeat_share(weights, [60, 62], 62, {0: 25, 1: 50, -1: 25})  # moves out of reach
+    assert weights[1] / sum(weights) == pytest.approx(0.25)
+    weights = [1.0, 1.0]
+    _hold_repeat_share(weights, [60, 64], 62, {0: 25, 1: 75})  # no repeat in the pool
+    assert weights == [1.0, 1.0]
+    weights = [1.0, 3.0]
+    _hold_repeat_share(weights, [60, 62], 62, {0: 25})  # a row of repeats only
+    assert weights == [1.0, 3.0]
+
+
+def test_repeats_are_as_rare_as_in_real_tunes():
+    # Before the repeat kept its row share, the harmony and degree factors made 30% of the
+    # moves here repeats (38% on the hand shapes); real tunes have ~20% (band ~0.12-0.28).
+    scale = Scale.parse("C:major")
+    feats = [tune_features(tune(s), scale, [C, G, AM, F], 2, 96.0) for s in range(80)]
+    assert float(np.median([f["repeat"] for f in feats])) <= 0.28
+
+
+def test_a_replayed_bar_does_not_start_on_the_previous_pitch_by_default():
+    # The replay's start used to break ties toward the previous pitch, so a third of the
+    # replayed bars here began with a repeat (over 40% on the hand shapes); it is now drawn
+    # by the usual weights (14% here).
+    scale = Scale.parse("C:major")
+    into = repeats = 0
+    for seed in range(80):
+        plan = plan_rhythm(8, 96.0, np.random.default_rng(seed), STATS)
+        bars = bars_of(tune(seed))
+        for b, rhythm in enumerate(plan[:-1]):
+            if rhythm.restated_from is not None and b - 1 in bars and b in bars:
+                into += 1
+                repeats += bars[b][0].pitch == bars[b - 1][-1].pitch
+    assert into >= 40 and repeats / into <= 0.25
+    pool = list(range(60, 73))
+    spot_c = _spot_for(C, scale)
+    starts = _replay_starts(pool, [2, -2], (0, 2, 4), spot_c)
+    assert 60 in starts and 64 in starts and len(starts) > 1  # 60-64-60 and 64-67-64 both tie
+
+
+def _spot_for(chord, scale):
+    return _Spot(
+        slot=0,
+        onset_s=0.0,
+        chord=chord,
+        ladder=chord_scale_pcs(scale, chord),
+        change=False,
+        feasible=None,
+        feasible_wide=None,
+        phrase_end=False,
+    )
