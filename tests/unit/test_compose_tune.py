@@ -1,3 +1,4 @@
+from dataclasses import replace
 from itertools import pairwise
 
 import numpy as np
@@ -190,3 +191,34 @@ def test_without_a_final_whole_note_the_last_note_is_still_the_cadence():
 
 def test_default_stats_are_the_shipped_ones():
     assert tune(5) == tune(5, stats=STATS)
+
+
+def test_approach_drops_the_chord_scale_before_the_final_approach():
+    # Over Am in G major only Eb 63 and F 65 (off the ladder) reach the final Bb 70 smoothly.
+    prog = [ChordSymbol.parse(x) for x in ("Bb", "E7", "Am", "Bb")]
+    ranges = [range(58, 72), range(58, 72), range(56, 66), range(63, 77)]
+    allowed = [frozenset(r) for r in ranges]
+    for seed in range(200):
+        notes = generate_tune(
+            scale=Scale.parse("G:major"),
+            progression=prog,
+            seed=seed,
+            tessitura_center=64,
+            allowed_pitches=allowed,
+        )
+        sizes = [abs(b.pitch - a.pitch) for a, b in pairwise(notes)]
+        assert all(s <= 12 and s not in (6, 10, 11) for s in sizes)
+        assert sizes[-1] <= 7
+
+
+def test_approach_drops_the_chord_change_limit_before_the_final_approach():
+    one_note_bars = {role: {(0,): 10} for role in ("open", "body", "cadence")}
+    stats = replace(STATS, rhythm=one_note_bars, rhythm_pairs={r: {} for r in one_note_bars})
+    scale = Scale.parse("C:major")
+    above = frozenset(p for p in range(67, 80) if p % 12 in set(scale_pcs(scale)))
+    allowed = [frozenset({60, 64, 67}), frozenset({67}), above, frozenset({84})]
+    for seed in range(20):
+        notes = tune(seed, prog=(C, F, G, C), bars=1, allowed=allowed, stats=stats)
+        # 79 is the only pitch from which the final C 84 is a smooth move; reaching it from
+        # G 67 over the new chord takes an octave, beyond the chord-change limit.
+        assert [n.pitch for n in notes][-2:] == [79, 84]

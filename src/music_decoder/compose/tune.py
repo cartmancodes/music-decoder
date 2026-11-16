@@ -204,7 +204,8 @@ class _Spot:
     chord: ChordSymbol
     ladder: frozenset[int]
     change: bool  # first note over a new chord: at most CHANGE_LEAP
-    feasible: frozenset[int] | None  # approach to the final note
+    feasible: frozenset[int] | None  # approach to the final note, on the chord scale
+    feasible_wide: frozenset[int] | None  # the same over all allowed pitches
     phrase_end: bool
 
 
@@ -248,17 +249,19 @@ def _phrase_end_pool(pool: list[int], scale: Scale, chord: ChordSymbol) -> list[
 
 def _pool(spot: _Spot, allowed: Collection[int], prev: int | None, scale: Scale) -> list[int]:
     """Candidates after the hard filters. The chord-scale restriction is dropped
-    first, then the chord-change limit and the approach sets; the interval sizes
-    give way only when nothing at all fits, to the pitch nearest ``prev``."""
+    first, then the chord-change limit, then the approach to the final note; the
+    interval sizes give way only when nothing at all fits, to the pitch nearest ``prev``."""
     on_ladder = _bar_candidates(scale, spot.chord, allowed)
     everything = sorted(allowed)
-    for cands, strict in ((on_ladder, True), (everything, True), (everything, False)):
-        limit = CHANGE_LEAP if strict and spot.change else MAX_LEAP
-        pool = [
-            c
-            for c in cands
-            if _fits(prev, c, limit) and (not strict or spot.feasible is None or c in spot.feasible)
-        ]
+    change = CHANGE_LEAP if spot.change else MAX_LEAP
+    tiers = (
+        (on_ladder, change, spot.feasible),
+        (everything, change, spot.feasible_wide),
+        (everything, MAX_LEAP, spot.feasible_wide),
+        (everything, MAX_LEAP, None),
+    )
+    for cands, limit, feasible in tiers:
+        pool = [c for c in cands if _fits(prev, c, limit) and (feasible is None or c in feasible)]
         if pool:
             return _phrase_end_pool(pool, scale, spot.chord) if spot.phrase_end else pool
     assert prev is not None  # with no previous pitch every candidate fits
@@ -343,17 +346,22 @@ def _replayed(
 
 
 def _approach_sets(
-    plan: Sequence[BarRhythm], candidates: Sequence[list[int]], goal: Collection[int]
-) -> dict[tuple[int, int], frozenset[int]]:
+    plan: Sequence[BarRhythm],
+    candidates: Sequence[list[int]],
+    allowed: Sequence[frozenset[int]],
+    goal: Collection[int],
+) -> dict[tuple[int, int], tuple[frozenset[int], frozenset[int]]]:
     """Per (bar, note) leading into the final note, the pitches from which it
-    stays reachable by smooth moves (as v5's approach bar)."""
+    stays reachable by smooth moves (as v5's approach bar): over the chord-scale
+    candidates, and over all allowed pitches for when the chord scale cannot."""
     last = len(plan) - 1
     n_last = len(plan[last].pattern)
     bar, n_free = (last, n_last - 1) if n_last > 1 else (last - 1, len(plan[last - 1].pattern))
     if bar < 0:
         return {}
-    sets = feasible_sets(candidates[bar], n_free, goal)
-    return {(bar, k): s for k, s in enumerate(sets)}
+    narrow = feasible_sets(candidates[bar], n_free, goal)
+    wide = feasible_sets(sorted(allowed[bar]), n_free, goal)
+    return {(bar, k): pair for k, pair in enumerate(zip(narrow, wide, strict=True))}
 
 
 def _replay_moves(
@@ -427,7 +435,8 @@ def generate_tune(
     chords = [progression[b // bars_per_chord] for b in range(n_bars)]
     candidates = [_bar_candidates(scale, chords[b], allowed_pitches[b]) for b in range(n_bars)]
     final_pc = cadence_pc(scale, progression[-1])
-    approach = _approach_sets(plan, candidates, {p for p in candidates[-1] if p % 12 == final_pc})
+    goal = {p for p in candidates[-1] if p % 12 == final_pc}
+    approach = _approach_sets(plan, candidates, allowed_pitches, goal)
     offsets = _phrase_offsets(n_bars)
 
     voice = _Voice()
@@ -450,7 +459,8 @@ def generate_tune(
                 chord=chord,
                 ladder=ladder,
                 change=voice.prev_chord is not None and chord != voice.prev_chord,
-                feasible=approach.get((bar, k)),
+                feasible=approach[bar, k][0] if (bar, k) in approach else None,
+                feasible_wide=approach[bar, k][1] if (bar, k) in approach else None,
                 phrase_end=last and rhythm.role == "cadence" and not final_bar,
             )
             if final_bar and last:
