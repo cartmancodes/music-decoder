@@ -23,6 +23,11 @@ same kind ``anticipation``'s own ``safe_logits`` applies:
   is forced past the end, which stops the generation: a bound on the run
   time.
 
+The model proposes for at most the first :data:`AMT_MAX_SECONDS` of a piece
+(see :func:`proposal_seconds`), and the context is cut there before it is
+encoded, so the run time is bounded whatever the piece's length; the
+generator treats the bars past it as having no prior.
+
 The model runs on the CPU, in eval mode, under ``torch.random.fork_rng()``
 seeded with the piece's seed, so the same seed gives the same proposal and
 the caller's RNG state is untouched. ``torch``, ``transformers`` and
@@ -35,6 +40,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from functools import partial
 from typing import Any
 
@@ -52,6 +58,10 @@ TOP_P = 0.95  # nucleus sampling
 # The most events the model may generate per second of the piece (an eighth
 # note at 120 bpm is 4 per second); past it the generation stops.
 EVENTS_PER_S = 4.0
+# The longest stretch of a piece the model proposes for, from its start: a
+# fixed music budget, so a long piece costs no more than a 40 s one (AMT's
+# own onsets end at 100 s).
+AMT_MAX_SECONDS = 40.0
 CONTEXT_VELOCITY = 72  # AMT ignores velocity; anticipation's default
 _EPS_S = 1e-9
 
@@ -69,23 +79,37 @@ class AMTProposer:
     ) -> list[Note]:
         """A melody over ``context`` up to ``end_s``: the top line of what the
         model generates with ``context`` as its controls. ``tempo_bpm`` is
-        unused: AMT works in seconds. AMT's onsets reach 100 s, so a longer
-        piece gets a proposal for its first 100 s only."""
+        unused: AMT works in seconds. A piece longer than
+        :data:`AMT_MAX_SECONDS` gets a proposal for its first
+        :func:`proposal_seconds` only, and its context is cut there
+        (:func:`clip_context`)."""
         import math
 
         import torch
         from anticipation import sample
         from anticipation.config import MAX_TIME, TIME_RESOLUTION
 
-        end_s = min(end_s, (MAX_TIME - 1) / TIME_RESOLUTION)
+        end_s = min(proposal_seconds(end_s), (MAX_TIME - 1) / TIME_RESOLUTION)
         model = _Constrained(self._model, max_events=math.ceil(EVENTS_PER_S * end_s))
-        controls = encode_controls(context)
+        controls = encode_controls(clip_context(context, end_s))
         with torch.random.fork_rng(devices=[]), _quiet(sample), torch.inference_mode():
             torch.manual_seed(seed)
             events = sample.generate(
                 model, start_time=0, end_time=end_s, controls=controls, top_p=TOP_P
             )
         return top_line(decode_events(events))
+
+
+def proposal_seconds(end_s: float) -> float:
+    """How much of a piece of ``end_s`` seconds the model proposes for: all of
+    it, up to :data:`AMT_MAX_SECONDS`."""
+    return min(end_s, AMT_MAX_SECONDS)
+
+
+def clip_context(context: Sequence[Note], end_s: float) -> list[Note]:
+    """The notes of ``context`` that start before ``end_s``, each ending by
+    ``end_s``: no control lies past the stretch the model proposes for."""
+    return [replace(n, end_s=min(n.end_s, end_s)) for n in context if n.start_s < end_s - _EPS_S]
 
 
 def load_proposer() -> MelodyProposer:

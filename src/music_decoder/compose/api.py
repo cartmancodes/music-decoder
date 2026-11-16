@@ -592,15 +592,21 @@ def compose_with_options(
     With ``melody_model="amt"`` (fingerstyle only, needs the ``ml`` extra and
     the weights, else :class:`~music_decoder.compose.ml.MLUnavailableError`),
     the Anticipatory Music Transformer proposes one melody per piece over the
-    thumb pattern, a soft pitch prior for every candidate (v5 spec 5.5).
+    thumb pattern, a soft pitch prior for every candidate (v5 spec 5.5). It
+    proposes for the first ``AMT_MAX_SECONDS`` (40 s) of the piece at most;
+    ``metadata["melody_model_seconds"]`` says how many seconds it covered
+    (``None`` without the model).
     """
     rank_audio = rank_audio and style == "fingerstyle"
     melody_model = melody_model if style == "fingerstyle" else None
     proposer: MelodyProposer | None = None
+    melody_model_seconds: float | None = None
     if melody_model == "amt":
         from music_decoder.compose.ml import amt
 
         proposer = amt.load_proposer()  # fails before any work without the extra
+        piece_s = len(progression) * bars_per_chord * 4 * 60.0 / tempo_bpm
+        melody_model_seconds = amt.proposal_seconds(piece_s)
     humanize_seed = seed if seed is not None else 0
     audio_scores: dict[str, float] | None = None
     if rank_audio:
@@ -706,5 +712,6 @@ def compose_with_options(
             "rank_audio": rank_audio,
             "audio_scores": audio_scores,
             "melody_model": melody_model,
+            "melody_model_seconds": melody_model_seconds,
         },
     )

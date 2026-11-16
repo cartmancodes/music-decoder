@@ -241,6 +241,9 @@ def cli_compose(
     except (MusicDecoderError, ValueError, MLUnavailableError) as e:
         raise click.ClickException(str(e)) from e
 
+    covered = result.metadata.get("melody_model_seconds")
+    if covered is not None and covered < len(chords) * bars * 240.0 / tempo - 1e-9:
+        click.echo(f"note: the melody model guides the first {covered:g} s", err=True)
     if fmt == "json":
         click.echo(json.dumps(_serialize(result), indent=2, default=str))
     else:

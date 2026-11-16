@@ -315,6 +315,71 @@ def torch_isinf(x):
     return torch.isinf(x)
 
 
+def _long_context():  # 48 bars at 60 bpm: 192 s, past AMT's 100 s of onsets
+    prog = [ChordSymbol.parse(c) for c in ("C", "Am", "F", "G")] * 12
+    bars = choose_bar_shapes(prog, bars_per_chord=1, tuning=STANDARD_EADGBE)
+    return _thumb_context(bars, STANDARD_EADGBE, tempo_bpm=60.0)
+
+
+def _generate_call(context, *, end_s):
+    """What ``AMTProposer.propose`` hands ``sample.generate``, with a flat fake model."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("anticipation")
+    from anticipation import sample
+    from anticipation.vocab import VOCAB_SIZE
+
+    seen = {}
+
+    def generate(model, *, start_time, end_time, controls, top_p):
+        seen.update(end_time=end_time, controls=list(controls), max_events=model._events_left)
+        return []
+
+    proposer = amt.AMTProposer(_FlatLM(torch, VOCAB_SIZE))
+    with mock.patch.object(sample, "generate", generate):
+        assert proposer.propose(context, end_s=end_s, tempo_bpm=60.0, seed=1) == []
+    return seen
+
+
+def test_amt_controls_of_a_long_piece_stay_in_the_control_ranges():
+    pytest.importorskip("anticipation")
+    from anticipation.vocab import ADUR_OFFSET, ANOTE_OFFSET, ATIME_OFFSET, SPECIAL_OFFSET
+
+    context = _long_context()
+    assert context[-1].start_s > 100
+    controls = _generate_call(context, end_s=192.0)["controls"]
+    assert controls and len(controls) % 3 == 0
+    assert all(ATIME_OFFSET <= tok < ADUR_OFFSET for tok in controls[0::3])
+    assert all(ADUR_OFFSET <= tok < ANOTE_OFFSET for tok in controls[1::3])
+    assert all(ANOTE_OFFSET <= tok < SPECIAL_OFFSET for tok in controls[2::3])
+
+
+def test_amt_proposes_for_the_first_40_s_and_sees_no_context_past_it():
+    pytest.importorskip("anticipation")
+    from anticipation.vocab import CONTROL_OFFSET
+
+    context = _long_context()
+    seen = _generate_call(context, end_s=192.0)
+    assert seen["end_time"] == amt.AMT_MAX_SECONDS == 40.0
+    assert seen["max_events"] == 4 * 40  # the event budget follows the capped length
+    decoded = amt.decode_events([tok - CONTROL_OFFSET for tok in seen["controls"]])
+    assert len(decoded) == sum(1 for n in context if n.start_s < 40.0)
+    assert max(n.end_s for _, n in decoded) <= 40.0
+
+
+def test_amt_a_short_piece_is_proposed_whole():
+    context = [n for n in _long_context() if n.end_s <= 16.0]  # within the first 16 s
+    seen = _generate_call(context, end_s=16.0)
+    assert seen["end_time"] == 16.0
+    assert seen["controls"] == amt.encode_controls(context)  # nothing clipped
+
+
+def test_amt_clip_context_cuts_notes_at_the_end():
+    notes = [_note(0.0, 48, dur=1.0), _note(39.5, 50, dur=1.0), _note(40.0, 52), _note(50, 55)]
+    clipped = amt.clip_context(notes, 40.0)
+    assert [(n.start_s, n.end_s, n.pitch) for n in clipped] == [(0.0, 1.0, 48), (39.5, 40.0, 50)]
+    assert amt.proposal_seconds(192.0) == 40.0 and amt.proposal_seconds(19.2) == 19.2
+
+
 def test_importing_amt_loads_no_ml_package():
     code = (
         "import sys, music_decoder.compose.ml.amt; "
@@ -382,6 +447,29 @@ def test_melody_model_amt_loads_the_proposer(monkeypatch, tmp_path):
     assert r.melody_notes == expected.melody
 
 
+def test_melody_model_records_the_seconds_it_covers(monkeypatch, tmp_path):
+    prop = _Fixed(_line([64, 65, 67]))
+    monkeypatch.setattr(amt, "load_proposer", lambda: prop)
+    r = compose_with_options(
+        Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, candidates=1, melody_model="amt"
+    )
+    assert r.metadata["melody_model_seconds"] == pytest.approx(8 * 2.4)  # 8 bars at 100 bpm
+    prog4 = PROG8[:4]
+    r = compose_with_options(
+        Scale("C", "major"),
+        prog4,
+        bars_per_chord=4,
+        tempo_bpm=60.0,
+        seed=1,
+        out_dir=tmp_path,
+        candidates=1,
+        melody_model="amt",
+    )
+    assert r.metadata["melody_model_seconds"] == 40.0  # 16 bars at 60 bpm is 64 s
+    r = compose_with_options(Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, candidates=1)
+    assert r.metadata["melody_model_seconds"] is None
+
+
 def test_melody_model_unavailable_fails_before_writing(monkeypatch, tmp_path):
     _no_amt_weights(monkeypatch)
     with pytest.raises(MLUnavailableError):
@@ -429,6 +517,30 @@ def test_cli_accepts_melody_model_none(tmp_path):
         assert c.call_args.kwargs["melody_model"] == "amt"
     r = CliRunner().invoke(main, _compose_args(tmp_path, "--melody-model", "gpt"))
     assert r.exit_code != 0
+
+
+def _cli_result(tmp_path, metadata):
+    return mock.Mock(
+        midi_path=tmp_path / "a.mid",
+        wav_path=tmp_path / "a.wav",
+        ascii_tab="e|---",
+        melody_notes=(),
+        chord_voicings=(),
+        metadata=metadata,
+    )
+
+
+def test_cli_says_when_the_melody_model_covers_only_the_start(tmp_path):
+    note = "note: the melody model guides the first 40 s"
+    with mock.patch("music_decoder.cli.main.compose_with_options") as c:
+        c.return_value = _cli_result(tmp_path, {"melody_model_seconds": 40.0})
+        args = _compose_args(tmp_path, "--melody-model", "amt", "--tempo", "60", "--bars", "8")
+        r = CliRunner().invoke(main, args)  # 16 bars at 60 bpm: 64 s
+        assert r.exit_code == 0, r.output
+        assert note in r.stderr and note not in r.stdout
+        c.return_value = _cli_result(tmp_path, {"melody_model_seconds": 4.8})
+        r = CliRunner().invoke(main, _compose_args(tmp_path, "--melody-model", "amt"))
+        assert r.exit_code == 0 and "melody model" not in r.stderr  # 2 bars: covered whole
 
 
 def test_cli_melody_model_unavailable_is_a_clear_error(tmp_path, monkeypatch):

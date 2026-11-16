@@ -289,6 +289,12 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   melody model, the Anticipatory Music Transformer, proposes a tune over
   the bass line, and the composer uses the proposal as a soft hint: its own
   rules still decide every note. Needs the `ml` extra. Default `none`.
+  The model works in seconds, not bars, and proposes for the first **40
+  seconds** of the piece at most (16 bars at 100 bpm, 10 bars at 60 bpm),
+  so its run time stops growing past that length. In a longer piece the
+  bars after 40 s are composed without the hint; the command says so on
+  stderr (`note: the melody model guides the first 40 s`) and
+  `metadata.melody_model_seconds` records the seconds it covered.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
 
@@ -1005,7 +1011,8 @@ same conventions:
     "identity_misses": [],
     "rank_audio": false,
     "audio_scores": null,
-    "melody_model": null
+    "melody_model": null,
+    "melody_model_seconds": null
   }
 }
 ```
@@ -1017,8 +1024,10 @@ symbolic score, `null` for strum and arpeggio); `final_fallback` (true when
 the final chord could not be re-voiced under the final note);
 `identity_misses` (the 0-based bars whose accompaniment alone lacks an
 essential tone); `rank_audio` (was the audio re-rank on), `audio_scores`
-(`{"CE": ..., "PQ": ...}` of the chosen candidate, or `null`) and
-`melody_model` (`"amt"` or `null`).
+(`{"CE": ..., "PQ": ...}` of the chosen candidate, or `null`),
+`melody_model` (`"amt"` or `null`) and `melody_model_seconds` (how many
+seconds from the start the melody model proposed for, at most 40; `null`
+without it).
 
 In `chord_voicings[i].positions`, `fret = -1` means the string is
 muted (not played).
