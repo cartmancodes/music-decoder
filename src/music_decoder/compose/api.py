@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pretty_midi
 
 from music_decoder.compose.arrangement import (
@@ -23,6 +24,7 @@ from music_decoder.compose.fingerstyle import arrange_fingerstyle, final_bar_pit
 from music_decoder.compose.harmony import essential_pcs
 from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
+from music_decoder.compose.scoring import candidate_seeds, score_arrangement
 from music_decoder.compose.shapes import choose_bar_shapes, repair_identity
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.voicings import voicings_for
@@ -72,6 +74,10 @@ class Arrangement:
     chord could not be re-voiced under the final note (spec 5.3).
     ``bar_voicings`` holds the shape of each bar, fingerstyle only (v5 spec
     5.2); ``voicings`` is one per chord, its first bar's shape.
+    ``candidates`` is how many fingerstyle candidates were arranged,
+    ``chosen_candidate`` the index of the one kept and ``score`` its
+    symbolic score (v5 spec 5.4); ``score`` is ``None`` for strum and
+    arpeggio, which arrange a single candidate.
     """
 
     melody: tuple[Note, ...]
@@ -82,6 +88,9 @@ class Arrangement:
     identity_misses: tuple[int, ...] = ()
     final_fallback: bool = False
     bar_voicings: tuple[VoicedChord, ...] = ()
+    candidates: int = 1
+    chosen_candidate: int = 0
+    score: float | None = None
 
 
 def _validate(scale: Scale, progression: Sequence[ChordSymbol], bars_per_chord: int) -> None:
@@ -231,15 +240,38 @@ def arrange(
     style: Literal["arpeggio", "strum", "fingerstyle"] = "fingerstyle",
     tuning: Tuning = STANDARD_EADGBE,
     seed: int | None = None,
+    candidates: int = 1,
 ) -> Arrangement:
     """Pure core of compose(): voicings, melody, accompaniment and melody tab.
 
     Reads no files or configuration: the result depends only on the
     arguments and ``COMPOSER_VERSION``.
+
+    Fingerstyle arranges ``candidates`` pieces, candidate k from the k-th of
+    :func:`candidate_seeds`, and keeps the one with the best
+    :func:`score_arrangement` (ties go to the lowest k; v5 spec 5.4). With
+    ``seed=None`` a base seed is drawn once. Strum and arpeggio ignore
+    ``candidates``.
     """
     _validate(scale, progression, bars_per_chord)
+    if candidates < 1:
+        raise ValueError(f"candidates must be >= 1, got {candidates}")
     if style == "fingerstyle":
-        return _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, seed)
+        base = seed if seed is not None else int(np.random.default_rng().integers(2**31))
+        arrangements = [
+            _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s)
+            for s in candidate_seeds(base, candidates)
+        ]
+        scores = [
+            score_arrangement(
+                a, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm, tuning=tuning
+            )
+            for a in arrangements
+        ]
+        k = max(range(candidates), key=scores.__getitem__)  # max() keeps the first best
+        return dataclasses.replace(
+            arrangements[k], candidates=candidates, chosen_candidate=k, score=scores[k]
+        )
     voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
     melody = tuple(
         generate_melody(
@@ -325,8 +357,10 @@ def compose_with_options(
     seed: int | None = None,
     out_dir: Path,
     sound: Literal["soundfont", "plucked"] = "soundfont",
+    candidates: int = 12,
 ) -> Composition:
-    """compose() plus the choice of ``sound``.
+    """compose() plus the choice of ``sound`` and of the number of fingerstyle
+    ``candidates`` (v5 spec 5.4; strum and arpeggio ignore it).
 
     ``composition.mid`` and the tab are the on-grid part, whatever the sound.
     With ``sound="soundfont"`` the fingerstyle WAV is rendered from a
@@ -344,6 +378,7 @@ def compose_with_options(
         style=style,
         tuning=tuning,
         seed=seed,
+        candidates=candidates,
     )
 
     payload_hash = hashlib.sha1(
@@ -428,5 +463,10 @@ def compose_with_options(
             "tuning": tuning.name,
             "composer_version": COMPOSER_VERSION,
             "sound": sound,
+            "candidates": arrangement.candidates,
+            "chosen_candidate": arrangement.chosen_candidate,
+            "score": arrangement.score,
+            "final_fallback": arrangement.final_fallback,
+            "identity_misses": list(arrangement.identity_misses),
         },
     )

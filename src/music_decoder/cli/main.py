@@ -173,6 +173,13 @@ def cli_analyze(
     default="soundfont",
     help="guitar sound of the WAV",
 )
+@click.option(
+    "--candidates",
+    type=int,
+    default=12,
+    show_default=True,
+    help="fingerstyle pieces to generate; the best by the symbolic score is kept",
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -184,6 +191,7 @@ def cli_compose(
     seed: int | None,
     tuning: str,
     sound: str,
+    candidates: int,
     out: str,
     fmt: str,
 ) -> None:
@@ -202,6 +210,7 @@ def cli_compose(
                 seed=seed,
                 out_dir=Path(out),
                 sound=cast(Literal["soundfont", "plucked"], sound),
+                candidates=candidates,
             )
     except MusicDecoderError as e:
         raise click.ClickException(str(e)) from e

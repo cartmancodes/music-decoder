@@ -53,7 +53,7 @@ def test_cases_carry_a_separate_fingerstyle_arrangement():
     scale, prog, bars, seed = ev.edge_inputs()[0]
     kw = dict(bars_per_chord=bars, tempo_bpm=ev.TEMPO_BPM, seed=seed)
     assert case.arrangement == arrange(scale, prog, style="strum", **kw)
-    assert case.fingerstyle == arrange(scale, prog, style="fingerstyle", **kw)
+    assert case.fingerstyle == arrange(scale, prog, style="fingerstyle", candidates=12, **kw)
     row = ev.case_metrics(case)
     assert {"P1", "P2", "P3", "P3m", "P4", "P5", "F.M1", "F.L1", "F.M7"} <= set(row)
     # spec §5.4 / controller ruling R6, R8: triad-family identity reported apart

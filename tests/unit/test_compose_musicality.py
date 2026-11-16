@@ -348,3 +348,10 @@ def test_phrase_shaping_targets(all_reports, reserve_report, matrix):
         assert o["F.M3"]["mean"] <= 0.15
         assert o["F.M5"]["pooled"] >= 0.70
         assert o["F.M11b"]["mean"] >= 0.60
+
+
+# ---- v5 feature 4: best of twelve candidates by a symbolic score (spec 2026-11-16 5.4) ----
+
+
+def test_fingerstyle_cases_use_best_of_twelve(report):
+    assert report["validation"]["overall"]["F.score"]["mean"] > 0

@@ -1,4 +1,5 @@
 # tests/unit/test_cli_main.py
+import json
 from unittest import mock
 
 from click.testing import CliRunner
@@ -77,6 +78,47 @@ def test_cli_compose_accepts_sound(tmp_path):
             ],
         )
     assert r.exit_code == 0 and '"sound": "soundfont"' in r.output
+
+
+def test_cli_accepts_candidates(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = CliRunner().invoke(
+            main,
+            [
+                "compose",
+                "--scale",
+                "C:major",
+                "--progression",
+                "C G",
+                "--candidates",
+                "3",
+                "--seed",
+                "1",
+                "--out",
+                str(tmp_path),
+                "--format",
+                "json",
+            ],
+        )
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["metadata"]["candidates"] == 3
+
+
+def test_cli_candidates_default_to_twelve(tmp_path):
+    with mock.patch("music_decoder.cli.main.compose_with_options") as c:
+        c.return_value = mock.Mock(
+            midi_path=tmp_path / "a.mid",
+            wav_path=tmp_path / "a.wav",
+            ascii_tab="e|---",
+            melody_notes=(),
+            chord_voicings=(),
+            metadata={},
+        )
+        r = CliRunner().invoke(
+            main, ["compose", "--scale", "C:major", "--progression", "C G", "--out", str(tmp_path)]
+        )
+    assert r.exit_code == 0 and c.call_args.kwargs["candidates"] == 12
 
 
 def test_compose_invalid_scale():

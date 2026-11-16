@@ -118,7 +118,7 @@ def test_pinned_tab_weights_match_the_analysis_defaults():
 def test_compose_returns_the_arrangement_and_version(tmp_path):
     with mock.patch("music_decoder.compose.api.render_wav"):
         result = compose(scale=Scale("C", "major"), progression=_PROG, seed=1, out_dir=tmp_path)
-    arr = arrange(Scale("C", "major"), _PROG, seed=1)
+    arr = arrange(Scale("C", "major"), _PROG, seed=1, candidates=12)
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
     assert result.metadata["composer_version"] == COMPOSER_VERSION == 5
@@ -436,3 +436,30 @@ def test_compose_delegates_to_compose_with_options(tmp_path):
         a = compose(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "a")
         b = compose_with_options(Scale("C", "major"), _PROG, seed=1, out_dir=tmp_path / "b")
     assert a.melody_notes == b.melody_notes and a.ascii_tab == b.ascii_tab
+
+
+_PROG8 = _chords("C", "Am", "F", "G", "C", "F", "G", "C")
+
+
+def test_compose_records_the_choice(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = compose_with_options(Scale("C", "major"), _PROG8, seed=4, out_dir=tmp_path)
+    m = r.metadata
+    assert m["candidates"] == 12 and isinstance(m["chosen_candidate"], int)
+    assert isinstance(m["score"], float) and m["final_fallback"] is False
+    assert isinstance(m["identity_misses"], list)
+    best = arrange(Scale("C", "major"), _PROG8, seed=4, candidates=12)
+    assert m["chosen_candidate"] == best.chosen_candidate and m["score"] == best.score
+    assert r.melody_notes == best.melody
+
+
+def test_compose_strum_records_one_candidate(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFF")
+        r = compose_with_options(
+            Scale("C", "major"), _PROG8, style="strum", seed=4, out_dir=tmp_path
+        )
+    m = r.metadata
+    assert m["candidates"] == 1 and m["chosen_candidate"] == 0 and m["score"] is None
+    assert m["final_fallback"] is False and m["identity_misses"] == []
