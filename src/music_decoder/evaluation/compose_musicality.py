@@ -25,7 +25,10 @@ bars whose fingerstyle hand window moves (v5 spec 5.2). ``F.hook``, ``F.peak``
 and ``F.arch`` score the fingerstyle melody's hook restatement, unique phrase
 peak and rise-then-fall contour (v5 spec 5.3). Fingerstyle is arranged best
 of ``FINGERSTYLE_CANDIDATES`` = 12, as ``compose()`` does, and ``F.score`` is
-the chosen candidate's symbolic score (v5 spec 5.4).
+the chosen candidate's symbolic score (v5 spec 5.4). Since composer v6 the
+fingerstyle melody here comes from the rules engine (``melody_engine="rules"``,
+v6 spec 5.3), so these gates keep guarding it; the tune engine is gated
+separately (v6 spec 5.5).
 """
 
 from __future__ import annotations
@@ -232,8 +235,11 @@ def build_cases(inputs: Iterable[Inputs], tuning: Tuning = STANDARD_EADGBE) -> l
         )
         # The strum melody is the shared melody strum and arpeggio accompany.
         # v5 spec 5.4: fingerstyle is evaluated as compose() writes it, best of twelve.
+        # v6 spec 5.3: with the rules engine, so every v3-v5 gate keeps guarding it.
         arr = styled(style="strum")
-        fingerstyle = styled(style="fingerstyle", candidates=FINGERSTYLE_CANDIDATES)
+        fingerstyle = styled(
+            style="fingerstyle", candidates=FINGERSTYLE_CANDIDATES, melody_engine="rules"
+        )
         acc: dict[str, tuple[Note, ...]] = {
             "strum": arr.accompaniment,
             "arpeggio": accompany(

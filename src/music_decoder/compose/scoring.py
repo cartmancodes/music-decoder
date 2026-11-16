@@ -30,17 +30,29 @@ harness that let validation A3.fingerstyle rise to 0.0771, over the
 both are raised to +1.0, which keeps every musicality gate, and the F.M6
 targets with more room than the single candidate had (the plan lets this
 feature tune its own weights when a gate fails).
+
+That table is the score of the ``"rules"`` melody engine. For the v6
+``"tune"`` engine (v6 spec 5.4) the melody terms (M1, M2, rhythm, M3, M5,
+M11b, hook, peak, arch, range) are replaced by
+``-W_CORPUS x band_distance(tune_features(melody), bands[mode])``, the
+melody's distance from the 25-75% bands of real melodies in the scale's
+mode; the identity, melody-above, shape-move and fallback terms are kept.
+
+:data:`MelodyEngine` lives here, not in :mod:`music_decoder.compose.api`
+(which re-exports it), because ``api`` imports this module.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 from music_decoder.compose import metrics
-from music_decoder.types import ChordSymbol, Tuning
+from music_decoder.compose.tune_metrics import band_distance, tune_features
+from music_decoder.compose.tune_stats import load_tune_stats
+from music_decoder.types import ChordSymbol, Scale, Tuning
 
 if TYPE_CHECKING:
     from music_decoder.compose.api import Arrangement
@@ -59,6 +71,10 @@ W_ARCH = 1.0
 W_AMBITUS = 1.0
 W_SHAPE_MOVES = -0.5
 W_FALLBACK = -3.0
+W_CORPUS = 2.0  # tune engine: the score falls by W_CORPUS per band width outside the bands
+
+# The fingerstyle melody generator: the v6 tune engine, or v5's rules engine.
+MelodyEngine = Literal["tune", "rules"]
 
 RHYTHM_FULL_BITS = 2.0  # IOI entropy earning the whole rhythm term
 AMBITUS_FULL_SEMITONES = 14  # ambitus earning the whole range term
@@ -85,8 +101,19 @@ def score_arrangement(
     bars_per_chord: int,
     tempo_bpm: float,
     tuning: Tuning,
+    scale: Scale | None = None,
+    melody_engine: MelodyEngine = "rules",
 ) -> float:
-    """The symbolic score of a fingerstyle arrangement (higher is better)."""
+    """The symbolic score of a fingerstyle arrangement (higher is better).
+
+    ``melody_engine`` picks the melody terms: v5's for ``"rules"``, the
+    distance from real melodies' bands for ``"tune"``, which needs ``scale``
+    (``ValueError`` without it).
+    """
+    if melody_engine == "tune":
+        if scale is None:
+            raise ValueError('score_arrangement(melody_engine="tune") needs the scale')
+        return _tune_score(arr, progression, scale, bars_per_chord, tempo_bpm, tuning)
     melody, accompaniment = arr.melody, arr.accompaniment
     n_bars = len(progression) * bars_per_chord
     identity = metrics.bar_identity(accompaniment, progression, bars_per_chord, tempo_bpm)
@@ -107,5 +134,29 @@ def score_arrangement(
         (W_AMBITUS, min(metrics.ambitus(melody) / AMBITUS_FULL_SEMITONES, 1.0)),
         (W_SHAPE_MOVES, _or(metrics.shape_moves(arr.bar_voicings, tuning), 0.0)),
         (W_FALLBACK, float(arr.final_fallback)),
+    )
+    return float(sum(weight * value for weight, value in terms))
+
+
+def _tune_score(
+    arr: Arrangement,
+    progression: Sequence[ChordSymbol],
+    scale: Scale,
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+) -> float:
+    """The ``"tune"`` engine's score: v5's part terms minus ``W_CORPUS`` times
+    the melody's band distance (v6 spec 5.4)."""
+    melody, accompaniment = arr.melody, arr.accompaniment
+    identity = metrics.bar_identity(accompaniment, progression, bars_per_chord, tempo_bpm)
+    features = tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)
+    distance = band_distance(features, load_tune_stats().bands[scale.mode])
+    terms = (
+        (W_IDENTITY, sum(identity) / len(identity)),
+        (W_ABOVE, _or(metrics.melody_above_accompaniment_ratio(melody, accompaniment), 1.0)),
+        (W_SHAPE_MOVES, _or(metrics.shape_moves(arr.bar_voicings, tuning), 0.0)),
+        (W_FALLBACK, float(arr.final_fallback)),
+        (-W_CORPUS, distance),
     )
     return float(sum(weight * value for weight, value in terms))

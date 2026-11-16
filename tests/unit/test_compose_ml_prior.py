@@ -440,7 +440,13 @@ def test_melody_model_amt_loads_the_proposer(monkeypatch, tmp_path):
     prop = _Fixed(_line([64, 65, 67, 69, 71, 72, 71, 69] * 4))
     monkeypatch.setattr(amt, "load_proposer", lambda: prop)
     r = compose_with_options(
-        Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, candidates=2, melody_model="amt"
+        Scale("C", "major"),
+        PROG8,
+        seed=1,
+        out_dir=tmp_path,
+        candidates=2,
+        melody_model="amt",
+        melody_engine="rules",
     )
     assert r.metadata["melody_model"] == "amt"
     expected = arrange(Scale("C", "major"), PROG8, seed=1, candidates=2, melody_proposer=prop)

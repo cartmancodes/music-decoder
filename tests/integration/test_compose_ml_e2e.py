@@ -56,7 +56,12 @@ def test_rank_audio_with_the_real_scorer_repeats(tmp_path):
 def test_melody_model_amt_with_the_real_model(tmp_path):
     start = time.perf_counter()
     first = compose_with_options(
-        Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path / "a", melody_model="amt"
+        Scale("C", "major"),
+        PROG8,
+        seed=1,
+        out_dir=tmp_path / "a",
+        melody_model="amt",
+        melody_engine="rules",
     )
     elapsed = time.perf_counter() - start
     assert elapsed <= 60.0, f"one 8-bar piece took {elapsed:.1f} s"
@@ -77,6 +82,11 @@ def test_melody_model_amt_with_the_real_model(tmp_path):
     assert a.melody != arrange(Scale("C", "major"), PROG8, seed=1, candidates=12).melody
 
     second = compose_with_options(
-        Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path / "b", melody_model="amt"
+        Scale("C", "major"),
+        PROG8,
+        seed=1,
+        out_dir=tmp_path / "b",
+        melody_model="amt",
+        melody_engine="rules",
     )
     assert second.melody_notes == first.melody_notes

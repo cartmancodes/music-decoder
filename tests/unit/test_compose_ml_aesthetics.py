@@ -173,7 +173,9 @@ def test_default_compose_does_not_rank_audio(monkeypatch, tmp_path):
 def test_rank_audio_writes_only_the_chosen_candidate(monkeypatch, tmp_path):
     scorer = _PositionalScorer([_row(0.0), _row(0.0), _row(10.0, pq=9.0), _row(0.0)])
     monkeypatch.setattr(aesthetics, "load_scorer", lambda: scorer)
-    r = compose_with_options(Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, rank_audio=True)
+    r = compose_with_options(
+        Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, rank_audio=True, melody_engine="rules"
+    )
 
     cands = arrange_candidates(Scale("C", "major"), PROG8, seed=1, candidates=12)
     third = cands[2]
@@ -197,7 +199,13 @@ def test_rank_audio_with_fewer_candidates_than_k(monkeypatch, tmp_path):
     scorer = _PositionalScorer([_row(1.0), _row(9.0)])
     monkeypatch.setattr(aesthetics, "load_scorer", lambda: scorer)
     r = compose_with_options(
-        Scale("C", "major"), PROG4, seed=1, out_dir=tmp_path, rank_audio=True, candidates=2
+        Scale("C", "major"),
+        PROG4,
+        seed=1,
+        out_dir=tmp_path,
+        rank_audio=True,
+        candidates=2,
+        melody_engine="rules",
     )
     cands = arrange_candidates(Scale("C", "major"), PROG4, seed=1, candidates=2)
     assert len(scorer.seen) == 2
