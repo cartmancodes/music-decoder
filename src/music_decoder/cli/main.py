@@ -7,7 +7,7 @@ Subcommands:
 - productionize <source>: render composer output as a mastered instrumental
 - doctor: verify ffmpeg, fluidsynth, models
 - fetch-models: pre-download Demucs weights and the GeneralUser GS soundfont
-  (and, with --composer-models, the Audiobox Aesthetics weights)
+  (and, with --composer-models, the Audiobox Aesthetics and AMT weights)
 - fetch-samples: pre-download the drum, percussion and piano samples
 """
 
@@ -485,8 +485,9 @@ def cli_doctor() -> None:
 @click.option(
     "--composer-models",
     is_flag=True,
-    help="Also fetch the Audiobox Aesthetics weights for `compose --rank-audio` (~415 MB; "
-    'needs `pip install -e ".[ml]"`).',
+    help="Also fetch the Audiobox Aesthetics weights for `compose --rank-audio` (~415 MB) "
+    "and the Anticipatory Music Transformer for `compose --melody-model amt` (~512 MB); "
+    'needs `pip install -e ".[ml]"`.',
 )
 def cli_fetch_models(no_demucs: bool, no_soundfont: bool, composer_models: bool) -> None:
     """Pre-download models so first runs don't stall (idempotent).
@@ -517,16 +518,21 @@ def cli_fetch_models(no_demucs: bool, no_soundfont: bool, composer_models: bool)
             click.echo(f"  FAILED: {e} (the bundled TimGM6mb soundfont will be used)")
             rc = 1
     if composer_models:
-        click.echo(f"Audiobox Aesthetics weights ({assets.AUDIOBOX_REPO}) ...")
-        try:
-            path = assets.fetch_audiobox()
-            click.echo(f"  OK: {path} ({_folder_mb(path):.1f} MB)")
-        except ImportError as e:
-            click.echo(f'  FAILED: {e}; install the ml extra: pip install -e ".[ml]"')
-            rc = 1
-        except Exception as e:
-            click.echo(f"  FAILED: {e}")
-            rc = 1
+        composer = [
+            (f"Audiobox Aesthetics weights ({assets.AUDIOBOX_REPO})", assets.fetch_audiobox),
+            (f"Anticipatory Music Transformer weights ({assets.AMT_REPO})", assets.fetch_amt),
+        ]
+        for label, fetch in composer:
+            click.echo(f"{label} ...")
+            try:
+                path = fetch()
+                click.echo(f"  OK: {path} ({_folder_mb(path):.1f} MB)")
+            except ImportError as e:
+                click.echo(f'  FAILED: {e}; install the ml extra: pip install -e ".[ml]"')
+                rc = 1
+            except Exception as e:
+                click.echo(f"  FAILED: {e}")
+                rc = 1
     sys.exit(rc)
 
 

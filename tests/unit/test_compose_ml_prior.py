@@ -5,11 +5,14 @@ Every test here uses a fake proposer: no network, no ``ml`` extra, no weights.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
 from click.testing import CliRunner
 
+from music_decoder import assets
 from music_decoder.cli.main import main
 from music_decoder.compose import metrics
 from music_decoder.compose.api import _thumb_context, arrange, compose_with_options
@@ -165,9 +168,207 @@ def test_a_proposer_is_a_melody_proposer():
     assert isinstance(_Fixed([]), MelodyProposer)
 
 
-def test_the_amt_stub_is_unavailable():
-    with pytest.raises(MLUnavailableError):
+def _no_amt_weights(monkeypatch):
+    monkeypatch.setattr(assets, "amt_dir", lambda: None)
+
+
+def test_amt_without_weights_explains_how_to_fetch(monkeypatch):
+    pytest.importorskip("anticipation")
+    pytest.importorskip("transformers")
+    _no_amt_weights(monkeypatch)
+    with pytest.raises(MLUnavailableError, match=r"fetch-models --composer-models"):
         amt.load_proposer()
+
+
+def test_amt_without_the_package_explains_how_to_install(monkeypatch):
+    monkeypatch.setitem(sys.modules, "anticipation", None)  # importing it now fails
+    with pytest.raises(MLUnavailableError, match=r"pip install -e \"\.\[ml\]\""):
+        amt.load_proposer()
+
+
+def _note(start, pitch, dur=0.25):
+    return Note(start_s=start, end_s=start + dur, pitch=pitch, velocity=72, confidence=1.0)
+
+
+def test_amt_top_line_keeps_the_highest_note_per_onset():
+    decoded = [
+        (0, _note(0.00, 60)),
+        (0, _note(0.02, 67)),  # within 30 ms of 0.00: same onset, higher
+        (0, _note(0.01, 64)),
+        (128, _note(0.50, 80)),  # drums never count
+        (25, _note(0.50, 62)),
+        (0, _note(0.51, 90)),  # above the range
+        (0, _note(1.00, 40)),  # below the range
+        (33, _note(1.50, 84)),
+        (0, _note(1.52, 55)),
+    ]
+    line = amt.top_line(decoded)
+    assert [(n.start_s, n.pitch) for n in line] == [(0.02, 67), (0.50, 62), (1.50, 84)]
+    assert amt.top_line([]) == []
+
+
+def test_amt_top_line_groups_onsets_by_the_first_of_the_group():
+    decoded = [(0, _note(0.00, 60)), (0, _note(0.025, 62)), (0, _note(0.05, 64))]
+    line = amt.top_line(decoded)  # 0.05 is 50 ms after the group's first onset
+    assert [n.pitch for n in line] == [62, 64]
+    assert line[0].end_s == 0.05  # cut short at the next onset: one note at a time
+    assert line[1].end_s == 0.30
+
+
+def test_amt_controls_encode_the_context_as_steel_guitar():
+    pytest.importorskip("anticipation")
+    from anticipation import convert
+    from anticipation.vocab import CONTROL_OFFSET
+
+    context = [_note(0.5, 48, dur=0.475), _note(1.0, 55, dur=0.475)]
+    controls = amt.encode_controls(context)
+    assert len(controls) == 6 and all(tok >= CONTROL_OFFSET for tok in controls)
+    compound = convert.events_to_compound([tok - CONTROL_OFFSET for tok in controls])
+    assert compound[0::5] == [50, 100]  # 10 ms ticks
+    assert compound[1::5] == [48, 48]
+    assert compound[2::5] == [48, 55]
+    assert compound[3::5] == [amt.INSTRUMENT, amt.INSTRUMENT] == [25, 25]
+
+
+def test_amt_decode_round_trips_events():
+    pytest.importorskip("anticipation")
+    from anticipation.vocab import CONTROL_OFFSET
+
+    controls = amt.encode_controls([_note(0.5, 67, dur=0.5), _note(1.0, 72, dur=0.25)])
+    decoded = amt.decode_events([tok - CONTROL_OFFSET for tok in controls])
+    assert [(i, n.start_s, n.end_s, n.pitch) for i, n in decoded] == [
+        (25, 0.5, 1.0, 67),
+        (25, 1.0, 1.25, 72),
+    ]
+    assert amt.decode_events([]) == []
+
+
+class _FlatLM:  # every next token equally likely
+    def __init__(self, torch, vocab_size):
+        self.torch, self.vocab_size = torch, vocab_size
+        self.device = torch.device("cpu")
+
+    def __call__(self, tokens):
+        logits = self.torch.zeros(1, tokens.shape[1], self.vocab_size)
+        return type("Out", (), {"logits": logits})()
+
+
+def _constrained_logits(tokens, *, max_events=10):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("anticipation")
+    from anticipation.vocab import VOCAB_SIZE
+
+    model = amt._Constrained(_FlatLM(torch, VOCAB_SIZE), max_events=max_events)
+    assert model.device == torch.device("cpu")
+    return model, lambda: model(torch.tensor([tokens])).logits[0, -1]
+
+
+def test_amt_samples_only_pitched_notes_and_none_twice_at_one_onset():
+    pytest.importorskip("anticipation")
+    from anticipation.config import MAX_PITCH
+    from anticipation.vocab import (
+        ANTICIPATE,
+        ATIME_OFFSET,
+        DUR_OFFSET,
+        NOTE_OFFSET,
+        REST,
+        TIME_OFFSET,
+    )
+
+    guitar_g4 = NOTE_OFFSET + 25 * MAX_PITCH + 67
+    flute_c5 = NOTE_OFFSET + 73 * MAX_PITCH + 72
+    control = [ATIME_OFFSET + 30, ATIME_OFFSET + 5, ATIME_OFFSET + 1]
+    tokens = [
+        ANTICIPATE,
+        *[TIME_OFFSET + 30, DUR_OFFSET + 10, guitar_g4],
+        *control,  # skipped over
+        *[TIME_OFFSET + 30, DUR_OFFSET + 20, flute_c5],
+        *[TIME_OFFSET + 30, DUR_OFFSET + 10],  # this event's note comes next
+    ]
+    _, logits = _constrained_logits(tokens)
+    out = logits()
+    drums = NOTE_OFFSET + 128 * MAX_PITCH
+    assert torch_isinf(out[REST]) and torch_isinf(out[drums : drums + MAX_PITCH]).all()
+    assert torch_isinf(out[guitar_g4]) and torch_isinf(out[flute_c5])
+    assert int(torch_isinf(out).sum()) == MAX_PITCH + 3
+    # A later onset: nothing generated there yet, so only rests and drums are out.
+    tokens[-2] = TIME_OFFSET + 40
+    assert int(torch_isinf(logits()).sum()) == MAX_PITCH + 1
+
+
+def test_amt_stops_generating_after_its_event_budget():
+    pytest.importorskip("anticipation")
+    from anticipation.config import MAX_TIME
+    from anticipation.vocab import ANTICIPATE, TIME_OFFSET
+
+    _, logits = _constrained_logits([ANTICIPATE], max_events=2)
+    for _ in range(2):  # within the budget: the time slot is left alone
+        assert not torch_isinf(logits()).any()
+    out = logits()  # spent: the only onset left is the latest there is
+    assert not torch_isinf(out[TIME_OFFSET + MAX_TIME - 1])
+    assert int(torch_isinf(out).sum()) == out.shape[0] - 1
+
+
+def torch_isinf(x):
+    import torch
+
+    return torch.isinf(x)
+
+
+def test_importing_amt_loads_no_ml_package():
+    code = (
+        "import sys, music_decoder.compose.ml.amt; "
+        "print(sorted(m for m in ('anticipation', 'transformers', 'huggingface_hub', 'tqdm') "
+        "if m in sys.modules))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"
+
+
+def test_fetch_amt_downloads_the_pinned_snapshot(tmp_path):
+    pytest.importorskip("huggingface_hub")
+    with mock.patch("huggingface_hub.snapshot_download", return_value=str(tmp_path)) as dl:
+        assert assets.fetch_amt() == tmp_path
+    assert dl.call_args.args == ("stanford-crfm/music-small-800k",)
+    assert dl.call_args.kwargs["revision"] == assets.AMT_REVISION
+    assert len(assets.AMT_REVISION) == 40
+    assert dl.call_args.kwargs["token"] is False
+    assert set(dl.call_args.kwargs["allow_patterns"]) == {"config.json", "pytorch_model.bin"}
+
+
+def test_amt_dir_is_none_when_a_file_is_missing(tmp_path):
+    pytest.importorskip("huggingface_hub")
+    (tmp_path / "config.json").write_text("{}")
+    with mock.patch("huggingface_hub.snapshot_download", return_value=str(tmp_path)) as dl:
+        assert assets.amt_dir() is None
+        (tmp_path / "pytorch_model.bin").write_bytes(b"x")
+        assert assets.amt_dir() == tmp_path
+    assert dl.call_args.kwargs["local_files_only"] is True
+
+
+def test_fetch_models_composer_models_fetches_amt(tmp_path):
+    (tmp_path / "pytorch_model.bin").write_bytes(b"x" * 3_000_000)
+    with (
+        mock.patch("music_decoder.assets.fetch_audiobox", return_value=tmp_path),
+        mock.patch("music_decoder.assets.fetch_amt", return_value=tmp_path) as fetch,
+    ):
+        r = CliRunner().invoke(
+            main, ["fetch-models", "--no-demucs", "--no-soundfont", "--composer-models"]
+        )
+    assert r.exit_code == 0, r.output
+    fetch.assert_called_once_with()
+    assert "stanford-crfm/music-small-800k" in r.output and "3.0 MB" in r.output
+
+
+def test_fetch_models_amt_failure_exits_nonzero(tmp_path):
+    with (
+        mock.patch("music_decoder.assets.fetch_audiobox", return_value=tmp_path),
+        mock.patch("music_decoder.assets.fetch_amt", side_effect=OSError("offline")),
+    ):
+        r = CliRunner().invoke(
+            main, ["fetch-models", "--no-demucs", "--no-soundfont", "--composer-models"]
+        )
+    assert r.exit_code == 1 and "offline" in r.output
 
 
 def test_melody_model_amt_loads_the_proposer(monkeypatch, tmp_path):
@@ -182,6 +383,7 @@ def test_melody_model_amt_loads_the_proposer(monkeypatch, tmp_path):
 
 
 def test_melody_model_unavailable_fails_before_writing(monkeypatch, tmp_path):
+    _no_amt_weights(monkeypatch)
     with pytest.raises(MLUnavailableError):
         compose_with_options(
             Scale("C", "major"), PROG8, seed=1, out_dir=tmp_path, melody_model="amt"
@@ -229,7 +431,8 @@ def test_cli_accepts_melody_model_none(tmp_path):
     assert r.exit_code != 0
 
 
-def test_cli_melody_model_unavailable_is_a_clear_error(tmp_path):
+def test_cli_melody_model_unavailable_is_a_clear_error(tmp_path, monkeypatch):
+    _no_amt_weights(monkeypatch)
     r = CliRunner().invoke(main, _compose_args(tmp_path, "--melody-model", "amt"))
     assert r.exit_code == 1
     assert 'pip install -e ".[ml]"' in r.output

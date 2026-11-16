@@ -281,6 +281,7 @@ def test_fetch_models_composer_models_fetches_audiobox(tmp_path):
         mock.patch("music_decoder.assets.fetch_demucs"),
         mock.patch("music_decoder.assets.fetch_soundfont", return_value=tmp_path / "x.sf2"),
         mock.patch("music_decoder.assets.fetch_audiobox", return_value=tmp_path) as audiobox,
+        mock.patch("music_decoder.assets.fetch_amt", return_value=tmp_path),
     ):
         r = CliRunner().invoke(main, ["fetch-models", "--composer-models"])
     assert r.exit_code == 0, r.output
@@ -293,15 +294,18 @@ def test_fetch_models_skips_composer_models_by_default(tmp_path):
         mock.patch("music_decoder.assets.fetch_demucs"),
         mock.patch("music_decoder.assets.fetch_soundfont", return_value=tmp_path / "x.sf2"),
         mock.patch("music_decoder.assets.fetch_audiobox") as audiobox,
+        mock.patch("music_decoder.assets.fetch_amt") as fetch_amt,
     ):
         r = CliRunner().invoke(main, ["fetch-models"])
     assert r.exit_code == 0, r.output
     audiobox.assert_not_called()
+    fetch_amt.assert_not_called()
 
 
-def test_fetch_models_composer_models_failure_exits_nonzero():
+def test_fetch_models_composer_models_failure_exits_nonzero(tmp_path):
     with (
         mock.patch("music_decoder.assets.fetch_audiobox", side_effect=OSError("offline")),
+        mock.patch("music_decoder.assets.fetch_amt", return_value=tmp_path),
     ):
         r = CliRunner().invoke(
             main, ["fetch-models", "--no-demucs", "--no-soundfont", "--composer-models"]
@@ -310,9 +314,10 @@ def test_fetch_models_composer_models_failure_exits_nonzero():
 
 
 def test_fetch_models_composer_models_without_the_extra_names_it():
-    with mock.patch(
-        "music_decoder.assets.fetch_audiobox",
-        side_effect=ImportError("No module named 'huggingface_hub'"),
+    missing = ImportError("No module named 'huggingface_hub'")
+    with (
+        mock.patch("music_decoder.assets.fetch_audiobox", side_effect=missing),
+        mock.patch("music_decoder.assets.fetch_amt", side_effect=missing),
     ):
         r = CliRunner().invoke(
             main, ["fetch-models", "--no-demucs", "--no-soundfont", "--composer-models"]

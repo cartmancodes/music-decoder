@@ -13,6 +13,9 @@ don't:
 - **Audiobox Aesthetics weights** (~415 MB, CC-BY-4.0), for the opt-in
   ``compose --rank-audio``. :func:`fetch_audiobox` downloads them into the
   Hugging Face cache; it needs the ``ml`` extra (``huggingface_hub``).
+- **Anticipatory Music Transformer weights** (~512 MB, Apache-2.0), for the
+  opt-in ``compose --melody-model amt``. :func:`fetch_amt` downloads them
+  into the Hugging Face cache, like :func:`fetch_audiobox`.
 
 ``music-decoder fetch-models`` (and ``setup.sh``) call these; the composer
 models only with ``--composer-models``.
@@ -33,6 +36,13 @@ GENERALUSER_GS_URL = "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/Gene
 AUDIOBOX_REPO = "facebook/audiobox-aesthetics"
 AUDIOBOX_REVISION = "9b1dd8e5df9af7216e836a98974fe3b82c56ded6"
 AUDIOBOX_FILES = ("config.json", "model.safetensors")
+
+# The Anticipatory Music Transformer (Stanford CRFM, Apache-2.0), pinned to a
+# commit so melody proposals repeat. The repo ships only a pickled
+# pytorch_model.bin, which the composer loads weights-only (no code runs).
+AMT_REPO = "stanford-crfm/music-small-800k"
+AMT_REVISION = "fa800530aa1126dd6b58b38f3bdb8fcec9c9d4f5"
+AMT_FILES = ("config.json", "pytorch_model.bin")
 
 _CHUNK = 1 << 20
 
@@ -124,36 +134,57 @@ def fetch_demucs(model: str = DEMUCS_MODEL) -> None:
     get_model(model)
 
 
-def _audiobox_snapshot(*, local_files_only: bool) -> Path:
+def _hf_snapshot(
+    repo: str, revision: str, files: tuple[str, ...], *, local_files_only: bool
+) -> Path:
     from huggingface_hub import snapshot_download
 
     # token=False: the repo is public, so no stored credential is ever sent.
     path = snapshot_download(
-        AUDIOBOX_REPO,
-        revision=AUDIOBOX_REVISION,
-        allow_patterns=list(AUDIOBOX_FILES),
+        repo,
+        revision=revision,
+        allow_patterns=list(files),
         local_files_only=local_files_only,
         token=False,
     )
     return Path(str(path))
 
 
+def _cached_snapshot(repo: str, revision: str, files: tuple[str, ...]) -> Path | None:
+    """The cached snapshot folder holding all of *files*, or ``None``."""
+    try:
+        path = _hf_snapshot(repo, revision, files, local_files_only=True)
+    except (ImportError, OSError):  # LocalEntryNotFoundError is an OSError
+        return None
+    return path if all((path / f).is_file() for f in files) else None
+
+
 def fetch_audiobox() -> Path:
     """Download (if needed) the Audiobox Aesthetics weights into the Hugging
     Face cache and return their snapshot folder. Needs ``huggingface_hub``."""
-    return _audiobox_snapshot(local_files_only=False)
+    return _hf_snapshot(AUDIOBOX_REPO, AUDIOBOX_REVISION, AUDIOBOX_FILES, local_files_only=False)
 
 
 def audiobox_dir() -> Path | None:
     """The cached Audiobox Aesthetics snapshot folder, or ``None`` if the
     weights (or ``huggingface_hub``) are missing. Never touches the network."""
-    try:
-        path = _audiobox_snapshot(local_files_only=True)
-    except (ImportError, OSError):  # LocalEntryNotFoundError is an OSError
-        return None
-    return path if all((path / f).is_file() for f in AUDIOBOX_FILES) else None
+    return _cached_snapshot(AUDIOBOX_REPO, AUDIOBOX_REVISION, AUDIOBOX_FILES)
 
 
 def audiobox_cached() -> bool:
     """True if the Audiobox Aesthetics weights are in the Hugging Face cache."""
     return audiobox_dir() is not None
+
+
+def fetch_amt() -> Path:
+    """Download (if needed) the Anticipatory Music Transformer weights into
+    the Hugging Face cache and return their snapshot folder. Needs
+    ``huggingface_hub``."""
+    return _hf_snapshot(AMT_REPO, AMT_REVISION, AMT_FILES, local_files_only=False)
+
+
+def amt_dir() -> Path | None:
+    """The cached Anticipatory Music Transformer snapshot folder, or ``None``
+    if the weights (or ``huggingface_hub``) are missing. Never touches the
+    network."""
+    return _cached_snapshot(AMT_REPO, AMT_REVISION, AMT_FILES)
