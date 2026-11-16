@@ -1386,7 +1386,9 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
   ballads, folk and slow tempos. It is the default because it sounds
   reasonable on most progressions.
 
-  What composer version 5 adds to fingerstyle:
+  What composer version 5 adds to fingerstyle (the hook, arch and peak
+  bullet below describes the version 5 melody, so it holds only with
+  `--melody-engine rules`; the other bullets hold with both engines):
 
   - **Per-bar shapes.** Each bar may use a different shape of its chord
     (open, or a barre up to the 9th fret). The composer picks the
@@ -1401,8 +1403,9 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
     removes the old 2-6% of seventh-chord bars that lost their seventh,
     and widens the melody by 2-3 semitones. The **Chords** block under the
     tab lists every shape the piece used, in order of first use.
-  - **Hooks, an arch, peaks and form.** The first bar's first two to four
-    notes are the **hook**: every opening phrase restates it, transposed to
+  - **Hooks, an arch, peaks and form** (`--melody-engine rules` only; the
+    default tune engine has no hook, arch or peak rule, see below). The first
+    bar's first two to four notes are the **hook**: every opening phrase restates it, transposed to
     the chord, and the answering phrase restates it with exactly one
     interval changed (by a semitone; the rhythm is kept). Each four-bar phrase follows an
     **arch**, rising to **one** unique highest note (its peak, 55-75% of
@@ -1447,8 +1450,11 @@ Custom tunings: see [Library API: Tuning presets](#tuning-presets).
 
   Composer version 6 changes the melody only: see
   [What the tune engine does](#what-the-tune-engine-does-composer-version-6)
-  below. Everything above (shapes, thumb, fills, performance, best of 12,
-  the models) works as in version 5.
+  below. Everything above works as in version 5 except the hook, arch and
+  peak bullet, which is rules-engine only: the shapes, thumb, fills,
+  performance, best of 12 and the models apply to both engines. The A A' B A'
+  form still sets which bars copy an earlier rhythm, but B's contrasting
+  rhythm and higher arch are rules-engine behaviour.
 
   Limits. The melody's pitches are never changed to fit the chord, and in
   rare cases an accompaniment bar still lacks an essential tone, which
@@ -1565,7 +1571,8 @@ python scripts/build_tune_stats.py \
 `--pop909` is the `POP909` folder inside the clone. `--pilot` takes one or
 more JSON-lines files of vocal lines (one song per line,
 `{"tonic_pc": 0, "mode": "major", "notes": [[eighth_slot, midi_pitch], ...]}`),
-written by a throwaway extractor kept in `spikes/preference-pilot/`. Without
+written by a throwaway extractor (`extract_vocal_lines.py` in
+`spikes/preference-pilot/`) that is not part of the repository. Without
 `--pilot` the file is POP909 only. The script prints the counts and the
 bands it measured. Building from the same dataset (and the same pilot files)
 gives the same statistics, apart from `meta.built`, the date.

@@ -1056,7 +1056,9 @@ tempo_bpm, tuning)` draws the combined tab (§5.4).
 
 ### 5.3.2 Composer v5: fingerstyle performance, shapes, hooks and candidates
 
-Everything here is fingerstyle only. Spec:
+Everything here is fingerstyle only. The hook, arch, peak and form rules
+(`generate_melody`, below) belong to the `"rules"` melody engine; the default
+tune engine (§5.3.3) has none of them. Spec:
 [the v5 design](superpowers/specs/2026-11-16-composer-v5-design.md).
 
 **Per-bar shapes** ([compose/shapes.py](../src/music_decoder/compose/shapes.py)).
@@ -1362,8 +1364,8 @@ best-of-12 arrangement and the features of candidate 0. The gates:
 - **T4** the same seed gives the same music; **T5** every key and mode
   composes, as do the edge and tunings inputs of the v3 harness.
 - A band that cannot be met together with a guitar guarantee is a recorded
-  ruling, listed by name in `KNOWN_MISSES` (only the controller adds to it);
-  the guarantee wins.
+  ruling, listed by name in `KNOWN_MISSES` (currently empty; only the
+  controller adds to it); the guarantee wins.
 
 The existing musicality harness ([compose_musicality.py](../src/music_decoder/evaluation/compose_musicality.py))
 builds its fingerstyle cases with `melody_engine="rules"`, so every v3 to v5

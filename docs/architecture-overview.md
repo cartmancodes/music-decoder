@@ -125,9 +125,11 @@ more like one:
   model of a plucked guitar string, in place of the soundfont guitar.
 - Each bar may use a **different shape of its chord**, chosen so the
   chord's defining notes are still heard and the melody has room to move.
-- The tune has a **hook** (its first few notes come back at the start of
-  each phrase, once with one small change), each phrase **rises to one
-  clear high note and falls**, and longer pieces go A, A', B, A'.
+- With `--melody-engine rules` (the version 5 melody; version 6's default
+  engine writes the melody differently, see above) the tune has a **hook**
+  (its first few notes come back at the start of each phrase, once with one
+  small change), each phrase **rises to one clear high note and falls**, and
+  longer pieces go A, A', B, A'.
 - The tool writes **12 pieces and keeps the best** by a score built from its
   own measures of a good tune. Optionally, a pretrained model that rates
   how enjoyable a clip sounds picks among the best four (`--rank-audio`),
@@ -321,7 +323,8 @@ You give the tool a scale, a chord progression, and a few options
    can change from bar to bar: the tool searches for the series of shapes
    that keep the chord recognisable, reach the melody's notes and need the
    least hand movement, then repairs any bar that still lacks an essential
-   chord tone. Second, the melody gets a **hook** (the first few notes
+   chord tone. Second, in the version 5 melody (now `--melody-engine rules`)
+   the melody gets a **hook** (the first few notes
    return at every phrase start, with one change in the answer), a rising
    and falling **arch** with one unique high note per phrase, and the form
    A A' B A' for pieces of four phrases or more (13 bars or more). Third, the part is
@@ -331,7 +334,8 @@ You give the tool a scale, a chord progression, and a few options
    best** by a weighted score (identity of the chords, melody on top,
    chord tones on strong beats, stepwise motion, rhythm variety, hook,
    peak, arch, range; minus repeated notes, hand movement and a thinned
-   final chord). With the optional models, an audio-taste model can
+   final chord; version 6 swaps the melody terms for a closeness-to-real-tunes
+   measure, below). With the optional models, an audio-taste model can
    re-rank the best four, and a melody model can propose the tune.
 
    Version 6 changes who writes the fingerstyle melody. The tool no longer
