@@ -38,6 +38,11 @@ dev = [
   "mypy>=1.10",
   "types-PyYAML",
 ]
+ml = [
+  "audiobox_aesthetics==0.0.4",
+  "transformers>=5,<6",
+  "huggingface_hub>=1",
+]
 
 [project.scripts]
 music-decoder = "music_decoder.cli.main:main"
@@ -63,7 +68,9 @@ plugins = []
 module = ["basic_pitch.*", "demucs.*", "librosa.*", "pretty_midi.*",
           "music21.*", "mir_eval.*", "fluidsynth.*",
           "matplotlib.*", "scipy.*", "streamlit.*", "madmom.*",
-          "soundfile.*", "pyloudnorm.*"]
+          "soundfile.*", "pyloudnorm.*",
+          # the optional `ml` extra
+          "torchaudio.*", "audiobox_aesthetics.*", "huggingface_hub.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

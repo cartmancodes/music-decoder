@@ -10,8 +10,12 @@ don't:
   ``TimGM6mb.sf2`` (6 MB), which :func:`bundled_soundfont` returns so synthesis
   works with no download at all; :func:`fetch_soundfont` installs the
   higher-fidelity GeneralUser GS at the path ``config/runtime.yaml`` names.
+- **Audiobox Aesthetics weights** (~415 MB, CC-BY-4.0), for the opt-in
+  ``compose --rank-audio``. :func:`fetch_audiobox` downloads them into the
+  Hugging Face cache; it needs the ``ml`` extra (``huggingface_hub``).
 
-``music-decoder fetch-models`` (and ``setup.sh``) call these.
+``music-decoder fetch-models`` (and ``setup.sh``) call these; the composer
+models only with ``--composer-models``.
 """
 
 from __future__ import annotations
@@ -22,6 +26,13 @@ from pathlib import Path
 DEMUCS_MODEL = "htdemucs_6s"
 # GeneralUser GS by S. Christian Collins — official repository.
 GENERALUSER_GS_URL = "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"
+
+# Audiobox Aesthetics (Meta, CC-BY-4.0) on Hugging Face, pinned to a commit so
+# the audio re-rank repeats. Only the safetensors weights and their config are
+# fetched; the repo also holds the same weights as a pickled checkpoint.pt.
+AUDIOBOX_REPO = "facebook/audiobox-aesthetics"
+AUDIOBOX_REVISION = "9b1dd8e5df9af7216e836a98974fe3b82c56ded6"
+AUDIOBOX_FILES = ("config.json", "model.safetensors")
 
 _CHUNK = 1 << 20
 
@@ -111,3 +122,38 @@ def fetch_demucs(model: str = DEMUCS_MODEL) -> None:
     from demucs.pretrained import get_model
 
     get_model(model)
+
+
+def _audiobox_snapshot(*, local_files_only: bool) -> Path:
+    from huggingface_hub import snapshot_download
+
+    # token=False: the repo is public, so no stored credential is ever sent.
+    path = snapshot_download(
+        AUDIOBOX_REPO,
+        revision=AUDIOBOX_REVISION,
+        allow_patterns=list(AUDIOBOX_FILES),
+        local_files_only=local_files_only,
+        token=False,
+    )
+    return Path(str(path))
+
+
+def fetch_audiobox() -> Path:
+    """Download (if needed) the Audiobox Aesthetics weights into the Hugging
+    Face cache and return their snapshot folder. Needs ``huggingface_hub``."""
+    return _audiobox_snapshot(local_files_only=False)
+
+
+def audiobox_dir() -> Path | None:
+    """The cached Audiobox Aesthetics snapshot folder, or ``None`` if the
+    weights (or ``huggingface_hub``) are missing. Never touches the network."""
+    try:
+        path = _audiobox_snapshot(local_files_only=True)
+    except (ImportError, OSError):  # LocalEntryNotFoundError is an OSError
+        return None
+    return path if all((path / f).is_file() for f in AUDIOBOX_FILES) else None
+
+
+def audiobox_cached() -> bool:
+    """True if the Audiobox Aesthetics weights are in the Hugging Face cache."""
+    return audiobox_dir() is not None

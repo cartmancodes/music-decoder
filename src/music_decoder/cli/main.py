@@ -7,6 +7,7 @@ Subcommands:
 - productionize <source>: render composer output as a mastered instrumental
 - doctor: verify ffmpeg, fluidsynth, models
 - fetch-models: pre-download Demucs weights and the GeneralUser GS soundfont
+  (and, with --composer-models, the Audiobox Aesthetics weights)
 - fetch-samples: pre-download the drum, percussion and piano samples
 """
 
@@ -27,6 +28,7 @@ import click
 
 from music_decoder.api import analyze
 from music_decoder.compose.api import compose_with_options
+from music_decoder.compose.ml import MLUnavailableError
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
@@ -180,6 +182,15 @@ def cli_analyze(
     show_default=True,
     help="fingerstyle pieces to generate; the best by the symbolic score is kept",
 )
+@click.option(
+    "--rank-audio",
+    is_flag=True,
+    default=False,
+    help=(
+        "fingerstyle: re-rank the top 4 candidates by Audiobox Aesthetics "
+        '(needs `pip install -e ".[ml]"` and `fetch-models --composer-models`)'
+    ),
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -192,6 +203,7 @@ def cli_compose(
     tuning: str,
     sound: str,
     candidates: int,
+    rank_audio: bool,
     out: str,
     fmt: str,
 ) -> None:
@@ -211,10 +223,9 @@ def cli_compose(
                 out_dir=Path(out),
                 sound=cast(Literal["soundfont", "plucked"], sound),
                 candidates=candidates,
+                rank_audio=rank_audio,
             )
-    except MusicDecoderError as e:
-        raise click.ClickException(str(e)) from e
-    except ValueError as e:
+    except (MusicDecoderError, ValueError, MLUnavailableError) as e:
         raise click.ClickException(str(e)) from e
 
     if fmt == "json":
@@ -458,12 +469,20 @@ def cli_doctor() -> None:
 @main.command("fetch-models")
 @click.option("--no-demucs", is_flag=True, help="Skip the Demucs separation weights (~52 MB).")
 @click.option("--no-soundfont", is_flag=True, help="Skip the GeneralUser GS soundfont (~30 MB).")
-def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
+@click.option(
+    "--composer-models",
+    is_flag=True,
+    help="Also fetch the Audiobox Aesthetics weights for `compose --rank-audio` (~415 MB; "
+    'needs `pip install -e ".[ml]"`).',
+)
+def cli_fetch_models(no_demucs: bool, no_soundfont: bool, composer_models: bool) -> None:
     """Pre-download models so first runs don't stall (idempotent).
 
     Fetches the Demucs htdemucs_6s weights into the torch cache and the
     GeneralUser GS soundfont to the path in config/runtime.yaml. Composition
-    works without the soundfont (pretty_midi's bundled one is used).
+    works without the soundfont (pretty_midi's bundled one is used). With
+    --composer-models, also the composer's optional models into the Hugging
+    Face cache.
     """
     from music_decoder import assets
 
@@ -484,7 +503,23 @@ def cli_fetch_models(no_demucs: bool, no_soundfont: bool) -> None:
         except Exception as e:
             click.echo(f"  FAILED: {e} (the bundled TimGM6mb soundfont will be used)")
             rc = 1
+    if composer_models:
+        click.echo(f"Audiobox Aesthetics weights ({assets.AUDIOBOX_REPO}) ...")
+        try:
+            path = assets.fetch_audiobox()
+            click.echo(f"  OK: {path} ({_folder_mb(path):.1f} MB)")
+        except ImportError as e:
+            click.echo(f'  FAILED: {e}; install the ml extra: pip install -e ".[ml]"')
+            rc = 1
+        except Exception as e:
+            click.echo(f"  FAILED: {e}")
+            rc = 1
     sys.exit(rc)
+
+
+def _folder_mb(path: Path) -> float:
+    """Size of the files under *path* in MB, following the cache's symlinks."""
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
 
 
 @main.command("fetch-samples")

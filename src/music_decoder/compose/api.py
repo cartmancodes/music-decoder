@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import statistics
+import tempfile
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -60,6 +61,10 @@ COMPOSE_TAB_WEIGHTS: dict[str, float] = {
     "w_chord_intra": 0.3,
 }
 COMPOSE_TAB_MAX_FRET = 22
+
+# How many of the best candidates by symbolic score the opt-in audio re-rank
+# renders and scores (v5 spec 5.4).
+RANK_AUDIO_TOP_K = 4
 
 
 @dataclass(frozen=True)
@@ -231,6 +236,53 @@ def _arrange_fingerstyle(
     )
 
 
+def arrange_candidates(
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    *,
+    bars_per_chord: int = 1,
+    tempo_bpm: float = 100.0,
+    style: Literal["arpeggio", "strum", "fingerstyle"] = "fingerstyle",
+    tuning: Tuning = STANDARD_EADGBE,
+    seed: int | None = None,
+    candidates: int = 1,
+) -> tuple[Arrangement, ...]:
+    """Every candidate :func:`arrange` considers, best first.
+
+    Fingerstyle arranges ``candidates`` pieces, candidate k from the k-th of
+    :func:`candidate_seeds`, each recording its own k (``chosen_candidate``)
+    and :func:`score_arrangement` (``score``). They are sorted by score,
+    highest first, ties going to the lower k (v5 spec 5.4). With
+    ``seed=None`` a base seed is drawn once. Strum and arpeggio ignore
+    ``candidates`` and give their single arrangement.
+    """
+    _validate(scale, progression, bars_per_chord)
+    if candidates < 1:
+        raise ValueError(f"candidates must be >= 1, got {candidates}")
+    if style != "fingerstyle":
+        return (
+            _arrange_single(scale, progression, bars_per_chord, tempo_bpm, style, tuning, seed),
+        )
+    base = seed if seed is not None else int(np.random.default_rng().integers(2**31))
+    arrangements = [
+        _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s)
+        for s in candidate_seeds(base, candidates)
+    ]
+    scores = [
+        score_arrangement(
+            a, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm, tuning=tuning
+        )
+        for a in arrangements
+    ]
+    order = sorted(range(candidates), key=lambda k: (-scores[k], k))  # ties: the lower k
+    return tuple(
+        dataclasses.replace(
+            arrangements[k], candidates=candidates, chosen_candidate=k, score=scores[k]
+        )
+        for k in order
+    )
+
+
 def arrange(
     scale: Scale,
     progression: Sequence[ChordSymbol],
@@ -249,29 +301,33 @@ def arrange(
 
     Fingerstyle arranges ``candidates`` pieces, candidate k from the k-th of
     :func:`candidate_seeds`, and keeps the one with the best
-    :func:`score_arrangement` (ties go to the lowest k; v5 spec 5.4). With
-    ``seed=None`` a base seed is drawn once. Strum and arpeggio ignore
-    ``candidates``.
+    :func:`score_arrangement` (ties go to the lowest k; v5 spec 5.4): the
+    first of :func:`arrange_candidates`. With ``seed=None`` a base seed is
+    drawn once. Strum and arpeggio ignore ``candidates``.
     """
-    _validate(scale, progression, bars_per_chord)
-    if candidates < 1:
-        raise ValueError(f"candidates must be >= 1, got {candidates}")
-    if style == "fingerstyle":
-        base = seed if seed is not None else int(np.random.default_rng().integers(2**31))
-        arrangements = [
-            _arrange_fingerstyle(scale, progression, bars_per_chord, tempo_bpm, tuning, s)
-            for s in candidate_seeds(base, candidates)
-        ]
-        scores = [
-            score_arrangement(
-                a, progression, bars_per_chord=bars_per_chord, tempo_bpm=tempo_bpm, tuning=tuning
-            )
-            for a in arrangements
-        ]
-        k = max(range(candidates), key=scores.__getitem__)  # max() keeps the first best
-        return dataclasses.replace(
-            arrangements[k], candidates=candidates, chosen_candidate=k, score=scores[k]
-        )
+    return arrange_candidates(
+        scale,
+        progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        style=style,
+        tuning=tuning,
+        seed=seed,
+        candidates=candidates,
+    )[0]
+
+
+def _arrange_single(
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    style: Literal["arpeggio", "strum", "fingerstyle"],
+    tuning: Tuning,
+    seed: int | None,
+) -> Arrangement:
+    """The strum or arpeggio arrangement: one shape per chord, a melody above
+    the shapes' defining tones, the accompaniment thinned around it."""
     voicings = tuple(voicings_for(c, tuning)[0] for c in progression)
     melody = tuple(
         generate_melody(
@@ -346,6 +402,89 @@ def compose(
     )
 
 
+def _render_fingerstyle_wav(
+    arrangement: Arrangement,
+    wav_path: Path,
+    *,
+    sound: Literal["soundfont", "plucked"],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+    humanize_seed: int,
+) -> None:
+    """The fingerstyle WAV of ``arrangement``, its strokes micro-timed by
+    :func:`humanize` (v5 spec 5.1): plucked from the humanized tab, or the
+    soundfont from a temporary performance MIDI next to ``wav_path``,
+    deleted after rendering."""
+    if sound == "plucked":
+        tabbed = [
+            *_humanized_tab(arrangement.melody_tab, humanize_seed),
+            *_humanized_tab(arrangement.accompaniment_tab, humanize_seed),
+        ]
+        render_plucked(tabbed, tuning, wav_path, seed=humanize_seed)
+        return
+    performance_path = wav_path.with_suffix(".performance.mid")
+    build_midi(
+        melody=humanize(arrangement.melody, seed=humanize_seed),
+        voicings=arrangement.voicings,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        style="fingerstyle",
+        out_path=performance_path,
+        tuning=tuning,
+        accompaniment=humanize(arrangement.accompaniment, seed=humanize_seed),
+    )
+    try:
+        render_wav(performance_path, wav_path)
+    finally:
+        performance_path.unlink(missing_ok=True)
+
+
+def _rank_by_audio(
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    *,
+    bars_per_chord: int,
+    tempo_bpm: float,
+    tuning: Tuning,
+    seed: int | None,
+    candidates: int,
+    sound: Literal["soundfont", "plucked"],
+    humanize_seed: int,
+) -> tuple[Arrangement, dict[str, float]]:
+    """The fingerstyle candidate the audio re-rank keeps, and its ``CE`` and
+    ``PQ``: the top ``RANK_AUDIO_TOP_K`` by symbolic score are rendered to
+    temporary WAVs, removed once scored (v5 spec 5.4)."""
+    from music_decoder.compose.ml import aesthetics
+
+    scorer = aesthetics.load_scorer()  # fails before any work without the extra
+    top = arrange_candidates(
+        scale,
+        progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        style="fingerstyle",
+        tuning=tuning,
+        seed=seed,
+        candidates=candidates,
+    )[:RANK_AUDIO_TOP_K]
+    with tempfile.TemporaryDirectory(prefix="music-decoder-rank-") as tmp:
+        wavs = [Path(tmp) / f"candidate-{i}.wav" for i in range(len(top))]
+        for candidate, wav in zip(top, wavs, strict=True):
+            _render_fingerstyle_wav(
+                candidate,
+                wav,
+                sound=sound,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+                tuning=tuning,
+                humanize_seed=humanize_seed,
+            )
+        rows = scorer.score(wavs)
+    best = aesthetics.choose_by_audio(top, rows)
+    return top[best], {"CE": rows[best]["CE"], "PQ": rows[best]["PQ"]}
+
+
 def compose_with_options(
     scale: Scale,
     progression: Sequence[ChordSymbol],
@@ -357,10 +496,12 @@ def compose_with_options(
     seed: int | None = None,
     out_dir: Path,
     sound: Literal["soundfont", "plucked"] = "soundfont",
+    rank_audio: bool = False,
     candidates: int = 12,
 ) -> Composition:
-    """compose() plus the choice of ``sound`` and of the number of fingerstyle
-    ``candidates`` (v5 spec 5.4; strum and arpeggio ignore it).
+    """compose() plus the choice of ``sound``, of the number of fingerstyle
+    ``candidates`` and of the audio re-rank (v5 spec 5.4; strum and arpeggio
+    ignore both).
 
     ``composition.mid`` and the tab are the on-grid part, whatever the sound.
     With ``sound="soundfont"`` the fingerstyle WAV is rendered from a
@@ -369,17 +510,39 @@ def compose_with_options(
     ``sound="plucked"`` the WAV comes from :func:`render_plucked`: for
     fingerstyle from the humanized tab, for strum and arpeggio from the notes
     of ``composition.mid`` on their lowest-fret strings.
+
+    With ``rank_audio`` (fingerstyle only, needs the ``ml`` extra and the
+    weights, else :class:`~music_decoder.compose.ml.MLUnavailableError`), the
+    top ``RANK_AUDIO_TOP_K`` candidates by symbolic score are rendered with
+    ``sound`` to temporary WAVs and scored by Audiobox Aesthetics; only the
+    chosen one is written.
     """
-    arrangement = arrange(
-        scale,
-        progression,
-        bars_per_chord=bars_per_chord,
-        tempo_bpm=tempo_bpm,
-        style=style,
-        tuning=tuning,
-        seed=seed,
-        candidates=candidates,
-    )
+    rank_audio = rank_audio and style == "fingerstyle"
+    humanize_seed = seed if seed is not None else 0
+    audio_scores: dict[str, float] | None = None
+    if rank_audio:
+        arrangement, audio_scores = _rank_by_audio(
+            scale,
+            progression,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            tuning=tuning,
+            seed=seed,
+            candidates=candidates,
+            sound=sound,
+            humanize_seed=humanize_seed,
+        )
+    else:
+        arrangement = arrange(
+            scale,
+            progression,
+            bars_per_chord=bars_per_chord,
+            tempo_bpm=tempo_bpm,
+            style=style,
+            tuning=tuning,
+            seed=seed,
+            candidates=candidates,
+        )
 
     payload_hash = hashlib.sha1(
         f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}".encode()
@@ -400,32 +563,19 @@ def compose_with_options(
         accompaniment=arrangement.accompaniment if style == "fingerstyle" else None,
     )
     wav_path = work / "composition.wav"
-    humanize_seed = seed if seed is not None else 0
-    if sound == "plucked":
-        if style == "fingerstyle":
-            tabbed = [
-                *_humanized_tab(arrangement.melody_tab, humanize_seed),
-                *_humanized_tab(arrangement.accompaniment_tab, humanize_seed),
-            ]
-        else:
-            tabbed = list(tab_for_midi_notes(_midi_notes(midi_path), tuning))
-        render_plucked(tabbed, tuning, wav_path, seed=humanize_seed)
-    elif style == "fingerstyle":
-        performance_path = work / "composition.performance.mid"
-        build_midi(
-            melody=humanize(arrangement.melody, seed=humanize_seed),
-            voicings=arrangement.voicings,
+    if style == "fingerstyle":
+        _render_fingerstyle_wav(
+            arrangement,
+            wav_path,
+            sound=sound,
             bars_per_chord=bars_per_chord,
             tempo_bpm=tempo_bpm,
-            style=style,
-            out_path=performance_path,
             tuning=tuning,
-            accompaniment=humanize(arrangement.accompaniment, seed=humanize_seed),
+            humanize_seed=humanize_seed,
         )
-        try:
-            render_wav(performance_path, wav_path)
-        finally:
-            performance_path.unlink(missing_ok=True)
+    elif sound == "plucked":
+        tabbed = list(tab_for_midi_notes(_midi_notes(midi_path), tuning))
+        render_plucked(tabbed, tuning, wav_path, seed=humanize_seed)
     else:
         render_wav(midi_path, wav_path)
 
@@ -468,5 +618,7 @@ def compose_with_options(
             "score": arrangement.score,
             "final_fallback": arrangement.final_fallback,
             "identity_misses": list(arrangement.identity_misses),
+            "rank_audio": rank_audio,
+            "audio_scores": audio_scores,
         },
     )
