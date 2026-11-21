@@ -100,3 +100,18 @@ def test_config_is_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
         ProductionConfig().mix.bass_dbfs = 0.0  # type: ignore[misc]
     assert Grid(beat_s=0.5).samples(1.0) == 44_100
+
+
+def test_poprap_defaults_are_the_spike_take_a():
+    cfg = ProductionConfig()
+    assert cfg.style == "boom-bap"
+    assert cfg.poprap.lead == "guitar"
+    assert cfg.poprap.mix.drums_dbfs == -14.5
+    assert cfg.poprap.mix.lead_guitar_dbfs == -18.0
+    assert cfg.poprap.drums.kick_steps_odd == (0, 3, 10, 14)
+    assert cfg.poprap.form.section_target_bars == 16
+
+
+def test_poprap_config_is_frozen():
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        ProductionConfig().poprap.lead = "synth"  # type: ignore[misc]

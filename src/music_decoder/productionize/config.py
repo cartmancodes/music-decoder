@@ -24,6 +24,8 @@ PianoTexture = Literal["as_composed", "held_chords", "accompaniment_only"]
 ChordVoicing = Literal["shapes", "voice_led"]
 VerseMelody = Literal["full", "skeleton", "guide_line"]
 EqKind = Literal["peak", "low_shelf", "high_shelf"]
+ProductionStyle = Literal["boom-bap", "pop-rap"]
+PopRapLead = Literal["guitar", "synth"]
 
 
 # ---- Grid and form ---------------------------------------------------------
@@ -712,11 +714,170 @@ class QcConfig:
     octave_fft: int = 2048
 
 
+# ---- Pop-rap style ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PopRapFormConfig:
+    """Bar counts and tail lengths of the pop-rap form."""
+
+    intro_bars: int = 8
+    section_target_bars: int = 16
+    outro_bars: int = 4
+    final_chord_bars: int = 2
+    intro_hats_from_bar: int = 4
+    riser_bars: int = 2
+    tail_s: float = 3.0
+    fade_out_s: float = 3.0
+    fade_out_curve: float = 2.0
+
+
+@dataclass(frozen=True)
+class TrapDrumsConfig:
+    """Trap-style drum pattern, in 16th steps of a bar, and its processing."""
+
+    kick_steps_even: tuple[int, ...] = (0, 6, 11)
+    kick_steps_odd: tuple[int, ...] = (0, 3, 10, 14)
+    clap_step: int = 8
+    clap_gain: float = 0.9
+    ghost_clap_step: int = 15  # bars with b % 4 == 3
+    ghost_clap_gain: float = 0.35
+    hat_odd_bar_16ths_from: int = 12
+    hat_accent: float = 1.0
+    hat_soft: float = 0.7
+    hat_pan: float = 0.25
+    roll_hits: int = 6
+    roll_start_beat: int = 3
+    roll_velocity: float = 0.5
+    roll_velocity_step: float = 0.08
+    open_hat_step: int = 14  # bars with b % 4 == 2
+    open_hat_velocity: float = 0.8
+    open_hat_pan: float = -0.2
+    crash_pan: float = -0.3
+    riser_gain: float = 0.5
+    sub_gain: float = 0.9
+    sub_punch_ratio: float = 4.5
+    sub_punch_s: float = 0.025
+    sub_decay_s: float = 1.4
+    sub_choke_s: float = 0.06
+    sub_drive: float = 2.4
+    sub_tail_s: float = 0.25
+    sidechain_depth: float = 0.55
+    sidechain_release_s: float = 0.18
+
+
+@dataclass(frozen=True)
+class PadConfig:
+    """Detuned pad under the chords: unison spread, filter and envelope."""
+
+    detune_semitones: tuple[float, ...] = (-0.12, -0.05, 0.0, 0.06, 0.13)
+    lowpass_hz: float = 1600.0
+    attack_s: float = 0.35
+    decay_s: float = 1.0
+    sustain: float = 0.85
+    release_s: float = 0.6
+    release_tail_s: float = 0.8
+    final_chord_gain: float = 0.9
+
+
+@dataclass(frozen=True)
+class PluckConfig:
+    """Short plucked chord stabs: envelope, square-wave blend and stereo spread."""
+
+    decay_s: float = 0.35
+    max_length_s: float = 1.2
+    tail_s: float = 0.4
+    square_level: float = 0.15
+    lowpass_hz: float = 2600.0
+    pan_spread: float = 0.35
+
+
+@dataclass(frozen=True)
+class SynthLeadConfig:
+    """Synth lead: an octave-up detuned saw pair with a small sub square and vibrato."""
+
+    octave: int = 12
+    detune_semitones: float = 0.09
+    second_saw: float = 0.8
+    sub_square: float = 0.25
+    glide_s: float = 0.035
+    vibrato_semitones: float = 0.18
+    vibrato_hz: float = 5.2
+    gate_s: float = 0.008
+    lowpass_hz: float = 3200.0
+
+
+@dataclass(frozen=True)
+class GuitarLeadConfig:
+    """Guitar lead rendered by FluidSynth, then shaped by a mid-band drive."""
+
+    octave: int = 0
+    program: int = 29  # General MIDI program, 0-based
+    velocity: int = 100
+    soundfont: str = ""
+    fluidsynth_gain: float = 0.6
+    mid_band_hz: tuple[float, float] = (500.0, 2500.0)
+    mid_gain: float = 1.5
+    dry_gain: float = 0.6
+    drive: float = 2.2
+    lowpass_hz: float = 4800.0
+    highpass_hz: float = 120.0
+
+
+@dataclass(frozen=True)
+class LeadBusConfig:
+    """Delay and doubling shared by whichever lead is chosen."""
+
+    delay_beats: float = 0.75
+    delay_first: float = 0.28
+    delay_second: float = 0.18
+    plate_send: float = 0.22
+    double_gain: float = 0.35
+    double_pan: float = 0.3
+
+
+@dataclass(frozen=True)
+class PopRapMixConfig:
+    """Pop-rap bus levels in dBFS, and the reverb sends."""
+
+    drums_dbfs: float = -14.5
+    sub_dbfs: float = -20.0
+    pad_dbfs: float = -27.0
+    pluck_dbfs: float = -27.5
+    fx_dbfs: float = -30.0
+    lead_guitar_dbfs: float = -18.0
+    lead_synth_dbfs: float = -16.5
+    peak_ratio: float = 2.6  # drums and 808 soft-limited at this multiple of their RMS
+    drums_plate_send: float = 0.12
+    pad_hall_send: float = 0.35
+    pluck_hall_send: float = 0.30
+    fx_hall_send: float = 0.40
+    sub_highpass_hz: float = 28.0
+    silence: float = 1e-5
+
+
+@dataclass(frozen=True)
+class PopRapConfig:
+    """Every number of the pop-rap style. Defaults are the spike's take A."""
+
+    lead: PopRapLead = "guitar"
+    seed: int = 1871
+    form: PopRapFormConfig = PopRapFormConfig()
+    drums: TrapDrumsConfig = TrapDrumsConfig()
+    pad: PadConfig = PadConfig()
+    pluck: PluckConfig = PluckConfig()
+    synth_lead: SynthLeadConfig = SynthLeadConfig()
+    guitar_lead: GuitarLeadConfig = GuitarLeadConfig()
+    lead_bus: LeadBusConfig = LeadBusConfig()
+    mix: PopRapMixConfig = PopRapMixConfig()
+
+
 # ---- The whole recipe ------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ProductionConfig:
+    style: ProductionStyle = "boom-bap"
     drums: DrumsConfig = DrumsConfig()
     bass: BassConfig = BassConfig()
     piano: PianoConfig = PianoConfig()
@@ -728,6 +889,7 @@ class ProductionConfig:
     master: MasterConfig = MasterConfig()
     qc: QcConfig = QcConfig()
     arrange: ComposerArrangeConfig = field(default_factory=ComposerArrangeConfig)
+    poprap: PopRapConfig = PopRapConfig()
 
 
 def with_percussion(
