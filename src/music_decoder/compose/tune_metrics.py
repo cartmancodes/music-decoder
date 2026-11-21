@@ -121,18 +121,23 @@ def grid_features(
     mode: Mode,
     chord_tones: Sequence[frozenset[int]],
     seconds_per_bar: float,
+    tail_window: bool = False,
 ) -> dict[str, float]:
     """Features of a melody on the eighth grid, averaged over 8-bar windows.
 
     A trailing window shorter than 8 bars is ignored, unless the whole piece is
-    shorter than 8 bars, when it is the one window. ``chord_tone_strong`` is
-    averaged over the windows that have a note on slot 0 or 4 and left out when
-    none does.
+    shorter than 8 bars, when it is the one window. With ``tail_window`` a piece
+    of more than 8 bars that is not a whole number of windows also gets the
+    window of its last 8 bars (overlapping the one before), so its ending is
+    scored. ``chord_tone_strong`` is averaged over the windows that have a note
+    on slot 0 or 4 and left out when none does.
     """
     if n_bars < WINDOW_BARS:
         starts, bars = [0], n_bars
     else:
         starts, bars = list(range(0, n_bars - n_bars % WINDOW_BARS, WINDOW_BARS)), WINDOW_BARS
+        if tail_window and n_bars > WINDOW_BARS and n_bars % WINDOW_BARS:
+            starts.append(n_bars - WINDOW_BARS)
     windows = [
         _window_features(
             notes,
@@ -177,6 +182,7 @@ def tune_features(
         mode=scale.mode,
         chord_tones=chord_tones,
         seconds_per_bar=8 * eighth_s,
+        tail_window=True,
     )
 
 

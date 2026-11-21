@@ -115,3 +115,61 @@ def test_band_distance():
     assert band_distance({"repeat": 0.2, "range": 14.0}, bands) == 0.0
     f = {"repeat": 0.5, "range": 10.0, "offbeat": 0.5, "leap": 0.9}
     assert band_distance(f, bands) == pytest.approx(1.0 + 0.5 + 2.0)
+
+
+def _melody_with_ending(n_bars, ending_notes):
+    """Bars 0-7 identical; ``ending_notes`` eighths spread over the bars after bar 7."""
+    head = [(s, 60 + s % 5) for s in range(0, 64, 4)]
+    first, last = 64, n_bars * 8
+    step = max(1, (last - first) // ending_notes)
+    tail = [(s, 60 + s % 7) for s in range(first, last, step)][:ending_notes]
+    return _notes(head + tail)
+
+
+def _tail_features(notes, n_bars, *, tail_window):
+    return grid_features(
+        notes,
+        n_bars=n_bars,
+        tonic_pc=0,
+        mode="major",
+        chord_tones=C_MAJOR * 2,
+        seconds_per_bar=2.0,
+        tail_window=tail_window,
+    )
+
+
+@pytest.mark.parametrize("n_bars", [9, 12, 15])
+def test_tail_window_sees_the_ending(n_bars):
+    sparse = _melody_with_ending(n_bars, 4)
+    busy = _melody_with_ending(n_bars, 32)
+    assert _tail_features(sparse, n_bars, tail_window=False) == _tail_features(
+        busy, n_bars, tail_window=False
+    )
+    assert _tail_features(sparse, n_bars, tail_window=True) != _tail_features(
+        busy, n_bars, tail_window=True
+    )
+
+
+@pytest.mark.parametrize("n_bars", [8, 16])
+def test_tail_window_is_a_no_op_on_whole_windows(n_bars):
+    notes = _melody_with_ending(n_bars, 6)
+    assert _tail_features(notes, n_bars, tail_window=True) == _tail_features(
+        notes, n_bars, tail_window=False
+    )
+
+
+def test_tune_features_scores_the_ending():
+    scale = Scale.parse("C:major")
+    prog = [ChordSymbol.parse(c) for c in ("C", "G", "F")]
+    e = 60.0 / 120 / 2
+
+    def melody(ending):
+        slots = [*range(0, 64, 4), *ending]  # 12 bars = 96 slots; bars 8-11 start at slot 64
+        return [
+            Note(start_s=s * e, end_s=s * e + 0.2, pitch=60 + s % 7, velocity=80, confidence=1.0)
+            for s in slots
+        ]
+
+    sparse = tune_features(melody([64, 80]), scale, prog, bars_per_chord=4, tempo_bpm=120.0)
+    busy = tune_features(melody(range(64, 96)), scale, prog, bars_per_chord=4, tempo_bpm=120.0)
+    assert sparse != busy

@@ -65,8 +65,8 @@ def test_rules_engine_is_unchanged(rules_fixture):
 def test_arrange_defaults_to_rules_and_compose_to_tune(tmp_path, fake_wav):
     assert arrange(SCALE, PROG, seed=3) == arrange(SCALE, PROG, seed=3, melody_engine="rules")
     c = compose(SCALE, PROG, seed=3, out_dir=tmp_path / "a")
-    assert c.metadata["melody_engine"] == "tune" and c.metadata["composer_version"] == 6
-    assert COMPOSER_VERSION == 6
+    assert c.metadata["melody_engine"] == "tune" and c.metadata["composer_version"] == 7
+    assert COMPOSER_VERSION == 7
     r = compose_with_options(SCALE, PROG, seed=3, out_dir=tmp_path / "b", melody_engine="rules")
     assert r.metadata["melody_engine"] == "rules"
     assert [n.pitch for n in c.melody_notes] != [n.pitch for n in r.melody_notes]

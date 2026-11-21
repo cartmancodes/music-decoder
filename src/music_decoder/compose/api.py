@@ -56,7 +56,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 6
+COMPOSER_VERSION = 7
 
 # MelodyEngine is re-exported from scoring, which defines it because api imports scoring.
 
