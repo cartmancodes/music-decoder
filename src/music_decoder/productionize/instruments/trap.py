@@ -9,15 +9,11 @@ constants below.
 from __future__ import annotations
 
 import numpy as np
-from scipy import signal
 
 from music_decoder.productionize import dsp
 from music_decoder.productionize.config import TrapDrumsConfig
 from music_decoder.productionize.dsp import Audio
 from music_decoder.productionize.instruments.bass import midi_to_hz
-
-# Filter design: coefficient places kept, to hide ulp-level noise in scipy's design.
-_COEFF_DECIMALS = 12
 
 # 808 click: a 4 ms decaying noise burst on the first samples.
 _SUB_CLICK_S = 0.004
@@ -69,17 +65,6 @@ _RISER_CEILING_HZ = 20000.0
 _RISER_START_LEVEL = 0.05
 
 
-def _butter(order: int, wn: float | tuple[float, float], btype: str, sr: int) -> Audio:
-    """Butterworth second-order sections with coefficients rounded to 12 places.
-
-    ``signal.butter`` is not bit-reproducible here: a coefficient can differ by one
-    ulp between calls (it depends on memory layout), which would make a clip differ
-    between two renders from the same generator. Rounding hides that noise.
-    """
-    sos = signal.butter(order, wn, btype, fs=sr, output="sos")
-    return np.asarray(np.round(sos, _COEFF_DECIMALS), dtype=np.float64)
-
-
 def sub_808(
     pitch: int, length_s: float, cfg: TrapDrumsConfig, sr: int, rng: np.random.Generator
 ) -> Audio:
@@ -113,6 +98,7 @@ def kick_punch(sr: int, rng: np.random.Generator) -> Audio:
 
 
 def clap(sr: int, rng: np.random.Generator) -> Audio:
+    """Three quick noise hands and a tail, band-passed, over a short snare-body sine."""
     n = int(_CLAP_LENGTH_S * sr)
     t = np.arange(n) / sr
     noise = rng.standard_normal(n)
@@ -123,26 +109,25 @@ def clap(sr: int, rng: np.random.Generator) -> Audio:
     env += np.where(
         t >= tail_from, _CLAP_TAIL_GAIN * np.exp(-(t - tail_from) / _CLAP_TAIL_DECAY_S), 0.0
     )
-    sos = _butter(2, _CLAP_BAND_HZ, "bandpass", sr)
-    x = signal.sosfilt(sos, noise * env)
+    x = dsp.butter(noise * env, "bandpass", _CLAP_BAND_HZ, sr, 2, stable=True)
     body = np.sin(2.0 * np.pi * _CLAP_BODY_HZ * t) * np.exp(-t / _CLAP_BODY_DECAY_S)
     return np.asarray(x / np.abs(x).max() + body * _CLAP_BODY_GAIN, dtype=np.float64)
 
 
 def hat(open_: bool, velocity: float, sr: int, rng: np.random.Generator) -> Audio:
+    """High-passed noise tick: closed (0.045 s) or open (0.32 s), scaled by ``velocity``."""
     dur = _HAT_OPEN_S if open_ else _HAT_CLOSED_S
     n = int(dur * sr)
     t = np.arange(n) / sr
-    sos = _butter(4, _HAT_HIGHPASS_HZ, "highpass", sr)
-    x = signal.sosfilt(sos, rng.standard_normal(n))
+    x = dsp.butter(rng.standard_normal(n), "highpass", _HAT_HIGHPASS_HZ, sr, 4, stable=True)
     return np.asarray(x * np.exp(-t / (dur / 4.0)) * velocity * _HAT_GAIN, dtype=np.float64)
 
 
 def crash(sr: int, rng: np.random.Generator) -> Audio:
+    """2.5 s of high-passed noise with a slow decay."""
     n = int(_CRASH_LENGTH_S * sr)
     t = np.arange(n) / sr
-    sos = _butter(2, _CRASH_HIGHPASS_HZ, "highpass", sr)
-    x = signal.sosfilt(sos, rng.standard_normal(n))
+    x = dsp.butter(rng.standard_normal(n), "highpass", _CRASH_HIGHPASS_HZ, sr, 2, stable=True)
     return np.asarray(x * np.exp(-t / _CRASH_DECAY_S) * _CRASH_GAIN, dtype=np.float64)
 
 
@@ -155,6 +140,5 @@ def riser(length_s: float, sr: int, rng: np.random.Generator) -> Audio:
         lo, hi = b * n // _RISER_BLOCKS, (b + 1) * n // _RISER_BLOCKS
         fc = _RISER_START_HZ * (_RISER_SWEEP_RATIO ** (b / _RISER_BLOCKS))
         band = (fc * _RISER_BAND[0], min(fc * _RISER_BAND[1], _RISER_CEILING_HZ))
-        sos = _butter(2, band, "bandpass", sr)
-        out[lo:hi] = signal.sosfilt(sos, noise[lo:hi])
+        out[lo:hi] = dsp.butter(noise[lo:hi], "bandpass", band, sr, 2, stable=True)
     return np.asarray(out * np.linspace(_RISER_START_LEVEL, 1.0, n) ** 2, dtype=np.float64)

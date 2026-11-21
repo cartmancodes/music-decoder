@@ -52,6 +52,24 @@ def test_butter_highpass_removes_lows_and_keeps_highs():
     assert dsp.rms_db(high[SR // 2 :]) == pytest.approx(dsp.rms_db(_sine(3000.0)), abs=0.1)
 
 
+def test_butter_stable_is_identical_across_redesigns_and_close_to_default():
+    x = np.random.default_rng(3).standard_normal(SR)
+    band = (300.0 * 40 ** (61 / 64) * 0.7, 300.0 * 40 ** (61 / 64) * 1.4)
+    outs = []
+    for _ in range(20):
+        dsp._stable_sos.cache_clear()  # force a fresh design each time
+        _ = np.empty(1000 + len(outs))  # shift the allocator between designs
+        outs.append(dsp.butter(x, "bandpass", band, SR, 2, stable=True))
+    assert all(np.array_equal(outs[0], o) for o in outs)
+    assert np.allclose(outs[0], dsp.butter(x, "bandpass", band, SR, 2), atol=1e-9)
+
+
+def test_butter_default_path_is_plain_sosfilt():
+    x = np.random.default_rng(3).standard_normal(SR)
+    sos = signal.butter(2, 800.0, btype="lowpass", fs=SR, output="sos")
+    assert np.array_equal(dsp.butter(x, "lowpass", 800.0, SR), signal.sosfilt(sos, x, axis=0))
+
+
 def test_compressor_is_unity_below_threshold():
     cfg = CompressorConfig(rms_multiple=1.0, ratio=4.0, attack_s=0.005, release_s=0.1)
     x = _sine(220.0, amp=0.1)

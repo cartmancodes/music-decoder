@@ -35,6 +35,7 @@ def test_sub_808_is_choked_after_its_length():
     x = sub_808(37, 1.0, CFG, SR, np.random.default_rng(1))
     tail = _rms(x[-int(0.1 * SR) :])
     body = _rms(x[int(0.1 * SR) : int(0.5 * SR)])
+    # The spike's values (0.06 s choke, 0.25 s tail, drive 2.4) measure about -27.8 dB.
     assert 20 * np.log10(tail / body) <= -25.0
 
 
