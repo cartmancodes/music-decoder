@@ -16,7 +16,7 @@ from music_decoder.productionize.poprap import PopRapSong
 from music_decoder.productionize.poprap_mix import POPRAP_STEMS
 from music_decoder.productionize.samples import SampleError
 from music_decoder.types import ChordSymbol, Composition, Scale
-from tests.productionize_helpers import SR, fake_store, tiny_song
+from tests.productionize_helpers import SR, fake_store, needs_guitar, tiny_song
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 PROGRESSION = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
@@ -194,7 +194,23 @@ def test_poprap_progression_must_divide_the_bars(composition_dir, tmp_path):
         productionize(composition_dir, out_dir=tmp_path / "out", config=POPRAP, progression=three)
 
 
+def test_poprap_needs_fluidsynth_and_a_soundfont_before_it_writes_anything(
+    composition_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    out = tmp_path / "out"
+    with pytest.raises(ProductionError, match="fluidsynth"):
+        productionize(composition_dir, out_dir=out, config=POPRAP, progression=PROGRESSION)
+    assert not out.exists()
+    monkeypatch.undo()
+    monkeypatch.setattr("music_decoder.synth._resolve_soundfont_path", lambda: None)
+    with pytest.raises(ProductionError, match="soundfont"):
+        productionize(composition_dir, out_dir=out, config=POPRAP, progression=PROGRESSION)
+    assert not out.exists()
+
+
 @needs_ffmpeg
+@needs_guitar
 def test_poprap_production_writes_master_mp3_stems_and_report(composition_dir, tmp_path):
     stages = []
     result = productionize(
@@ -251,6 +267,7 @@ def _spy_master(monkeypatch):
 
 
 @needs_ffmpeg
+@needs_guitar
 def test_poprap_mp3_guard_remasters_with_a_lower_ceiling(composition_dir, tmp_path, monkeypatch):
     api, ceilings = _spy_master(monkeypatch)
     measured = iter([-0.5, -1.4])  # hot, then passing
@@ -275,6 +292,7 @@ def test_poprap_mp3_guard_remasters_with_a_lower_ceiling(composition_dir, tmp_pa
 
 
 @needs_ffmpeg
+@needs_guitar
 def test_poprap_mp3_guard_stops_after_its_attempts(composition_dir, tmp_path, monkeypatch):
     api, ceilings = _spy_master(monkeypatch)
     monkeypatch.setattr(api, "mp3_true_peak_dbtp", lambda mp3, cfg: -0.5)

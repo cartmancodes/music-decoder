@@ -16,6 +16,7 @@ from music_decoder.productionize.config import (
     PopRapConfig,
     ProductionConfig,
 )
+from music_decoder.productionize.instruments import synths
 from music_decoder.productionize.master import (
     MasterReport,
     encode_mp3,
@@ -206,6 +207,8 @@ def _productionize_poprap(
     song = resolve_poprap_song(
         source, cfg=cfg.poprap, progression=progression, title=title, key=key
     )
+    # Both leads need the guitar (the synth lead's hook-2 double), so look before writing.
+    synths.require_guitar(cfg.poprap.guitar_lead)
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="productionize-") as tmp:
         mix = render_poprap_mix(song, cfg.poprap, Path(tmp), cb)

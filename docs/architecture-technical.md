@@ -2056,7 +2056,13 @@ synthesized in code (the guitar lead is the one exception: FluidSynth
 plays the installed soundfont). The mix then goes through the same
 `master.py` and `qc.py`; the checks that compare against a reference
 master report only values for a song without one. The two styles share
-the export step in `api.py`, and the boom-bap path is unchanged.
+the export step in `api.py`, and the boom-bap path is unchanged. For
+pop-rap, `poprap_mix.py` rolls the drums and fx off above 16 kHz (the
+bright low-pass); after the MP3 is encoded, `api.py` measures its true
+peak and, if it is too close to the ceiling, masters again with a lower
+one (at most 3 times, recorded as `mp3_guard_passes`); and `qc.py`
+reports the beat jitter without checking it, because a beat tracker is
+unreliable on half-time trap.
 
 ### 17.2 Modules
 
@@ -2123,7 +2129,7 @@ back to its full-drum sections, then to all sections.
 `tests/integration/test_productionize_e2e.py` renders the reference
 song and a composer take with the real samples, and a pop-rap song
 with each lead, and requires every acceptance check to pass (for pop-rap
-also the drums' and 808's energy shares in the hooks); it needs ffmpeg, fluidsynth and network on
-its first run (~180 MB of samples, ~2.7 GB of memory per render), so it
-is opt-in: `make test-production` (or `MUSIC_DECODER_PRODUCTION_E2E=1`).
-`make test` skips it.
+also the drums' and 808's energy shares in the hooks); it needs ffmpeg,
+fluidsynth and network on its first run (~180 MB of samples, ~2.7 GB of
+memory per render), so it is opt-in: `make test-production` (or
+`MUSIC_DECODER_PRODUCTION_E2E=1`). `make test` skips it.

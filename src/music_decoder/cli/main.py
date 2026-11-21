@@ -363,7 +363,8 @@ def cli_productionize(
     SOURCE is a folder written by `compose` or its composition.mid.
     """
     if source is None and not hisaab:
-        raise click.UsageError("give a composition folder or MIDI file (or --hisaab)")
+        suffix = "" if style == "pop-rap" else " (or --hisaab)"
+        raise click.UsageError(f"give a composition folder or MIDI file{suffix}")
     if style == "pop-rap":
         verse_given = ctx.get_parameter_source("verse") is ParameterSource.COMMANDLINE
         for given, option in (

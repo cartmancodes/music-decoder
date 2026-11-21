@@ -884,7 +884,6 @@ class PopRapConfig:
 
 @dataclass(frozen=True)
 class ProductionConfig:
-    style: ProductionStyle = "boom-bap"
     drums: DrumsConfig = DrumsConfig()
     bass: BassConfig = BassConfig()
     piano: PianoConfig = PianoConfig()
@@ -897,6 +896,7 @@ class ProductionConfig:
     qc: QcConfig = QcConfig()
     arrange: ComposerArrangeConfig = field(default_factory=ComposerArrangeConfig)
     poprap: PopRapConfig = PopRapConfig()
+    style: ProductionStyle = "boom-bap"
 
 
 def with_percussion(

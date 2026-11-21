@@ -390,8 +390,9 @@ def run_qc(
         nxt = dsp.rms(x[end : end + beat]) / reference_bar
         last_shown.append(f"{last:.2f}")
         first_shown.append(f"{nxt:.2f}")
-        # Only where the groove carries on must the level carry on too.
-        if song.sections[i].drums in grooves and song.sections[i + 1].drums in grooves:
+        # Only where the groove carries on must the level carry on too. A drop bar is a
+        # break at the section's own end but carries the groove at its start.
+        if song.sections[i].drums in grooves and song.sections[i + 1].drums in (*grooves, "drop"):
             last_ok &= _between(last, cfg.last_beat_ratio)
             first_ok &= _between(nxt, cfg.first_beat_ratio)
     add(

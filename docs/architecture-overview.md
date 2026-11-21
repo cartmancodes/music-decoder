@@ -157,8 +157,9 @@ technical faults; whether it sounds good is still for your ears.
 
 A second style, pop-rap, gives the same sketch a different record: trap
 drums, a sine 808 on the chord roots, a soft pad and pluck, and the melody
-on an electric guitar or a synth. It is built in code rather than from
-recorded samples, and it goes through the same mastering and checks.
+on an electric guitar or a synth. Its instruments are synthesized in code,
+except the guitar, which plays the installed soundfont through FluidSynth;
+it goes through the same mastering and checks.
 
 ---
 

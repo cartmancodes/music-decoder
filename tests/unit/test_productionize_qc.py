@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
@@ -7,6 +7,7 @@ from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import build_midi
 from music_decoder.productionize import dsp
 from music_decoder.productionize.config import (
+    Grid,
     MasterConfig,
     PopRapConfig,
     PopRapFormConfig,
@@ -29,6 +30,7 @@ from music_decoder.productionize.qc import (
     tail_peak_db,
 )
 from music_decoder.types import ChordSymbol, Scale
+from tests.productionize_helpers import needs_guitar
 
 SR = 44_100
 
@@ -125,6 +127,7 @@ def test_report():
     assert QcReport((Check("a", True, "", ""), Check("b", None, "", ""))).passed
 
 
+@needs_guitar
 def test_run_qc_accepts_a_poprap_song_and_a_16th_grid(tmp_path):
     progression = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
     form = replace(PopRapFormConfig(), intro_bars=2, section_target_bars=8, outro_bars=1)
@@ -184,3 +187,62 @@ def test_run_qc_accepts_a_poprap_song_and_a_16th_grid(tmp_path):
         c.name for c in report.failures if c.name != "beat jitter"
     ]  # the jitter is the only difference; it does not fail the report
     assert len(unchecked.checks) == len(report.checks)
+
+
+_GRID = Grid(beat_s=0.5, bars_per_section=2)
+
+
+@dataclass(frozen=True)
+class _Section:
+    drums: str
+
+
+@dataclass(frozen=True)
+class _Timeline:
+    """Three two-bar sections at 120 BPM; the middle one has the given drum mode."""
+
+    middle: str
+    grid: Grid = _GRID
+    reference: None = None
+    verse_sections: tuple[int, ...] = (1,)
+
+    @property
+    def sections(self):
+        return (_Section("full"), _Section(self.middle), _Section("full"))
+
+    @property
+    def body_s(self):
+        return 3 * self.grid.section_s
+
+    def section_span(self, index):
+        return self.grid.samples(self.grid.time(index)), self.grid.samples(
+            self.grid.time(index + 1)
+        )
+
+
+def _boundary_checks(tmp_path, middle, quiet_beat_of_section_start):
+    """The two boundary checks for a steady noise whose first beat of the section that
+    starts at ``quiet_beat_of_section_start`` is silent (so the beat before it too)."""
+    master_cfg = MasterConfig()
+    song = _Timeline(middle)
+    rng = np.random.default_rng(0)
+    body = 0.1 * rng.standard_normal((song.grid.samples(song.body_s), 2))
+    beat = song.grid.samples(song.grid.beat_s)
+    cut = song.section_span(quiet_beat_of_section_start)[0]
+    body[cut - beat : cut + beat] = 0.0  # the last beat before it and its first beat
+    wav = write_wav(tmp_path / "song.wav", with_lead_in(body, master_cfg, SR), SR, subtype="PCM_24")
+    report = run_qc(song, wav, None, [], QcConfig(), master_cfg, tail_s=0.0, drum_grid="16th")
+    checks = {c.name: c.passed for c in report.checks}
+    return (
+        checks["last beat of a section vs its last bar"],
+        checks["next section's first beat vs that bar"],
+    )
+
+
+def test_a_boundary_into_a_drop_bar_is_checked_and_one_out_of_it_is_not(tmp_path):
+    # full -> drop carries the groove, so a dead last beat there fails.
+    assert _boundary_checks(tmp_path, "drop", 1) == (False, False)
+    # drop -> full is a break, so the same dead beat there is not held against the song.
+    assert _boundary_checks(tmp_path, "drop", 2) == (True, True)
+    # With a groove on both sides, both boundaries are checked.
+    assert _boundary_checks(tmp_path, "full", 2) == (False, False)

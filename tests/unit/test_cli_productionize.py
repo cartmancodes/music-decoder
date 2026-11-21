@@ -194,3 +194,10 @@ def test_poprap_pretty_output_has_no_credit_line_without_credits(tmp_path):
         )
     assert r.exit_code == 0, r.output
     assert "Credit" not in r.output and "WAV:" in r.output
+
+
+def test_a_missing_source_only_suggests_hisaab_for_boom_bap(tmp_path):
+    for style, suggests in (("boom-bap", True), ("pop-rap", False)):
+        r = CliRunner().invoke(main, ["productionize", "--out", str(tmp_path), "--style", style])
+        assert r.exit_code == 2 and "give a composition folder" in r.output
+        assert ("--hisaab" in r.output) is suggests, (style, r.output)

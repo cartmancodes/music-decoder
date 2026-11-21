@@ -1,4 +1,3 @@
-import shutil
 from dataclasses import replace
 
 import numpy as np
@@ -13,14 +12,15 @@ from music_decoder.productionize.poprap_mix import (
     poprap_length,
     render_poprap_mix,
 )
-from music_decoder.synth import _resolve_soundfont_path
 from music_decoder.types import ChordSymbol, Scale
+from tests.productionize_helpers import needs_guitar
 
 PROGRESSION = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
 SHORT_FORM = replace(PopRapFormConfig(), intro_bars=2, section_target_bars=8, outro_bars=1)
 CFG = replace(PopRapConfig(lead="synth"), form=SHORT_FORM)
 SR = 44_100
-HAS_GUITAR = shutil.which("fluidsynth") is not None and _resolve_soundfont_path() is not None
+# Every mix here plays the guitar in hook 2 (the lead, or the synth lead's double).
+pytestmark = needs_guitar
 
 
 def _song(tmp_path, cfg=CFG, tempo_bpm=120.0):
@@ -118,7 +118,6 @@ def test_slow_piece_renders(tmp_path):
     assert np.abs(result.stems["lead"]).max() > 0.0
 
 
-@pytest.mark.skipif(not HAS_GUITAR, reason="needs fluidsynth and a soundfont")
 def test_guitar_mix_renders(tmp_path):
     cfg = replace(CFG, lead="guitar")
     song = _song(tmp_path, cfg)
@@ -141,13 +140,7 @@ def _bad_length_form(song):
 
 @pytest.mark.parametrize(
     "lead",
-    [
-        "synth",
-        pytest.param(
-            "guitar",
-            marks=pytest.mark.skipif(not HAS_GUITAR, reason="needs fluidsynth and a soundfont"),
-        ),
-    ],
+    ["synth", "guitar"],
 )
 def test_lead_fits_buffer_lengths_that_round_down(tmp_path, lead):
     song = _song(tmp_path, replace(CFG, lead=lead))

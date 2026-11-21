@@ -137,6 +137,23 @@ def synth_lead(notes: Sequence[NoteEvent], total_s: float, cfg: SynthLeadConfig,
     return dsp.butter(x, "lowpass", cfg.lowpass_hz, sr, stable=True)
 
 
+def require_guitar(cfg: GuitarLeadConfig) -> Path:
+    """The soundfont the pop-rap guitar plays.
+
+    Raises ``ProductionError`` if FluidSynth or a soundfont is missing.
+
+    The guitar is the lead, or the synth lead's hook-2 double, so both leads need it.
+    """
+    if shutil.which("fluidsynth") is None:
+        raise ProductionError(
+            "the pop-rap guitar (the lead, or the synth lead's hook-2 double) needs the "
+            "fluidsynth command-line tool (brew install fluidsynth / apt install fluidsynth)"
+        )
+    return fluid.find_soundfont(
+        cfg.soundfont, "pop-rap guitar (the lead, or the synth lead's hook-2 double)"
+    )
+
+
 def guitar_lead(
     notes: Sequence[NoteEvent],
     total_s: float,
@@ -150,12 +167,7 @@ def guitar_lead(
     FluidSynth's left and right are averaged to mono and normalized before the amp, so
     ``cfg.fluidsynth_gain`` only sets the render level, not the result.
     """
-    if shutil.which("fluidsynth") is None:
-        raise ProductionError(
-            "the guitar lead needs the fluidsynth command-line tool "
-            "(brew install fluidsynth / apt install fluidsynth)"
-        )
-    soundfont = fluid.find_soundfont(cfg.soundfont, "guitar lead")
+    soundfont = require_guitar(cfg)
     n = int(total_s * sr)
     played = [
         NoteEvent(note.start_s, note.end_s, note.pitch + cfg.octave, cfg.velocity) for note in notes

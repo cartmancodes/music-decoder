@@ -469,7 +469,7 @@ ceiling, and checked.
 - `--style` — `boom-bap` (default, described here) or `pop-rap`, an
   upbeat trap-drum instrumental (see [Pop-rap style](#pop-rap-style)).
 - `--lead` — the pop-rap lead sound: `guitar` (default, an electric
-  guitar) or `synth`. Only with `--style pop-rap`.
+  guitar) or `synth`. Ignored by boom-bap.
 - `--samples-dir` — where samples are kept (default
   `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`). Pop-rap uses no
   samples and ignores it.
@@ -907,11 +907,17 @@ folder rather than overwriting. `--out` from the CLI is the parent
 `--style pop-rap` renders the same composition as an upbeat pop-rap
 instrumental instead: half-time trap drums, a sine 808 on each bar's root,
 a soft saw pad, a plucked copy of the accompaniment, and your melody as the
-lead. Nothing is sampled except the guitar lead, so it needs no download.
+lead. Nothing is sampled except the guitar, so it needs no download.
 The hats and fx are rolled off above 16 kHz, so the MP3 stays under its
 true-peak ceiling. Beat jitter is reported but not checked for pop-rap,
 because the beat tracker is unreliable on half-time trap; the drum-grid
-check covers timing.
+check covers timing, and it uses 16th notes for pop-rap.
+
+After the MP3 is encoded, a guard measures its true peak. If it is too
+close to the ceiling, the track is mastered again with a lower ceiling, at
+most 3 times, and the number of re-masters is recorded as
+`mp3_guard_passes` in the JSON metadata. The guard runs even with
+`--no-qc`.
 
 ```bash
 music-decoder productionize ./out/<take-folder> --style pop-rap \
@@ -941,8 +947,9 @@ The quiet double in hook 2 is the other lead sound.
 - **Boom-bap only:** `--percussion`, `--verse` and `--hisaab` are usage
   errors with `--style pop-rap`.
 - **Lead sound:** the guitar is played from the installed soundfont by
-  FluidSynth. `--lead synth` needs neither the soundfont nor FluidSynth for
-  the lead. The synth is mixed louder than the guitar (-16.5 against -18
+  FluidSynth. Both leads need FluidSynth and the soundfont, because the
+  synth lead's hook-2 double is the guitar. It checks for both before it
+  writes anything. The synth is mixed louder than the guitar (-16.5 against -18
   dBFS RMS), so it sits more forward in the mix.
 - **Source:** it needs composer notes (a melody and an accompaniment), so
   it takes a take folder or `composition.mid`, not a ready song.

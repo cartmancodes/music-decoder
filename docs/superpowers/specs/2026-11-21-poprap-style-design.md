@@ -257,7 +257,8 @@ unchanged.
 ## Calls made after the design review
 
 - **No soundfont for the guitar lead:** raise `ProductionError`, worded
-  like the strings error. The synth lead needs no soundfont.
+  like the strings error. The synth lead needs one too, because its hook-2
+  double is the guitar (see "Calls made during the build").
 - **Tempo outside 100–130 bpm:** only a note in the docs; no check.
 - **Energy shares in the full-render test:** measured from the
   pre-master stems over the two hooks, where every element plays. Over
@@ -291,6 +292,14 @@ unchanged.
   - The drum-grid check already confirms that every kick and clap sits
     exactly on the 16th grid.
   - The tempo check stays pass/fail, and boom-bap still checks jitter.
+- **Section boundaries:** the check that the groove carries on
+  covers hook 1 into the verse.
+  - A section with a drop bar counts as carrying the groove at its
+    start, and as a break at its end.
+  - Boom-bap has no drop bar, so its checks are unchanged.
+- **Soundfont for the synth lead:** the synth lead's hook-2 double is
+  the guitar, so both leads need FluidSynth and the soundfont. The
+  pop-rap path checks for both before it writes anything.
 - **Synth-lead drum share:** the full-render test's floor for the synth
   lead is 35 %, measured at 39 %. The synth lead is mixed forward, as in
   take B. The guitar lead keeps 40–60 %.
