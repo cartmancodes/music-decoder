@@ -198,7 +198,7 @@ All values are the spike's.
 - **Peaks.** Drums and 808 are soft-limited at 2.6 × their RMS, so the
   master limiter barely works. Take A's limiter peaked at 1.5–1.7 dB.
 - **Sum.** The buses are summed, the low end is made mono, and the mix
-  fades out. It then goes through today's `master()`, lead-in and export.
+  fades out over the 3 s tail (squared curve). It then goes through today's `master()`, lead-in and export.
 - **MP3 genre tag:** "Hip-Hop" (unchanged).
 - **Stems:** `drums`, `808`, `pad`, `pluck`, `fx`, `lead`.
 - **JSON metadata** gains `style` and `lead`.
@@ -259,8 +259,17 @@ unchanged.
 - **No soundfont for the guitar lead:** raise `ProductionError`, worded
   like the strings error. The synth lead needs no soundfont.
 - **Tempo outside 100–130 bpm:** only a note in the docs; no check.
-- **Energy shares in the full-render test:** measured over the whole
-  pre-master stems.
+- **Energy shares in the full-render test:** measured from the
+  pre-master stems over the two hooks, where every element plays. Over
+  the whole song the intro and outro have no drums, and the drums' share
+  depends on the layout more than on the mix.
+- **Saw oscillator:** band-limited with PolyBLEP, not the spike's
+  additive sum of up to 40 sines. The spike's version is too slow to test
+  (about 2 s per pad chord). Both are band-limited saws, and the pad's
+  1600 Hz low-pass hides the difference.
+- **Low end and air:** the pop-rap sum gets the shared mono-below-110 Hz
+  step and the fade, but no air shelf. That matches the spike, which had
+  neither.
 
 ## Left to the builder
 
