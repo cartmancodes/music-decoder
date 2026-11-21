@@ -370,6 +370,31 @@ def test_explicit_key_and_progression_beat_the_manifest(take):
     assert resolve_song(folder, progression=other).bar_roots == (33, 29, 36, 31)
 
 
+def _home_root_and_title(folder, style, **kw):
+    """The home chord's root pitch class and the song's title for a take."""
+    if style == "boom-bap":
+        song = resolve_song(folder, **kw)
+        tail = [n.pitch for n in song.piano if n.start_s >= song.tail_start_s - 1e-9]
+        return min(tail) % 12, song.title
+    song = resolve_poprap_song(folder, cfg=PopRapConfig(), **kw)
+    return song.parts.home.root, song.title
+
+
+@pytest.mark.parametrize("style", ["boom-bap", "pop-rap"])
+@pytest.mark.parametrize("key", ["C major", "Cmaj", "C"])
+def test_a_key_that_names_the_same_home_chord_or_none_keeps_the_manifest_scale(take, style, key):
+    root, title = _home_root_and_title(take.midi_path.parent, style, key=key)
+    assert root == 0
+    assert title == "Composition in C major"
+
+
+@pytest.mark.parametrize("style", ["boom-bap", "pop-rap"])
+def test_a_parseable_key_replaces_the_manifest_scale_and_title(take, style):
+    folder = take.midi_path.parent
+    assert _home_root_and_title(folder, style, key="Am") == (9, "Composition in A minor")
+    assert _home_root_and_title(folder, style, key="Am", title="X") == (9, "X")
+
+
 def test_bare_midi_without_a_manifest_is_unchanged(take):
     from music_decoder.productionize.song import song_from_midi
 

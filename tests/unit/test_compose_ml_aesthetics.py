@@ -103,6 +103,17 @@ def test_choose_by_audio_a_gap_under_the_floor_keeps_the_symbolic_lead():
     assert aesthetics.choose_by_audio(arrs, [_row(6.0, pq=6.0), _row(6.2, pq=6.2)]) == 1
 
 
+def test_choose_by_audio_rules_engine_scale_keeps_the_symbolic_lead_against_a_small_audio_gap():
+    scale = aesthetics.SYMBOLIC_SCALE_RULES
+    assert scale < aesthetics.SYMBOLIC_SCALE
+    arrs = [replace(base_arr, score=s) for s in (scale, 0.0)]
+    rows = [_row(6.0, pq=6.0), _row(6.1, pq=6.1)]
+    # a 0.1 audio gap is 0.33; the rules lead of one scale is worth 0.5
+    assert aesthetics.choose_by_audio(arrs, rows, symbolic_scale=scale) == 0
+    # on the tune scale the same lead is worth 0.27, less than the gap: the audio wins
+    assert aesthetics.choose_by_audio(arrs, rows) == 1
+
+
 def test_a_dominated_candidate_does_not_flip_the_order():
     arrs = [replace(base_arr, score=s) for s in (1.0, 0.0)]
     rows = [_row(6.1, pq=6.1), _row(6.2, pq=6.2)]
@@ -152,7 +163,9 @@ def test_rank_by_audio_symbolic_breaks_an_audio_tie(tmp_path):
 
 
 def test_rank_by_audio_ties_go_to_the_lowest_index(tmp_path):
-    arrs = [replace(base_arr, score=3.0) for _ in range(3)]  # all equal: z is 0
+    arrs = [
+        replace(base_arr, score=3.0) for _ in range(3)
+    ]  # equal symbolic scores and a fixed-scale total each
     wavs = [tmp_path / f"{k}.wav" for k in range(3)]
     scorer = _FakeScorer({w.name: _row(4.0 if w.name == "0.wav" else 6.0) for w in wavs})
     assert rank_by_audio(arrs, wavs, scorer) == 1

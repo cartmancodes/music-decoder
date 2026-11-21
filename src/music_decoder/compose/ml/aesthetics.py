@@ -6,7 +6,9 @@ a clip on four axes from 1 to 10: content enjoyment ``CE``, content
 usefulness ``CU``, production complexity ``PC`` and production quality
 ``PQ``. A candidate's total is ``x / AUDIO_SCALE + SYMBOLIC_WEIGHT * s /
 SYMBOLIC_SCALE``, with ``x = (CE + PQ) / 2`` and ``s`` the symbolic score.
-Both scales are fixed constants measured on a reference set, so a
+Both scales are fixed constants measured on a reference set (the symbolic
+one per melody engine: ``SYMBOLIC_SCALE`` for tune, ``SYMBOLIC_SCALE_RULES``
+for rules), so a
 candidate's total does not depend on which others are in the shortlist: a
 candidate worse than the rest on both signals cannot change the order of the
 others (a per-shortlist min-max did). The audio model's raw spread between
@@ -47,7 +49,7 @@ AUDIO_SPAN_FLOOR = 0.3
 # SYMBOLIC_SCALE = median(span_s), each to 3 significant figures: the spans
 # the old per-shortlist min-max typically divided by. To re-measure, rebuild
 # these prompts and repeat. Reference prompts, one per line:
-# id scale     progression            bars tempo tuning     seed
+# id scale     progression            bars_per_chord tempo tuning     seed
 #  0 D:minor  Dm A# F C              4 110.0 Eb         10000
 #  1 C:major  C G F G                2 110.0 EADGBE     10001
 #  2 E:major  Emaj7 C#m7 F#m7 B7     2 126.0 EADGBE     10002
@@ -80,6 +82,11 @@ AUDIO_SPAN_FLOOR = 0.3
 # 29 G#:minor E F# G#m G#m           2  98.0 EADGBE     10029
 AUDIO_SCALE = 0.3
 SYMBOLIC_SCALE = 0.995
+# The same measurement for melody_engine="rules" (the same 30 prompts, the same
+# seeds, the top RANK_AUDIO_TOP_K = 4 of 12 candidates, no audio needed): the
+# median span of the symbolic score is 0.539 (the rules engine scores its
+# candidates closer together than the tune engine does). AUDIO_SCALE is shared.
+SYMBOLIC_SCALE_RULES = 0.539
 # Audiobox Aesthetics reads 16 kHz mono in 10 s windows with a 10 s hop.
 SAMPLE_RATE = 16000
 WINDOW_S = 10
@@ -150,13 +157,17 @@ def load_scorer() -> AestheticScorer:
 
 
 def choose_by_audio(
-    arrangements: Sequence[Arrangement], audio_scores: Sequence[Mapping[str, float]]
+    arrangements: Sequence[Arrangement],
+    audio_scores: Sequence[Mapping[str, float]],
+    *,
+    symbolic_scale: float = SYMBOLIC_SCALE,
 ) -> int:
     """Index of the best of ``arrangements`` given each one's audio scores:
     ``x / AUDIO_SCALE + SYMBOLIC_WEIGHT * s / SYMBOLIC_SCALE`` with
     ``x = (CE + PQ) / 2`` and ``s`` the symbolic score. The scales are fixed,
-    so a candidate's total does not depend on the others. Ties go to the
-    lowest index."""
+    so a candidate's total does not depend on the others. ``symbolic_scale``
+    is ``SYMBOLIC_SCALE`` (the tune engine) or ``SYMBOLIC_SCALE_RULES``. Ties
+    go to the lowest index."""
     if len(arrangements) != len(audio_scores) or not arrangements:
         raise ValueError("need one audio score per arrangement, and at least one")
     totals: list[float] = []
@@ -164,13 +175,17 @@ def choose_by_audio(
         if a.score is None:
             raise ValueError("the audio re-rank needs scored (fingerstyle) arrangements")
         x = (row["CE"] + row["PQ"]) / 2
-        totals.append(x / AUDIO_SCALE + SYMBOLIC_WEIGHT * a.score / SYMBOLIC_SCALE)
+        totals.append(x / AUDIO_SCALE + SYMBOLIC_WEIGHT * a.score / symbolic_scale)
     return max(range(len(totals)), key=totals.__getitem__)  # max() keeps the first best
 
 
 def rank_by_audio(
-    arrangements: Sequence[Arrangement], wav_paths: Sequence[Path], scorer: Scorer
+    arrangements: Sequence[Arrangement],
+    wav_paths: Sequence[Path],
+    scorer: Scorer,
+    *,
+    symbolic_scale: float = SYMBOLIC_SCALE,
 ) -> int:
     """Index of the best of ``arrangements``, rendered to ``wav_paths`` and
     scored by ``scorer`` (see :func:`choose_by_audio`)."""
-    return choose_by_audio(arrangements, scorer.score(wav_paths))
+    return choose_by_audio(arrangements, scorer.score(wav_paths), symbolic_scale=symbolic_scale)

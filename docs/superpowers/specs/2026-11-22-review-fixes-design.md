@@ -58,7 +58,10 @@ An outside reviewer found three bugs. Each makes the tool pick or play something
   - The file is `{"manifest_version": 1, **metadata}`.
   - `metadata` is the exact dict the returned `Composition` carries.
 - **Reading it.** `productionize`'s folder and `.mid` paths read `composition.json` when it sits beside the MIDI. It supplies the same tempo, progression, scale, title and key that a `Composition` source gets through `composition_kwargs`.
-  - An explicit `--progression`, `--key` or `--title` still wins.
+  - An explicit `--progression` or `--title` still wins.
+  - An explicit `--key` that parses (`([A-G][#b]?)(m|min|minor)?`, flats mapped to sharps) replaces the manifest's scale, and its default title ("Composition in A minor"). One that doesn't parse (`C major`, `Cmaj`) is a tag only: the manifest's scale and title stay. One helper (`parse_key_tag`) does the parsing for both this and the home-chord choice.
+  - For a `Composition` passed from Python, `key` and `progression` only set tags (unchanged).
+  - `compose` owns the contract: `compose/manifest.py` defines `MANIFEST_NAME` and `MANIFEST_VERSION`, which the writer and `productionize` both import.
   - Without the file, nothing changes.
   - A manifest whose `manifest_version` isn't 1, or that fails to parse, raises `ProductionError` with a clear message.
 - **Tests.**
@@ -74,6 +77,7 @@ An outside reviewer found three bugs. Each makes the tool pick or play something
   - `AUDIO_SCALE` is the median over the reference shortlists of `max(span of x, 0.3)`.
   - `SYMBOLIC_SCALE` is the median span of `s`.
   - These are the spans today's code effectively divides by, so typical choices stay close to today's.
+  - The rules engine scores its candidates closer together, so it has its own `SYMBOLIC_SCALE_RULES` (0.539, the median span of `s` over the same 30 prompts, no audio needed). `choose_by_audio` takes `symbolic_scale`, and `_rank_by_audio` passes `SYMBOLIC_SCALE_RULES` when `melody_engine == "rules"`. `AUDIO_SCALE` is shared.
 - **Tests.**
   - The reviewer's case: appending a dominated candidate keeps A ahead of B.
   - A property test over random scores: appending a candidate that is worse than every existing one on both scores never changes the order of the others.
@@ -98,5 +102,5 @@ An outside reviewer found three bugs. Each makes the tool pick or play something
 
 ## Left to the builder
 
-- Where the manifest helpers live (`productionize/song.py` next to `composition_kwargs` is suggested).
+- Where the manifest reader helpers live (`productionize/song.py` next to `composition_kwargs`).
 - The exact reference-set prompts, as long as they span major and minor keys, at least five progressions, tempos 66–126 and several bars per chord.

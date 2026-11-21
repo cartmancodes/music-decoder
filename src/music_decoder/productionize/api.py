@@ -34,7 +34,9 @@ from music_decoder.productionize.song import (
     Song,
     composition_kwargs,
     manifest_kwargs,
+    parse_key_tag,
     read_manifest,
+    scale_title,
     song_from_composition,
     song_from_midi,
 )
@@ -62,16 +64,21 @@ def _path_kwargs(
     path: Path, progression: Sequence[ChordSymbol] | None, key: str | None
 ) -> dict[str, Any]:
     """What a composer MIDI file's take manifest says, if it has one, with an
-    explicit ``progression`` or ``key`` replacing the manifest's. With no
-    manifest this is just those two arguments. An explicit key also drops the
-    manifest's scale, which would otherwise name the home chord instead."""
+    explicit ``progression`` replacing the manifest's. An explicit ``key``
+    that parses (``"Am"``, ``"Bb"``) replaces the manifest's scale and its
+    title; one that does not (``"C major"``) is a tag only and leaves the
+    manifest's scale and title alone. With no manifest this is just those
+    arguments."""
     manifest = read_manifest(path)
     kw = manifest_kwargs(manifest) if manifest else {}
     if progression is not None:
         kw["progression"] = progression
     if key is not None:
         kw["key"] = key
-        kw["scale"] = None
+        named = parse_key_tag(key)
+        if named is not None:
+            kw["scale"] = named
+            kw["title"] = scale_title(named)
     kw.setdefault("key", "")
     return kw
 
@@ -159,8 +166,9 @@ def productionize(
 
     ``source`` is what ``compose()`` returned, a composition folder, a
     composer MIDI file, or (boom-bap only) a ready :class:`Song`.
-    ``progression`` names the chords of a MIDI source (otherwise each bar's
-    lowest accompaniment note is its bass root). ``title`` and ``key`` (e.g.
+    ``progression`` names the chords of a MIDI source (otherwise the take
+    manifest's progression, if it has one, else each bar's lowest
+    accompaniment note is its bass root). ``title`` and ``key`` (e.g.
     ``"F#m"``) override the MP3 tags. With ``check`` the acceptance checks run
     on the result; a failed check is reported in ``Production.qc``, not
     raised. ``progress`` is called with each stage's name as it starts.

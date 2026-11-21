@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import pretty_midi
 
+from music_decoder.compose.manifest import MANIFEST_VERSION
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize.config import (
     HISAAB_BAR_ROOTS,
@@ -168,17 +169,28 @@ def _key_label(scale: str) -> str:
 _FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
 
+def parse_key_tag(key: str) -> Scale | None:
+    """The scale a key tag such as ``"F#m"`` or ``"Bb"`` names (flats map to
+    sharps; an ``m``, ``min`` or ``minor`` suffix makes it minor), or ``None``
+    when the tag does not parse (``"C major"``, ``"Cmaj"``, ``""``)."""
+    match = re.fullmatch(r"([A-G][#b]?)(m|min|minor)?", key.strip()) if key else None
+    if not match:
+        return None
+    tonic = _FLAT_TO_SHARP.get(match.group(1), match.group(1))
+    return Scale(tonic, "minor" if match.group(2) is not None else "major")
+
+
+def scale_title(scale: Scale) -> str:
+    """The title a take in ``scale`` gets: ``"Composition in A minor"``."""
+    return f"Composition in {scale.tonic} {scale.mode}"
+
+
 def _tonic(scale: Scale | None, key: str, first_root_pc: int) -> tuple[int, bool]:
     """(pitch class, minor) of the home key: the scale, else a key tag such as
     ``"F#m"`` or ``"Bb"``, else the loop's first bar (loops usually start home)."""
-    if scale is not None:
-        return VALID_TONICS.index(
-            _FLAT_TO_SHARP.get(scale.tonic, scale.tonic)
-        ), scale.mode == "minor"
-    match = re.fullmatch(r"([A-G][#b]?)(m|min|minor)?", key.strip()) if key else None
-    if match:
-        tonic = _FLAT_TO_SHARP.get(match.group(1), match.group(1))
-        return VALID_TONICS.index(tonic), match.group(2) is not None
+    named = scale if scale is not None else parse_key_tag(key)
+    if named is not None:
+        return VALID_TONICS.index(named.tonic), named.mode == "minor"
     return first_root_pc, False
 
 
@@ -485,10 +497,6 @@ def song_from_midi(
         strings=tuple(sorted(strings, key=_onset_order)),
         source=f"composer file {midi_path.name}",
     )
-
-
-MANIFEST_NAME = "composition.json"
-MANIFEST_VERSION = 1
 
 
 def manifest_path(midi_path: Path) -> Path:

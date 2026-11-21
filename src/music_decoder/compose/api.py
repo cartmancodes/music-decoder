@@ -30,6 +30,7 @@ from music_decoder.compose.fingerstyle import (
     hand_shape,
 )
 from music_decoder.compose.harmony import essential_pcs
+from music_decoder.compose.manifest import MANIFEST_NAME, MANIFEST_VERSION
 from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.ml import MelodyProposer
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
@@ -606,7 +607,10 @@ def _rank_by_audio(
                 humanize_seed=humanize_seed,
             )
         rows = scorer.score(wavs)
-    best = aesthetics.choose_by_audio(top, rows)
+    scale_s = (
+        aesthetics.SYMBOLIC_SCALE_RULES if melody_engine == "rules" else aesthetics.SYMBOLIC_SCALE
+    )
+    best = aesthetics.choose_by_audio(top, rows, symbolic_scale=scale_s)
     return top[best], {"CE": rows[best]["CE"], "PQ": rows[best]["PQ"]}
 
 
@@ -788,8 +792,8 @@ def compose_with_options(
         "melody_model_seconds": melody_model_seconds,
         "melody_engine": melody_engine,
     }
-    (work / "composition.json").write_text(
-        json.dumps({"manifest_version": 1, **metadata}, indent=2)
+    (work / MANIFEST_NAME).write_text(
+        json.dumps({"manifest_version": MANIFEST_VERSION, **metadata}, indent=2)
     )
     return Composition(
         midi_path=midi_path,
