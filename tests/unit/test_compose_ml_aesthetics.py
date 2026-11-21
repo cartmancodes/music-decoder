@@ -188,6 +188,7 @@ def test_rank_audio_writes_only_the_chosen_candidate(monkeypatch, tmp_path):
     assert r.melody_notes == third.melody
 
     assert sorted(p.name for p in r.midi_path.parent.iterdir()) == [
+        "composition.json",
         "composition.mid",
         "composition.wav",
     ]
