@@ -298,23 +298,23 @@ def pad_events(song: PopRapSong, cfg: PopRapConfig) -> list[PadEvent]:
 def _pass_notes(
     song: PopRapSong, section: PopRapSection, notes: Sequence[NoteEvent]
 ) -> list[NoteEvent]:
-    """``notes`` once per composer pass from the section start, cut at its end."""
+    """``notes`` once per composer pass from the section start, cut at their pass end."""
     bar_s = song.grid.bar_s
-    section_end = (section.start_bar + section.bars) * bar_s
     placed: list[NoteEvent] = []
     for first_bar in range(0, section.bars, song.parts.n_bars):
         offset = (section.start_bar + first_bar) * bar_s
+        pass_end = offset + min(song.parts.n_bars, section.bars - first_bar) * bar_s
         for n in notes:
             start = offset + n.start_s
-            if start < section_end:
+            if start < pass_end:
                 placed.append(
-                    NoteEvent(start, min(offset + n.end_s, section_end), n.pitch, n.velocity)
+                    NoteEvent(start, min(offset + n.end_s, pass_end), n.pitch, n.velocity)
                 )
     return placed
 
 
 def pluck_notes(song: PopRapSong) -> list[NoteEvent]:
-    """The accompaniment once per pass in every section, cut at the section end."""
+    """The accompaniment once per pass in every section, cut at its pass end."""
     return [
         n for section in song.sections for n in _pass_notes(song, section, song.parts.accompaniment)
     ]

@@ -119,18 +119,34 @@ def test_lead_is_the_melody_once_per_pass_and_silent_in_the_verse(song):
     assert outro_start > hook2_end - 1e-9
 
 
-def test_notes_are_cut_at_the_section_end(tmp_path):
+def test_notes_are_cut_at_their_pass_end(tmp_path):
     midi = _write_composition(tmp_path / "long.mid", extend_melody_s=4.0)
     song = poprap_song(midi, cfg=CFG, progression=PROGRESSION, scale=Scale("A", "minor"))
     main, _ = lead_notes(song)
     pluck = pluck_notes(song)
+    pass_s = song.parts.n_bars * song.grid.bar_s
     spans = [_span_s(song, i) for i in range(len(song.sections))]
+
+    def pass_end(note):
+        start, end = next(s for s in spans if s[0] <= note.start_s < s[1])
+        return min(start + (int((note.start_s - start) // pass_s) + 1) * pass_s, end)
+
     for notes in (main, pluck):
         assert notes
         for n in notes:
-            span = next(s for s in spans if s[0] <= n.start_s < s[1])
-            assert n.end_s <= span[1] + 1e-9
-    assert any(n.end_s == pytest.approx(spans[1][1]) for n in main)  # actually cut
+            assert n.end_s <= pass_end(n) + 1e-9
+    # The melody's last note overhangs the pass: it ends exactly on the pass boundary,
+    # inside hook 1 (8 bars in) and again at the section end (16 bars in).
+    hook1_start, hook1_end = spans[1]
+    ends = {round(n.end_s, 6) for n in main if hook1_start <= n.start_s < hook1_end}
+    assert round(hook1_start + pass_s, 6) in ends
+    assert round(hook1_end, 6) in ends
+    # The accompaniment's final chord rings to the end of the pass: also cut there.
+    assert all(
+        n.end_s <= hook1_start + pass_s + 1e-9
+        for n in pluck
+        if hook1_start <= n.start_s < hook1_start + pass_s
+    )
 
 
 def test_pluck_covers_every_section_and_keeps_velocity(song):
