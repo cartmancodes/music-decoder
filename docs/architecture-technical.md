@@ -1137,16 +1137,19 @@ With `rank_audio=True` the top `RANK_AUDIO_TOP_K = 4` candidates are rendered
 (with the chosen `sound`) to temporary WAVs and scored by Audiobox Aesthetics
 (`facebook/audiobox-aesthetics`, CC-BY-4.0, 415 MB, a CPU re-implementation of
 the predictor's forward pass from the pinned safetensors revision, no token).
-Both signals are normalised across the four candidates:
-`final = z_audio + 0.5 * z_symbolic`, `z_symbolic` the min-max of the symbolic
-score and `z_audio = (x - min) / max(span, AUDIO_SPAN_FLOOR)` of
-`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality;
-`AUDIO_SPAN_FLOOR = 0.3` on the model's 1-10 scale; each 0 when all are
-equal). Normalising matters: the audio model's raw spread between candidates
-is about 0.05-0.3, so the raw sum would never override the symbolic order.
-The floor keeps a gap of a few hundredths, about the model's noise, from
-being stretched to a full 1.0: such a gap counts only in proportion and does
-not overturn the symbolic order by itself (v5 ruling F4e).
+Both signals are scaled by fixed constants, not across the four candidates:
+`total = x / AUDIO_SCALE + 0.5 * s / SYMBOLIC_SCALE`, with
+`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality) and `s`
+the symbolic score. The scales were measured on 30 reference fingerstyle
+prompts (the median span of `x`, floored at 0.3, and the median span of `s`):
+`AUDIO_SCALE = 0.3` (never below `AUDIO_SPAN_FLOOR = 0.3`, on the model's 1-10
+scale) and `SYMBOLIC_SCALE = 0.995`. Scaling matters: the audio model's raw
+spread between candidates is about 0.05-0.3, so the raw sum would never
+override the symbolic order. Fixed scales also mean a candidate's total does
+not depend on the others, so adding a candidate that is worse on both signals
+cannot reorder the rest (a per-shortlist min-max could). A gap of a few
+hundredths, about the model's noise, counts only in proportion and does not
+overturn the symbolic order by itself (v5 ruling F4e).
 `metadata["audio_scores"]` holds the chosen candidate's `CE` and `PQ`.
 
 **Melody model** ([compose/ml/amt.py](../src/music_decoder/compose/ml/amt.py)).

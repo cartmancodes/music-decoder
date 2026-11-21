@@ -4,16 +4,16 @@ The top candidates by symbolic score are rendered and scored by Audiobox
 Aesthetics (Meta, ``facebook/audiobox-aesthetics``, CC-BY-4.0), which rates
 a clip on four axes from 1 to 10: content enjoyment ``CE``, content
 usefulness ``CU``, production complexity ``PC`` and production quality
-``PQ``. Both signals are normalised across the rendered candidates:
-``z_symbolic`` is the min-max of the symbolic score (0 when all are equal),
-and ``z_audio`` is ``(x - min) / max(span, AUDIO_SPAN_FLOOR)`` of
-``x = (CE + PQ) / 2``. A candidate's final score is
-``z_audio + SYMBOLIC_WEIGHT * z_symbolic``. The audio model's raw spread
-between candidates of one piece is small (about 0.05-0.3 on its 1-10
-scale), so it is normalised too, else the symbolic order would always win;
-the floor keeps a gap under the model's resolution from being stretched to
-a full 1.0 (v5 ruling F4e), so such a gap cannot overturn the symbolic
-order by itself.
+``PQ``. A candidate's total is ``x / AUDIO_SCALE + SYMBOLIC_WEIGHT * s /
+SYMBOLIC_SCALE``, with ``x = (CE + PQ) / 2`` and ``s`` the symbolic score.
+Both scales are fixed constants measured on a reference set, so a
+candidate's total does not depend on which others are in the shortlist: a
+candidate worse than the rest on both signals cannot change the order of the
+others (a per-shortlist min-max did). The audio model's raw spread between
+candidates of one piece is small (about 0.05-0.3 on its 1-10 scale), so it
+is scaled up, else the symbolic order would always win; ``AUDIO_SCALE`` is
+at least ``AUDIO_SPAN_FLOOR``, so a gap under the model's resolution cannot
+overturn the symbolic order by itself (v5 ruling F4e).
 
 The model runs on the CPU only, one clip at a time, so results repeat.
 ``torch``, ``torchaudio`` and ``audiobox_aesthetics`` are imported only by
@@ -32,13 +32,24 @@ if TYPE_CHECKING:
     from music_decoder.compose.api import Arrangement
 
 AXES = ("CE", "CU", "PC", "PQ")
-# Weight of the normalised symbolic score next to the normalised audio score:
-# half, so the audio model decides unless the symbolic gap is the larger one.
+# Weight of the scaled symbolic score next to the scaled audio score: half, so
+# the audio model decides unless the symbolic gap is the larger one.
 SYMBOLIC_WEIGHT = 0.5
-# The smallest audio span (on the model's 1-10 scale) the audio score is
-# scaled by: a smaller gap between the candidates counts only in proportion
-# (v5 ruling F4e).
+# The smallest audio scale (on the model's 1-10 scale): a smaller gap between
+# the candidates counts only in proportion (v5 ruling F4e).
 AUDIO_SPAN_FLOOR = 0.3
+# Fixed scales for the re-rank, measured on 30 reference prompts, ids 0-29 of
+# the sampler in the review-fixes plan (seeded numpy rng 90_000 + id: 55%
+# major, a progression template per mode, 2 or 4 bars per chord, tempo
+# 66-126 bpm, a tuning; the piece seed is 10_000 + id). For each, the top
+# RANK_AUDIO_TOP_K = 4 of 12 melody_engine="tune" fingerstyle candidates
+# were rendered with the soundfont and scored. Median span of x = (CE + PQ) / 2
+# is 0.148 (so max(span, 0.3) has median 0.3); median span of the symbolic
+# score is 0.995. AUDIO_SCALE = max(median(max(span_x, 0.3)), AUDIO_SPAN_FLOOR),
+# SYMBOLIC_SCALE = median(span_s), each to 3 significant figures: the spans
+# the old per-shortlist min-max typically divided by.
+AUDIO_SCALE = 0.3
+SYMBOLIC_SCALE = 0.995
 # Audiobox Aesthetics reads 16 kHz mono in 10 s windows with a 10 s hop.
 SAMPLE_RATE = 16000
 WINDOW_S = 10
@@ -108,34 +119,22 @@ def load_scorer() -> AestheticScorer:
     return AestheticScorer(model)
 
 
-def _min_max(values: Sequence[float], *, span_floor: float = 0.0) -> list[float]:
-    """``values`` less their minimum, over their span or ``span_floor``,
-    whichever is larger: in [0, 1], and all 0 when they are all equal."""
-    low, high = min(values), max(values)
-    span = max(high - low, span_floor)
-    return [(v - low) / span if span > 0 else 0.0 for v in values]
-
-
 def choose_by_audio(
     arrangements: Sequence[Arrangement], audio_scores: Sequence[Mapping[str, float]]
 ) -> int:
     """Index of the best of ``arrangements`` given each one's audio scores:
-    ``z_audio + SYMBOLIC_WEIGHT * z_symbolic``. ``z_audio`` is
-    ``(x - min) / max(span, AUDIO_SPAN_FLOOR)`` of ``x = (CE + PQ) / 2``
-    across them, and ``z_symbolic`` the min-max normalised symbolic score
-    (each 0 when all are equal). Ties go to the lowest index."""
+    ``x / AUDIO_SCALE + SYMBOLIC_WEIGHT * s / SYMBOLIC_SCALE`` with
+    ``x = (CE + PQ) / 2`` and ``s`` the symbolic score. The scales are fixed,
+    so a candidate's total does not depend on the others. Ties go to the
+    lowest index."""
     if len(arrangements) != len(audio_scores) or not arrangements:
         raise ValueError("need one audio score per arrangement, and at least one")
-    symbolic = []
-    for a in arrangements:
+    totals: list[float] = []
+    for a, row in zip(arrangements, audio_scores, strict=True):
         if a.score is None:
             raise ValueError("the audio re-rank needs scored (fingerstyle) arrangements")
-        symbolic.append(a.score)
-    z_audio = _min_max(
-        [(row["CE"] + row["PQ"]) / 2 for row in audio_scores], span_floor=AUDIO_SPAN_FLOOR
-    )
-    z_symbolic = _min_max(symbolic)
-    totals = [a + SYMBOLIC_WEIGHT * z for a, z in zip(z_audio, z_symbolic, strict=True)]
+        x = (row["CE"] + row["PQ"]) / 2
+        totals.append(x / AUDIO_SCALE + SYMBOLIC_WEIGHT * a.score / SYMBOLIC_SCALE)
     return max(range(len(totals)), key=totals.__getitem__)  # max() keeps the first best
 
 

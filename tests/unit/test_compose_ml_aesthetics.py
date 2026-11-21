@@ -5,6 +5,7 @@ Every test here uses a fake scorer: no network, no ``ml`` extra, no weights.
 
 from __future__ import annotations
 
+import random
 import subprocess
 import sys
 from dataclasses import replace
@@ -66,7 +67,7 @@ def test_rank_by_audio_blends_audio_and_symbolic(tmp_path):
     scorer = _FakeScorer(
         {w.name: _row(ce) for w, ce in zip(wavs, (5.0, 5.0, 8.0, 5.0), strict=True)}
     )
-    # z_symbolic (1, 2/3, 1/3, 0) * 0.5, z_audio (0, 0, 1, 0): totals 0.5, 0.33, 1.17, 0
+    # x (5.5, 5.5, 7.0, 5.5) / 0.3 + 0.5 * s / 0.995: 20.8, 20.3, 24.8, 19.8
     assert rank_by_audio(arrs, wavs, scorer) == 2
 
 
@@ -75,7 +76,8 @@ def test_rank_by_audio_an_audio_gap_over_the_floor_decides_against_the_symbolic_
     wavs = [tmp_path / f"{k}.wav" for k in range(4)]
     means = (6.00, 6.05, 6.40, 6.02)  # span 0.4, over the 0.3 floor
     scorer = _FakeScorer({w.name: _row(m, pq=m) for w, m in zip(wavs, means, strict=True)})
-    # z_audio (0, 0.125, 1, 0.05), z_symbolic * 0.5 (0.5, 0.33, 0.17, 0): 0.5, 0.46, 1.17, 0.05
+    # x / 0.3 (20.0, 20.2, 21.3, 20.1) + 0.5 * s / 0.995 (2.0, 1.5, 1.0, 0.5):
+    # totals 22.0, 21.7, 22.3, 20.6
     assert rank_by_audio(arrs, wavs, scorer) == 2
     assert aesthetics.SYMBOLIC_WEIGHT == 0.5
 
@@ -85,17 +87,51 @@ def test_rank_by_audio_a_gap_under_the_floor_keeps_the_symbolic_order(tmp_path):
     wavs = [tmp_path / f"{k}.wav" for k in range(4)]
     means = (6.00, 6.02, 6.08, 6.01)  # span 0.08: about the model's noise
     scorer = _FakeScorer({w.name: _row(m, pq=m) for w, m in zip(wavs, means, strict=True)})
-    # z_audio over the 0.3 floor (0, 0.07, 0.27, 0.03): totals 0.5, 0.4, 0.43, 0.03
+    # x / 0.3 (20.0, 20.07, 20.27, 20.03) + 0.5 * s / 0.995 (2.0, 1.5, 1.0, 0.5):
+    # totals 22.0, 21.6, 21.3, 20.5
     assert rank_by_audio(arrs, wavs, scorer) == 0
     assert aesthetics.AUDIO_SPAN_FLOOR == 0.3
 
 
-def test_choose_by_audio_scales_the_audio_gap_by_at_least_the_floor():
-    arrs = [replace(base_arr, score=s) for s in (1.0, 0.0)]
-    # a 0.1 gap is a third of the floor: z_audio (0, 0.33) loses to z_symbolic * 0.5 (0.5, 0)
+def test_choose_by_audio_a_gap_under_the_floor_keeps_the_symbolic_lead():
+    arrs = [replace(base_arr, score=s) for s in (aesthetics.SYMBOLIC_SCALE, 0.0)]
+    # a 0.1 audio gap is a third of the floor: 0.33 loses to the symbolic lead of one
+    # SYMBOLIC_SCALE, which is worth SYMBOLIC_WEIGHT = 0.5
+    assert aesthetics.AUDIO_SCALE >= aesthetics.AUDIO_SPAN_FLOOR
     assert aesthetics.choose_by_audio(arrs, [_row(6.0, pq=6.0), _row(6.1, pq=6.1)]) == 0
-    # a 0.2 gap: z_audio (0, 0.67) beats 0.5
+    # a 0.2 gap, 0.67, beats it
     assert aesthetics.choose_by_audio(arrs, [_row(6.0, pq=6.0), _row(6.2, pq=6.2)]) == 1
+
+
+def test_a_dominated_candidate_does_not_flip_the_order():
+    arrs = [replace(base_arr, score=s) for s in (1.0, 0.0)]
+    rows = [_row(6.1, pq=6.1), _row(6.2, pq=6.2)]
+    assert aesthetics.choose_by_audio(arrs, rows) == 0
+    worse = [*arrs, replace(base_arr, score=-10.0)]
+    assert aesthetics.choose_by_audio(worse, [*rows, _row(6.0, pq=6.0)]) == 0
+
+
+def test_appending_a_dominated_candidate_never_reorders():
+    rng = random.Random(0)
+    for _ in range(200):
+        n = rng.randint(2, 4)
+        xs = [rng.uniform(4, 8) for _ in range(n)]
+        ss = [rng.uniform(-2, 2) for _ in range(n)]
+        arrs = [replace(base_arr, score=s) for s in ss]
+        rows = [_row(x, pq=x) for x in xs]
+        before = aesthetics.choose_by_audio(arrs, rows)
+        # strictly below every existing candidate on both scores
+        bad_x = min(xs) - rng.uniform(0.01, 3)
+        bad_s = min(ss) - rng.uniform(0.01, 20)
+        after = aesthetics.choose_by_audio(
+            [*arrs, replace(base_arr, score=bad_s)], [*rows, _row(bad_x, pq=bad_x)]
+        )
+        assert after == before
+
+
+def test_equal_scores_pick_the_first():
+    arrs = [replace(base_arr, score=3.0) for _ in range(3)]
+    assert aesthetics.choose_by_audio(arrs, [_row(5.0, pq=5.0)] * 3) == 0
 
 
 def test_rank_by_audio_a_larger_symbolic_gap_keeps_the_symbolic_best(tmp_path):
