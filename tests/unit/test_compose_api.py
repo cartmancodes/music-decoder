@@ -509,3 +509,27 @@ def test_compose_validates_before_loading_any_model(tmp_path, monkeypatch):
                 Scale("C", "major"), _PROG8, bars_per_chord=0, out_dir=tmp_path, **kw
             )
     assert list(tmp_path.iterdir()) == []
+
+
+def _compose_manifest_take(tmp_path):
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFFWAV")
+        return compose(
+            Scale("C", "major"),
+            [ChordSymbol.parse(c) for c in ("Dm", "G", "C", "Am")],
+            tempo_bpm=96.0,
+            seed=7,
+            out_dir=tmp_path,
+        )
+
+
+def test_compose_writes_a_manifest(tmp_path):
+    import json
+
+    result = _compose_manifest_take(tmp_path)
+    manifest = result.midi_path.with_name("composition.json")
+    assert manifest.is_file()
+    data = json.loads(manifest.read_text())
+    assert data["manifest_version"] == 1
+    expected = json.loads(json.dumps(result.metadata))
+    assert {k: data[k] for k in result.metadata} == expected

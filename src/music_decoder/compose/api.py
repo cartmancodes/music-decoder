@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import statistics
 import tempfile
 import time
@@ -765,34 +766,36 @@ def compose_with_options(
             tuning=tuning,
         )
 
+    metadata = {
+        "scale": f"{scale.tonic}:{scale.mode}",
+        "progression": [c.to_label() for c in progression],
+        "bars_per_chord": bars_per_chord,
+        "tempo_bpm": tempo_bpm,
+        "style": style,
+        "seed": seed,
+        "seed_used": seed_used,
+        "tuning": tuning.name,
+        "composer_version": COMPOSER_VERSION,
+        "sound": sound,
+        "candidates": arrangement.candidates,
+        "chosen_candidate": arrangement.chosen_candidate,
+        "score": arrangement.score,
+        "final_fallback": arrangement.final_fallback,
+        "identity_misses": (list(arrangement.identity_misses) if style == "fingerstyle" else None),
+        "rank_audio": rank_audio,
+        "audio_scores": audio_scores,
+        "melody_model": melody_model,
+        "melody_model_seconds": melody_model_seconds,
+        "melody_engine": melody_engine,
+    }
+    (work / "composition.json").write_text(
+        json.dumps({"manifest_version": 1, **metadata}, indent=2)
+    )
     return Composition(
         midi_path=midi_path,
         wav_path=wav_path,
         ascii_tab=ascii_tab,
         melody_notes=arrangement.melody,
         chord_voicings=arrangement.voicings,
-        metadata={
-            "scale": f"{scale.tonic}:{scale.mode}",
-            "progression": [c.to_label() for c in progression],
-            "bars_per_chord": bars_per_chord,
-            "tempo_bpm": tempo_bpm,
-            "style": style,
-            "seed": seed,
-            "seed_used": seed_used,
-            "tuning": tuning.name,
-            "composer_version": COMPOSER_VERSION,
-            "sound": sound,
-            "candidates": arrangement.candidates,
-            "chosen_candidate": arrangement.chosen_candidate,
-            "score": arrangement.score,
-            "final_fallback": arrangement.final_fallback,
-            "identity_misses": (
-                list(arrangement.identity_misses) if style == "fingerstyle" else None
-            ),
-            "rank_audio": rank_audio,
-            "audio_scores": audio_scores,
-            "melody_model": melody_model,
-            "melody_model_seconds": melody_model_seconds,
-            "melody_engine": melody_engine,
-        },
+        metadata=metadata,
     )

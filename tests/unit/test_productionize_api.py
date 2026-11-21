@@ -322,3 +322,81 @@ def test_boom_bap_never_measures_or_remasters_the_mp3(tmp_path, monkeypatch):
     )
     assert len(ceilings) == 1
     assert "mp3_guard_passes" not in result.metadata
+
+
+# ---- take manifest ----------------------------------------------------------
+
+
+@pytest.fixture
+def take(tmp_path):
+    """A real take: C major, Dm G C Am, 96 bpm, written by compose()."""
+    from unittest import mock
+
+    from music_decoder.compose.api import compose
+
+    with mock.patch("music_decoder.compose.api.render_wav") as render:
+        render.side_effect = lambda midi_path, out_path: out_path.write_bytes(b"RIFFWAV")
+        return compose(
+            Scale("C", "major"),
+            [ChordSymbol.parse(c) for c in ("Dm", "G", "C", "Am")],
+            tempo_bpm=96.0,
+            seed=7,
+            out_dir=tmp_path / "takes",
+        )
+
+
+@pytest.mark.parametrize("style", ["boom-bap", "pop-rap"])
+def test_take_folder_matches_its_composition(take, style):
+    folder = take.midi_path.parent
+    if style == "boom-bap":
+        expected = resolve_song(take)
+        assert resolve_song(folder) == expected
+        assert resolve_song(take.midi_path) == expected
+        return
+    cfg = PopRapConfig()
+    expected = resolve_poprap_song(take, cfg=cfg)
+    assert resolve_poprap_song(folder, cfg=cfg) == expected
+    assert resolve_poprap_song(take.midi_path, cfg=cfg) == expected
+    assert expected.parts.home.root == 0
+
+
+def test_explicit_key_and_progression_beat_the_manifest(take):
+    folder = take.midi_path.parent
+    song = resolve_song(folder, key="Am")
+    assert song.key == "Am"
+    poprap = resolve_poprap_song(folder, cfg=PopRapConfig(), key="Am")
+    assert poprap.key == "Am" and poprap.parts.home.root == 9
+    other = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
+    assert resolve_song(folder, progression=other).bar_roots == (33, 29, 36, 31)
+
+
+def test_bare_midi_without_a_manifest_is_unchanged(take):
+    from music_decoder.productionize.song import song_from_midi
+
+    folder = take.midi_path.parent
+    (folder / "composition.json").unlink()
+    assert resolve_song(folder) == song_from_midi(take.midi_path)
+
+
+@pytest.mark.parametrize(
+    ("text", "match"), [("{", "composition.json"), ('{"manifest_version": 2}', "version")]
+)
+def test_bad_manifest_is_a_clear_error(take, tmp_path, text, match):
+    folder = take.midi_path.parent
+    (folder / "composition.json").write_text(text)
+    out = tmp_path / "out"
+    with pytest.raises(ProductionError, match=match):
+        productionize(folder, out_dir=out)
+    assert not out.exists()
+
+
+def test_manifest_progression_that_does_not_divide_the_bars_is_an_error(take, tmp_path):
+    folder = take.midi_path.parent
+    path = folder / "composition.json"
+    data = json.loads(path.read_text())
+    data["progression"] = ["Dm", "G", "C"]
+    path.write_text(json.dumps(data))
+    out = tmp_path / "out"
+    with pytest.raises(ProductionError):
+        productionize(folder, out_dir=out)
+    assert not out.exists()

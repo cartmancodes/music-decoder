@@ -33,6 +33,8 @@ from music_decoder.productionize.song import (
     ProductionError,
     Song,
     composition_kwargs,
+    manifest_kwargs,
+    read_manifest,
     song_from_composition,
     song_from_midi,
 )
@@ -56,6 +58,24 @@ class Production:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _path_kwargs(
+    path: Path, progression: Sequence[ChordSymbol] | None, key: str | None
+) -> dict[str, Any]:
+    """What a composer MIDI file's take manifest says, if it has one, with an
+    explicit ``progression`` or ``key`` replacing the manifest's. With no
+    manifest this is just those two arguments. An explicit key also drops the
+    manifest's scale, which would otherwise name the home chord instead."""
+    manifest = read_manifest(path)
+    kw = manifest_kwargs(manifest) if manifest else {}
+    if progression is not None:
+        kw["progression"] = progression
+    if key is not None:
+        kw["key"] = key
+        kw["scale"] = None
+    kw.setdefault("key", "")
+    return kw
+
+
 def resolve_song(
     source: Song | Composition | Path | str,
     *,
@@ -77,8 +97,9 @@ def resolve_song(
             path = path / COMPOSITION_MIDI
         if not path.is_file():
             raise ProductionError(f"no composer MIDI file at {path}")
-        # The key tag also tells the arrangement which chord is home.
-        song = song_from_midi(path, progression=progression, key=key or "", arrange=arrange)
+        # The take's scale (or an explicit key tag) tells the arrangement which
+        # chord is home.
+        song = song_from_midi(path, **_path_kwargs(path, progression, key), arrange=arrange)
     if title is not None:
         song = replace(song, title=title)
     if key is not None:
@@ -106,7 +127,7 @@ def resolve_poprap_song(
             path = path / COMPOSITION_MIDI
         if not path.is_file():
             raise ProductionError(f"no composer MIDI file at {path}")
-        song = poprap_song(path, cfg=cfg, progression=progression, key=key or "")
+        song = poprap_song(path, cfg=cfg, **_path_kwargs(path, progression, key))
     if title is not None:
         song = replace(song, title=title)
     if key is not None:

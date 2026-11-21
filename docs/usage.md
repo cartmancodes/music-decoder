@@ -446,6 +446,8 @@ piano and strings, mixed, mastered to -10.5 LUFS under a -1.8 dBTP
 ceiling, and checked.
 
 - `SOURCE` — a take folder written by `compose`, or its `composition.mid`.
+  A take folder's `composition.json` supplies the key, progression and
+  tempo, and `--key` / `--progression` override it.
 - `--out` (required) — where the files go (see
   [Production output](#production-output)).
 - `--name` — file name of the master, default `production`.
@@ -893,6 +895,8 @@ Per-take directory: `<out_dir>/<timestamp>-<hash>/`.
 - `composition.mid` — the MIDI score (two tracks: melody, accompaniment).
 - `composition.wav` — the rendered audio, 16-bit PCM: 22050 Hz with the
   default soundfont sound, 44100 Hz mono with `--sound plucked`.
+- `composition.json` — the take's settings: scale, progression, tempo, bars
+  per chord, seed and the rest of the metadata; `productionize` reads it.
 
 `<timestamp>` is `YYYYmmddTHHMMSS` (UTC-naive local clock).
 `<hash>` is the first 8 hex chars of `sha1(scale | progression |

@@ -12,8 +12,9 @@ Two sources:
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -486,12 +487,39 @@ def song_from_midi(
     )
 
 
-def composition_kwargs(composition: Composition) -> dict[str, Any]:
-    """The tempo, progression, scale, title and key ``compose()`` recorded."""
-    meta = composition.metadata
-    labels = meta.get("progression") or []
-    scale = str(meta.get("scale", ""))
-    tempo = meta.get("tempo_bpm")
+MANIFEST_NAME = "composition.json"
+MANIFEST_VERSION = 1
+
+
+def manifest_path(midi_path: Path) -> Path:
+    """The take manifest ``compose()`` writes beside ``midi_path``."""
+    return midi_path.with_suffix(".json")
+
+
+def read_manifest(midi_path: Path) -> dict[str, Any] | None:
+    """The take manifest beside ``midi_path``, or ``None`` if there is none."""
+    path = manifest_path(midi_path)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        raise ProductionError(f"could not read {path}: {e}") from e
+    if not isinstance(data, dict):
+        raise ProductionError(f"{path} is not a take manifest (expected a JSON object)")
+    if data.get("manifest_version") != MANIFEST_VERSION:
+        raise ProductionError(
+            f"{path} has manifest version {data.get('manifest_version')!r}; "
+            f"this release reads version {MANIFEST_VERSION}"
+        )
+    return data
+
+
+def manifest_kwargs(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """The tempo, progression, scale, title and key a take's metadata records."""
+    labels = metadata.get("progression") or []
+    scale = str(metadata.get("scale", ""))
+    tempo = metadata.get("tempo_bpm")
     return {
         "tempo_bpm": float(tempo) if tempo is not None else None,
         "progression": [ChordSymbol.parse(str(label)) for label in labels] or None,
@@ -499,6 +527,11 @@ def composition_kwargs(composition: Composition) -> dict[str, Any]:
         "title": f"Composition in {scale.replace(':', ' ')}" if scale else "Composition",
         "key": _key_label(scale) if scale else "",
     }
+
+
+def composition_kwargs(composition: Composition) -> dict[str, Any]:
+    """The tempo, progression, scale, title and key ``compose()`` recorded."""
+    return manifest_kwargs(composition.metadata)
 
 
 def song_from_composition(
