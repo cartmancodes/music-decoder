@@ -434,6 +434,8 @@ music-decoder productionize SOURCE --out DIR [--name NAME]
                              [--progression "CHORDS..."]
                              [--percussion NAME[@SECTIONS]]...
                              [--verse held | guide-line | skeleton | build]
+                             [--style boom-bap | pop-rap]
+                             [--lead guitar | synth]
                              [--samples-dir DIR] [--no-qc]
                              [--format pretty | json]
 ```
@@ -464,8 +466,13 @@ ceiling, and checked.
     1 and 3 only: the tune at half its density.
   - `build` (default) — verses 1-2 as `guide-line`, verses 3-4 as
     `skeleton`, so the verse grows into the second hook.
+- `--style` — `boom-bap` (default, described here) or `pop-rap`, an
+  upbeat trap-drum instrumental (see [Pop-rap style](#pop-rap-style)).
+- `--lead` — the pop-rap lead sound: `guitar` (default, an electric
+  guitar) or `synth`. Only with `--style pop-rap`.
 - `--samples-dir` — where samples are kept (default
-  `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`).
+  `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`). Pop-rap uses no
+  samples and ignores it.
 - `--no-qc` — skip the acceptance checks.
 
 The composition is one pass over its chord progression. The production
@@ -895,6 +902,56 @@ folder rather than overwriting. `--out` from the CLI is the parent
 `<out_dir>`. The Streamlit UI uses
 `<data_dir>/compositions/` (default `~/.music-decoder/compositions/`).
 
+### Pop-rap style
+
+`--style pop-rap` renders the same composition as an upbeat pop-rap
+instrumental instead: half-time trap drums, a sine 808 on each bar's root,
+a soft saw pad, a plucked copy of the accompaniment, and your melody as the
+lead. Nothing is sampled except the guitar lead, so it needs no download.
+
+```bash
+music-decoder productionize ./out/<take-folder> --style pop-rap \
+  --lead synth --out ./release --name my_track
+```
+
+It lays the composition's one pass over this form. P is the whole number
+of passes closest to 16 bars (at least one pass): 16 bars for a 4- or
+8-bar pass, 12 for a 12-bar pass.
+
+| Section | Bars | Lead | Drums and 808 | Pad and pluck | Other |
+|---|---|---|---|---|---|
+| Intro | 8 | none | hats from bar 5 | yes | riser in the last 2 bars |
+| Hook 1 | P | melody | yes | yes | crash on bar 1 |
+| Verse | P | none (room for a rap) | yes, with hat rolls; none in its last bar | yes | crash on bar 1 |
+| Hook 2 | P | melody plus a quiet double | yes | yes | crash on bar 1 |
+| Outro | 4 | melody's first 4 bars | none | yes | — |
+| Final chord | 2 bars held | — | — | home chord on the pad | — |
+
+The quiet double in hook 2 is the other lead sound.
+
+- **Stems:** `stem_<name>.wav` for `drums`, `808`, `pad`, `pluck`, `fx`
+  and `lead` (float, without the lead-in).
+- **Tempo:** it suits pieces of about 100–130 bpm. The drums are half-time
+  trap at the piece's own tempo, so a much slower or faster piece sounds
+  off.
+- **Boom-bap only:** `--percussion`, `--verse` and `--hisaab` are usage
+  errors with `--style pop-rap`.
+- **Lead sound:** the guitar is played from the installed soundfont by
+  FluidSynth. `--lead synth` needs neither the soundfont nor FluidSynth for
+  the lead. The synth is mixed louder than the guitar (-16.5 against -18
+  dBFS RMS), so it sits more forward in the mix.
+- **Source:** it needs composer notes (a melody and an accompaniment), so
+  it takes a take folder or `composition.mid`, not a ready song.
+
+In the library:
+
+```python
+from music_decoder.productionize import PopRapConfig, ProductionConfig
+
+cfg = ProductionConfig(style="pop-rap", poprap=PopRapConfig(lead="synth"))
+release = productionize(result, out_dir=Path("./release"), config=cfg)
+```
+
 ### Production output
 
 `productionize` writes straight into `--out` (re-running overwrites):
@@ -906,7 +963,8 @@ folder rather than overwriting. `--out` from the CLI is the parent
 - `pro_raw.wav` — the pre-master mix, 32-bit float.
 - `stem_<element>.wav` — one float stem each for `drums`, `bass`,
   `piano`, `strings`, `kick`, `snare`, `hats`, `crash` (and `percussion`
-  when on). About 35 MB per stem for a 1:40 track.
+  when on). About 35 MB per stem for a 1:40 track. The pop-rap style
+  writes `drums`, `808`, `pad`, `pluck`, `fx` and `lead` instead.
 
 Samples are cached in `<data_dir>/samples/` (`piano/`, `drums/`, `perc/`).
 

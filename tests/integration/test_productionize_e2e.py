@@ -15,11 +15,19 @@ import os
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import build_midi
-from music_decoder.productionize import hisaab_song, productionize
+from music_decoder.productionize import (
+    PopRapConfig,
+    ProductionConfig,
+    hisaab_song,
+    productionize,
+)
+from music_decoder.productionize.poprap import poprap_song
 from music_decoder.types import ChordSymbol, Scale
 
 pytestmark = [
@@ -67,3 +75,38 @@ def test_composer_output_is_release_ready(tmp_path):
     result = productionize(midi, out_dir=tmp_path / "out", progression=progression, key="Am")
     assert result.qc is not None
     assert result.qc.passed, "\n" + result.qc.format()
+
+
+@pytest.mark.parametrize("lead", ["guitar", "synth"])
+def test_poprap_render_passes_every_check(tmp_path, lead):
+    progression = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
+    arr = arrange(Scale("A", "minor"), progression, tempo_bpm=120.0, seed=7)
+    midi = build_midi(
+        melody=arr.melody,
+        voicings=arr.voicings,
+        bars_per_chord=2,
+        tempo_bpm=120.0,
+        style="fingerstyle",
+        accompaniment=arr.accompaniment,
+        out_path=tmp_path / "composition.mid",
+    )
+    cfg = ProductionConfig(style="pop-rap", poprap=PopRapConfig(lead=lead))  # type: ignore[arg-type]
+    result = productionize(
+        midi, out_dir=tmp_path / "out", progression=progression, key="Am", config=cfg
+    )
+    assert result.qc is not None
+    assert result.qc.passed, "\n" + result.qc.format()
+    assert result.master.limiter_max_reduction_db <= 3.0
+
+    # The stems have no lead-in, so the song's hook spans index them directly.
+    song = poprap_song(midi, cfg=cfg.poprap, progression=progression, key="Am")
+    hooks = [song.section_span(i) for i, s in enumerate(song.sections) if s.role == "hook"]
+    assert len(hooks) == 2
+    energy = {}
+    for name, path in result.stem_paths.items():
+        audio, _ = sf.read(str(path), dtype="float64")
+        energy[name] = sum(float(np.sum(audio[a:b] ** 2)) for a, b in hooks)
+    total = sum(energy.values())
+    drums, bass = energy["drums"] / total, energy["808"] / total
+    assert 0.40 <= drums <= 0.60, f"drums share {drums:.3f}"
+    assert 0.10 <= bass <= 0.25, f"808 share {bass:.3f}"
