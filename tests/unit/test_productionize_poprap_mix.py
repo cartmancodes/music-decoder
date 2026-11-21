@@ -127,3 +127,34 @@ def test_guitar_mix_renders(tmp_path):
     assert np.abs(result.stems["lead"]).max() > 0.0
     energy = _hook_energy(song, result)
     assert energy["drums"] == max(energy.values())
+
+
+def _bad_length_form(song):
+    """A form whose buffer length n has ``int((n / sr) * sr) != n``."""
+    for k in range(3000):
+        form = replace(SHORT_FORM, tail_s=SHORT_FORM.tail_s + k * 0.01)
+        n = poprap_length(song, form)
+        if int((n / SR) * SR) != n:
+            return form, n
+    raise AssertionError("no bad buffer length found")
+
+
+@pytest.mark.parametrize(
+    "lead",
+    [
+        "synth",
+        pytest.param(
+            "guitar",
+            marks=pytest.mark.skipif(not HAS_GUITAR, reason="needs fluidsynth and a soundfont"),
+        ),
+    ],
+)
+def test_lead_fits_buffer_lengths_that_round_down(tmp_path, lead):
+    song = _song(tmp_path, replace(CFG, lead=lead))
+    form, n = _bad_length_form(song)
+    assert int((n / SR) * SR) != n
+    cfg = replace(CFG, lead=lead, form=form)
+    result = render_poprap_mix(song, cfg, tmp_path)
+    assert result.mix.shape == (n, 2)
+    assert result.stems["lead"].shape == (n, 2)
+    assert np.abs(result.stems["lead"]).max() > 0.0

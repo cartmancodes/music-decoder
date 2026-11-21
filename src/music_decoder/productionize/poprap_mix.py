@@ -121,32 +121,45 @@ def _render_pad_and_pluck(
         buses.put("pluck", clip, note.start_s, pan)
 
 
+def _fit(x: Audio, n: int) -> Audio:
+    """``x`` padded with zeros or trimmed along axis 0 to exactly ``n`` samples."""
+    if len(x) >= n:
+        return x[:n]
+    pad = [(0, n - len(x))] + [(0, 0)] * (x.ndim - 1)
+    return np.pad(x, pad)
+
+
 def _lead(
     kind: str,
     notes: list[NoteEvent],
-    total_s: float,
+    n: int,
     song: PopRapSong,
     cfg: PopRapConfig,
     work_dir: Path,
 ) -> Audio:
-    """One lead as a mono clip of ``total_s``; silence when it has no notes."""
+    """One lead as a mono clip of exactly ``n`` samples; silence when it has no notes.
+
+    The renderers size their clip as ``int(total_s * sr)``, which can fall one sample
+    short of ``n`` (float rounding), so the clip is fitted to ``n``.
+    """
     sr = song.grid.sample_rate
     if not notes:
-        return np.zeros(int(total_s * sr))
+        return np.zeros(n)
     if kind == "synth":
-        return synths.synth_lead(notes, total_s, cfg.synth_lead, sr)
-    return synths.guitar_lead(notes, total_s, cfg.guitar_lead, song.grid.tempo_bpm, work_dir, sr)
+        clip = synths.synth_lead(notes, n / sr, cfg.synth_lead, sr)
+    else:
+        clip = synths.guitar_lead(notes, n / sr, cfg.guitar_lead, song.grid.tempo_bpm, work_dir, sr)
+    return _fit(clip, n)
 
 
 def _render_lead(song: PopRapSong, cfg: PopRapConfig, n: int, work_dir: Path) -> Audio:
     """The main lead, the hook-2 double, then the ping-pong delay and the plate."""
     sr, bus = song.grid.sample_rate, cfg.lead_bus
-    total_s = n / sr
     main, double = lead_notes(song)
     other = "guitar" if cfg.lead == "synth" else "synth"
-    lead = dsp.constant_power_pan(_lead(cfg.lead, main, total_s, song, cfg, work_dir), 0.0)
+    lead = dsp.constant_power_pan(_lead(cfg.lead, main, n, song, cfg, work_dir), 0.0)
     if double:
-        doubled = _lead(other, double, total_s, song, cfg, work_dir)
+        doubled = _lead(other, double, n, song, cfg, work_dir)
         lead += bus.double_gain * dsp.constant_power_pan(doubled, bus.double_pan)
     d = int(bus.delay_beats * song.grid.beat_s * sr)
     echo = np.zeros_like(lead)
