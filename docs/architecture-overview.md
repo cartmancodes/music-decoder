@@ -378,10 +378,11 @@ You give the tool a scale, a chord progression, and a few options
    can play it straight from the page. Each note has one string and fret,
    and the MIDI file plays exactly those notes.
 
-6. **Save everything**. The four files (MIDI, WAV, ASCII tab, JSON
-   metadata) end up in a per-take folder named with a timestamp and a
-   short hash of your inputs, so you can keep multiple takes side by
-   side without overwriting.
+6. **Save everything**. The MIDI file, the WAV and `composition.json`
+   (the take's metadata, which the production step reads back) end up in
+   a per-take folder named with a timestamp and a short hash of your
+   inputs, so you can keep multiple takes side by side without
+   overwriting. The ASCII tab is returned with the result.
 
 ---
 

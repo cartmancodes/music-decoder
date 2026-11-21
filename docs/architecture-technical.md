@@ -734,15 +734,20 @@ engine), which drives both the rhythm plan and the pitch choices (v5 fingerstyle
 candidate k from `candidate_seeds(seed, N)`, which does not depend on
 `PYTHONHASHSEED`; the optional models add their own seeded CPU RNG, §5.3.2),
 so the same seed and options give the same music.
-`metadata["composer_version"]` (currently `6`) is bumped whenever the
-composer changes what a given seed produces. Versions 4, 5 and 6 change only
+`metadata["composer_version"]` (currently `7`) is bumped whenever the
+composer changes what a given seed produces. Versions 4, 5, 6 and 7 change only
 `style="fingerstyle"` (§5.3.1, §5.3.2, §5.3.3); strum and arpeggio output is
 unchanged from version 3 for the same inputs
 (`tests/unit/test_compose_frozen.py`). In version 5 the seed names the best of
 N pieces, so the same seed gives a different fingerstyle piece than in
 version 4. In version 6 the default tune engine writes the melody, so a seed
 gives a different fingerstyle melody than in version 5;
-`melody_engine="rules"` reproduces the version 5 melody note for note. Seeds from before version 2
+`melody_engine="rules"` reproduces the version 5 melody note for note,
+except with `--rank-audio`: version 7 puts the audio re-rank on fixed scales
+(`aesthetics.AUDIO_SCALE`, and `SYMBOLIC_SCALE_RULES` for the rules engine),
+so the candidate it keeps can differ from version 5's per-shortlist min-max.
+Version 7 also scores the last bars of a tune pass that is not a whole number
+of 8-bar windows, which changes only the tune engine. Seeds from before version 2
 (the uniform quarter-note generator) give different melodies now, and so do
 version-2 seeds: version 3 changed the chord shapes in every tuning and the
 melody's leap rules. The melody
@@ -1137,16 +1142,19 @@ With `rank_audio=True` the top `RANK_AUDIO_TOP_K = 4` candidates are rendered
 (with the chosen `sound`) to temporary WAVs and scored by Audiobox Aesthetics
 (`facebook/audiobox-aesthetics`, CC-BY-4.0, 415 MB, a CPU re-implementation of
 the predictor's forward pass from the pinned safetensors revision, no token).
-Both signals are normalised across the four candidates:
-`final = z_audio + 0.5 * z_symbolic`, `z_symbolic` the min-max of the symbolic
-score and `z_audio = (x - min) / max(span, AUDIO_SPAN_FLOOR)` of
-`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality;
-`AUDIO_SPAN_FLOOR = 0.3` on the model's 1-10 scale; each 0 when all are
-equal). Normalising matters: the audio model's raw spread between candidates
-is about 0.05-0.3, so the raw sum would never override the symbolic order.
-The floor keeps a gap of a few hundredths, about the model's noise, from
-being stretched to a full 1.0: such a gap counts only in proportion and does
-not overturn the symbolic order by itself (v5 ruling F4e).
+Both signals are scaled by fixed constants, not across the four candidates:
+`total = x / AUDIO_SCALE + 0.5 * s / SYMBOLIC_SCALE`, with
+`x = (CE + PQ) / 2` (`CE` content enjoyment, `PQ` production quality) and `s`
+the symbolic score. The scales were measured on 30 reference fingerstyle
+prompts (the median span of `x`, floored at 0.3, and the median span of `s`):
+`AUDIO_SCALE = 0.3` (never below `AUDIO_SPAN_FLOOR = 0.3`, on the model's 1-10
+scale) and `SYMBOLIC_SCALE = 0.995`. Scaling matters: the audio model's raw
+spread between candidates is about 0.05-0.3, so the raw sum would never
+override the symbolic order. Fixed scales also mean a candidate's total does
+not depend on the others, so adding a candidate that is worse on both signals
+cannot reorder the rest (a per-shortlist min-max could). A gap of a few
+hundredths, about the model's noise, counts only in proportion and does not
+overturn the symbolic order by itself (v5 ruling F4e).
 `metadata["audio_scores"]` holds the chosen candidate's `CE` and `PQ`.
 
 **Melody model** ([compose/ml/amt.py](../src/music_decoder/compose/ml/amt.py)).
@@ -1340,7 +1348,11 @@ section 10 lists every ruling and the measured results.
 **Features and the tune score** ([compose/tune_metrics.py](../src/music_decoder/compose/tune_metrics.py)).
 `tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)` returns
 14 features on the eighth grid, per eight-bar window averaged over the
-piece's windows (a shorter piece is one window): the interval-class shares
+piece's windows (a shorter piece is one window). A piece of more than 8 bars
+that is not a whole number of windows also gets a tail window, its last 8
+bars (overlapping the one before), so its ending is scored; `tune_features`
+turns it on (`tail_window=True`), the corpus bands do not use it (their
+statistics keep to whole windows): the interval-class shares
 `repeat`, `step`, `third`, `leap`; `notes_per_second`; `rhythm_variety`;
 `rhythm_lag2` and `rhythm_lag4`; `figure_recurrence` (share of three-move
 figures that occur more than once); `offbeat`; `late_entry` (bars with no onset

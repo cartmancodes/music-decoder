@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import statistics
 import tempfile
 import time
@@ -29,6 +30,7 @@ from music_decoder.compose.fingerstyle import (
     hand_shape,
 )
 from music_decoder.compose.harmony import essential_pcs
+from music_decoder.compose.manifest import MANIFEST_NAME, MANIFEST_VERSION
 from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.ml import MelodyProposer
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
@@ -55,7 +57,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 6
+COMPOSER_VERSION = 7
 
 # MelodyEngine is re-exported from scoring, which defines it because api imports scoring.
 
@@ -605,7 +607,10 @@ def _rank_by_audio(
                 humanize_seed=humanize_seed,
             )
         rows = scorer.score(wavs)
-    best = aesthetics.choose_by_audio(top, rows)
+    scale_s = (
+        aesthetics.SYMBOLIC_SCALE_RULES if melody_engine == "rules" else aesthetics.SYMBOLIC_SCALE
+    )
+    best = aesthetics.choose_by_audio(top, rows, symbolic_scale=scale_s)
     return top[best], {"CE": rows[best]["CE"], "PQ": rows[best]["PQ"]}
 
 
@@ -765,34 +770,36 @@ def compose_with_options(
             tuning=tuning,
         )
 
+    metadata = {
+        "scale": f"{scale.tonic}:{scale.mode}",
+        "progression": [c.to_label() for c in progression],
+        "bars_per_chord": bars_per_chord,
+        "tempo_bpm": tempo_bpm,
+        "style": style,
+        "seed": seed,
+        "seed_used": seed_used,
+        "tuning": tuning.name,
+        "composer_version": COMPOSER_VERSION,
+        "sound": sound,
+        "candidates": arrangement.candidates,
+        "chosen_candidate": arrangement.chosen_candidate,
+        "score": arrangement.score,
+        "final_fallback": arrangement.final_fallback,
+        "identity_misses": (list(arrangement.identity_misses) if style == "fingerstyle" else None),
+        "rank_audio": rank_audio,
+        "audio_scores": audio_scores,
+        "melody_model": melody_model,
+        "melody_model_seconds": melody_model_seconds,
+        "melody_engine": melody_engine,
+    }
+    (work / MANIFEST_NAME).write_text(
+        json.dumps({"manifest_version": MANIFEST_VERSION, **metadata}, indent=2)
+    )
     return Composition(
         midi_path=midi_path,
         wav_path=wav_path,
         ascii_tab=ascii_tab,
         melody_notes=arrangement.melody,
         chord_voicings=arrangement.voicings,
-        metadata={
-            "scale": f"{scale.tonic}:{scale.mode}",
-            "progression": [c.to_label() for c in progression],
-            "bars_per_chord": bars_per_chord,
-            "tempo_bpm": tempo_bpm,
-            "style": style,
-            "seed": seed,
-            "seed_used": seed_used,
-            "tuning": tuning.name,
-            "composer_version": COMPOSER_VERSION,
-            "sound": sound,
-            "candidates": arrangement.candidates,
-            "chosen_candidate": arrangement.chosen_candidate,
-            "score": arrangement.score,
-            "final_fallback": arrangement.final_fallback,
-            "identity_misses": (
-                list(arrangement.identity_misses) if style == "fingerstyle" else None
-            ),
-            "rank_audio": rank_audio,
-            "audio_scores": audio_scores,
-            "melody_model": melody_model,
-            "melody_model_seconds": melody_model_seconds,
-            "melody_engine": melody_engine,
-        },
+        metadata=metadata,
     )

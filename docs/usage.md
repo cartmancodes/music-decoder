@@ -446,13 +446,19 @@ piano and strings, mixed, mastered to -10.5 LUFS under a -1.8 dBTP
 ceiling, and checked.
 
 - `SOURCE` — a take folder written by `compose`, or its `composition.mid`.
+  A take folder's `composition.json` supplies the key, progression and
+  tempo, and `--key` / `--progression` override it.
 - `--out` (required) — where the files go (see
   [Production output](#production-output)).
 - `--name` — file name of the master, default `production`.
 - `--title`, `--key` — title and key tags of the MP3 (key like `F#m`).
+  A key that parses (`Am`, `Bb`, `F#m`) is also the home chord and
+  replaces the take's scale and its default title; one that does not
+  (`"C major"`) is a tag only.
 - `--progression` — the chords of the composition, e.g. `"Am F C G"`.
-  The bass follows their roots. Without it, each bar's bass note is the
-  lowest note of the accompaniment in that bar.
+  The bass follows their roots. Without it, the bass follows a take
+  folder's `composition.json` progression; with no manifest either, each
+  bar's bass note is the lowest note of the accompaniment in that bar.
 - `--percussion` — add `shaker`, `tambourine` or `congas`; repeat the
   option for several. `NAME@1,6` limits one to those sections (numbered
   from 0; default sections 2-6). Off by default.
@@ -488,7 +494,8 @@ plays that pass eight times, as eight sections, then a final chord:
 
 The final chord is the song's home chord, even when the loop ends
 elsewhere (a `Cmaj7 Am7 Dm7 G7` loop ends on Cmaj7, not G7). The key comes
-from the composition's scale, else `--key`, else the loop's first chord;
+from an explicit `--key` that parses (`Am`, `Bb`), else the take's
+manifest or composition scale, else the loop's first chord;
 the chord is voiced like the verses (root and fifth low, the third and
 seventh in the middle), rolled, and the strings hold its top notes.
 
@@ -760,6 +767,10 @@ def productionize(
 file. It is imported from `music_decoder.productionize`, not from the
 package root.
 
+For a `Composition` passed from Python, `key` and `progression` only set
+the MP3 tags, as before; the take's own metadata already supplies the
+scale and the progression.
+
 ```python
 release = productionize(result, out_dir=Path("./release"), name="night_drive")
 
@@ -893,6 +904,8 @@ Per-take directory: `<out_dir>/<timestamp>-<hash>/`.
 - `composition.mid` — the MIDI score (two tracks: melody, accompaniment).
 - `composition.wav` — the rendered audio, 16-bit PCM: 22050 Hz with the
   default soundfont sound, 44100 Hz mono with `--sound plucked`.
+- `composition.json` — the take's settings: scale, progression, tempo, bars
+  per chord, seed and the rest of the metadata; `productionize` reads it.
 
 `<timestamp>` is `YYYYmmddTHHMMSS` (UTC-naive local clock).
 `<hash>` is the first 8 hex chars of `sha1(scale | progression |
@@ -1099,7 +1112,7 @@ same conventions:
     "seed": 42,
     "seed_used": 42,
     "tuning": "EADGBE",
-    "composer_version": 6,
+    "composer_version": 7,
     "sound": "soundfont",
     "candidates": 12,
     "chosen_candidate": 9,
@@ -1673,7 +1686,7 @@ guarantee its random streams across releases). Useful for:
   MIDI, tab and WAV.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `6`). Version 2 (November
+in `metadata.composer_version` (currently `7`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
 (more musical) take. Version 3 (November 2026) plays a faithful,
@@ -1693,7 +1706,13 @@ names the best of 12 pieces, not one (the chosen index is
 `fingerstyle` melody: the default tune engine writes it from the statistics
 of real tunes, so a seed saved from version 5 gives a different melody. To
 get the version 5 melody back for a seed, pass `--melody-engine rules`.
-`strum` and `arpeggio` are still unchanged from version 3.
+Version 7 (November 2026) changes only `fingerstyle`, and only the tune
+engine's scoring and the audio re-rank: the tune score now counts the last
+bars of a pass that is not a whole number of 8-bar windows, and the
+`--rank-audio` re-rank uses fixed scales, so a candidate's total no longer
+depends on which others made the shortlist. A seed saved from version 6 can
+therefore pick a different candidate. `strum` and `arpeggio` are still
+unchanged from version 3.
 `--candidates`, `--rank-audio`, `--melody-model` and `--melody-engine`
 change which piece a seed gives; `--sound` and the audio
 micro-timing change only the WAV. The same seed with the same options is

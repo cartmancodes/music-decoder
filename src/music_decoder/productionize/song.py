@@ -12,8 +12,9 @@ Two sources:
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from typing import Any
 import numpy as np
 import pretty_midi
 
+from music_decoder.compose.manifest import MANIFEST_VERSION
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize.config import (
     HISAAB_BAR_ROOTS,
@@ -167,17 +169,28 @@ def _key_label(scale: str) -> str:
 _FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
 
+def parse_key_tag(key: str) -> Scale | None:
+    """The scale a key tag such as ``"F#m"`` or ``"Bb"`` names (flats map to
+    sharps; an ``m``, ``min`` or ``minor`` suffix makes it minor), or ``None``
+    when the tag does not parse (``"C major"``, ``"Cmaj"``, ``""``)."""
+    match = re.fullmatch(r"([A-G][#b]?)(m|min|minor)?", key.strip()) if key else None
+    if not match:
+        return None
+    tonic = _FLAT_TO_SHARP.get(match.group(1), match.group(1))
+    return Scale(tonic, "minor" if match.group(2) is not None else "major")
+
+
+def scale_title(scale: Scale) -> str:
+    """The title a take in ``scale`` gets: ``"Composition in A minor"``."""
+    return f"Composition in {scale.tonic} {scale.mode}"
+
+
 def _tonic(scale: Scale | None, key: str, first_root_pc: int) -> tuple[int, bool]:
     """(pitch class, minor) of the home key: the scale, else a key tag such as
     ``"F#m"`` or ``"Bb"``, else the loop's first bar (loops usually start home)."""
-    if scale is not None:
-        return VALID_TONICS.index(
-            _FLAT_TO_SHARP.get(scale.tonic, scale.tonic)
-        ), scale.mode == "minor"
-    match = re.fullmatch(r"([A-G][#b]?)(m|min|minor)?", key.strip()) if key else None
-    if match:
-        tonic = _FLAT_TO_SHARP.get(match.group(1), match.group(1))
-        return VALID_TONICS.index(tonic), match.group(2) is not None
+    named = scale if scale is not None else parse_key_tag(key)
+    if named is not None:
+        return VALID_TONICS.index(named.tonic), named.mode == "minor"
     return first_root_pc, False
 
 
@@ -486,12 +499,35 @@ def song_from_midi(
     )
 
 
-def composition_kwargs(composition: Composition) -> dict[str, Any]:
-    """The tempo, progression, scale, title and key ``compose()`` recorded."""
-    meta = composition.metadata
-    labels = meta.get("progression") or []
-    scale = str(meta.get("scale", ""))
-    tempo = meta.get("tempo_bpm")
+def manifest_path(midi_path: Path) -> Path:
+    """The take manifest ``compose()`` writes beside ``midi_path``."""
+    return midi_path.with_suffix(".json")
+
+
+def read_manifest(midi_path: Path) -> dict[str, Any] | None:
+    """The take manifest beside ``midi_path``, or ``None`` if there is none."""
+    path = manifest_path(midi_path)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        raise ProductionError(f"could not read {path}: {e}") from e
+    if not isinstance(data, dict):
+        raise ProductionError(f"{path} is not a take manifest (expected a JSON object)")
+    if data.get("manifest_version") != MANIFEST_VERSION:
+        raise ProductionError(
+            f"{path} has manifest version {data.get('manifest_version')!r}; "
+            f"this release reads version {MANIFEST_VERSION}"
+        )
+    return data
+
+
+def manifest_kwargs(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """The tempo, progression, scale, title and key a take's metadata records."""
+    labels = metadata.get("progression") or []
+    scale = str(metadata.get("scale", ""))
+    tempo = metadata.get("tempo_bpm")
     return {
         "tempo_bpm": float(tempo) if tempo is not None else None,
         "progression": [ChordSymbol.parse(str(label)) for label in labels] or None,
@@ -499,6 +535,11 @@ def composition_kwargs(composition: Composition) -> dict[str, Any]:
         "title": f"Composition in {scale.replace(':', ' ')}" if scale else "Composition",
         "key": _key_label(scale) if scale else "",
     }
+
+
+def composition_kwargs(composition: Composition) -> dict[str, Any]:
+    """The tempo, progression, scale, title and key ``compose()`` recorded."""
+    return manifest_kwargs(composition.metadata)
 
 
 def song_from_composition(
