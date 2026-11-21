@@ -1,7 +1,20 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
+from music_decoder.compose.api import arrange
+from music_decoder.compose.arrangement import build_midi
 from music_decoder.productionize import dsp
+from music_decoder.productionize.config import (
+    MasterConfig,
+    PopRapConfig,
+    PopRapFormConfig,
+    QcConfig,
+)
+from music_decoder.productionize.master import master, with_lead_in, write_wav
+from music_decoder.productionize.poprap import poprap_song
+from music_decoder.productionize.poprap_mix import render_poprap_mix
 from music_decoder.productionize.qc import (
     Check,
     QcReport,
@@ -11,9 +24,11 @@ from music_decoder.productionize.qc import (
     mono_fold_down_db,
     octave_band_levels,
     off_grid,
+    run_qc,
     stereo_correlation,
     tail_peak_db,
 )
+from music_decoder.types import ChordSymbol, Scale
 
 SR = 44_100
 
@@ -108,3 +123,43 @@ def test_report():
     as_dict = report.to_dict()
     assert as_dict["passed"] is False and len(as_dict["checks"]) == 3
     assert QcReport((Check("a", True, "", ""), Check("b", None, "", ""))).passed
+
+
+def test_run_qc_accepts_a_poprap_song_and_a_16th_grid(tmp_path):
+    progression = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
+    form = replace(PopRapFormConfig(), intro_bars=2, section_target_bars=8, outro_bars=1)
+    cfg = replace(PopRapConfig(lead="synth"), form=form)
+    arr = arrange(Scale("A", "minor"), progression, bars_per_chord=2, tempo_bpm=120.0, seed=7)
+    midi = tmp_path / "composition.mid"
+    build_midi(
+        melody=arr.melody,
+        voicings=arr.voicings,
+        bars_per_chord=2,
+        tempo_bpm=120.0,
+        style="fingerstyle",
+        accompaniment=arr.accompaniment,
+        out_path=midi,
+    )
+    song = poprap_song(midi, cfg=cfg, progression=progression, scale=Scale("A", "minor"), key="Am")
+    mix = render_poprap_mix(song, cfg, tmp_path)
+    master_cfg = MasterConfig()
+    mastered, _ = master(mix.mix, master_cfg, SR)
+    wav = write_wav(
+        tmp_path / "song.wav", with_lead_in(mastered, master_cfg, SR), SR, subtype="PCM_24"
+    )
+
+    report = run_qc(
+        song,
+        wav,
+        None,
+        mix.drum_onsets_s,
+        QcConfig(),
+        master_cfg,
+        tail_s=cfg.form.tail_s,
+        drum_grid="16th",
+    )
+    checks = {c.name: c for c in report.checks}
+    for name in ("format", "drum grid", "DC offset", "loudness (WAV)"):
+        assert checks[name].passed, checks[name]
+    assert checks["drum grid"].value.endswith("on a 16th note")
+    assert checks["section RMS (dBFS)"].passed is None
