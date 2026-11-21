@@ -370,7 +370,7 @@ def test_compose_writes_on_grid_midi_and_records_the_sound(tmp_path):
     pm = pretty_midi.PrettyMIDI(str(result.midi_path))
     starts = [n.start for i in pm.instruments for n in i.notes]
     assert metrics.onset_grid_ratio(metrics.stroke_heads(starts), 100.0, 2) == 1.0
-    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 6
+    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 7
     assert not list(result.midi_path.parent.glob("*performance*"))  # temp MIDI removed
 
 
