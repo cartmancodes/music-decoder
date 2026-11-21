@@ -909,7 +909,9 @@ instrumental instead: half-time trap drums, a sine 808 on each bar's root,
 a soft saw pad, a plucked copy of the accompaniment, and your melody as the
 lead. Nothing is sampled except the guitar lead, so it needs no download.
 The hats and fx are rolled off above 16 kHz, so the MP3 stays under its
-true-peak ceiling.
+true-peak ceiling. Beat jitter is reported but not checked for pop-rap,
+because the beat tracker is unreliable on half-time trap; the drum-grid
+check covers timing.
 
 ```bash
 music-decoder productionize ./out/<take-folder> --style pop-rap \

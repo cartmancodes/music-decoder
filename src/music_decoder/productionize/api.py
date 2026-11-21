@@ -236,6 +236,7 @@ def _productionize_poprap(
         check=check,
         cb=cb,
         mp3_guard=cfg.poprap,
+        check_beat_jitter=False,
     )
 
 
@@ -258,10 +259,12 @@ def _master_and_report(
     check: bool,
     cb: ProgressCallback,
     mp3_guard: PopRapConfig | None = None,
+    check_beat_jitter: bool = True,
 ) -> Production:
     """Write the raw mix and stems, master, export, check and report. The part
     of :func:`productionize` the two styles share. ``mp3_guard`` (pop-rap only)
-    re-masters while the MP3's true peak is too close to the delivery ceiling."""
+    re-masters while the MP3's true peak is too close to the delivery ceiling;
+    ``check_beat_jitter`` off (pop-rap) reports the jitter without checking it."""
     sr = song.grid.sample_rate
     raw_mix_path = write_wav(out_dir / RAW_MIX, mix.mix, sr, subtype="FLOAT")
     stem_paths = {
@@ -311,6 +314,7 @@ def _master_and_report(
             cfg.master,
             tail_s=tail_s,
             drum_grid=drum_grid,
+            check_beat_jitter=check_beat_jitter,
         )
     (out_dir / f"{name}.json").write_text(
         json.dumps(

@@ -163,3 +163,24 @@ def test_run_qc_accepts_a_poprap_song_and_a_16th_grid(tmp_path):
         assert checks[name].passed, checks[name]
     assert checks["drum grid"].value.endswith("on a 16th note")
     assert checks["section RMS (dBFS)"].passed is None
+    assert checks["beat jitter"].passed is not None  # checked by default
+
+    unchecked = run_qc(
+        song,
+        wav,
+        None,
+        mix.drum_onsets_s,
+        QcConfig(beat_jitter_max_s=0.0),  # no jitter could pass this
+        master_cfg,
+        tail_s=cfg.form.tail_s,
+        drum_grid="16th",
+        check_beat_jitter=False,
+    )
+    jitter = {c.name: c for c in unchecked.checks}["beat jitter"]
+    assert jitter.passed is None
+    assert jitter.value.endswith(" ms")
+    assert jitter.expected == "not checked: half-time trap (see drum grid)"
+    assert [c.name for c in unchecked.failures] == [
+        c.name for c in report.failures if c.name != "beat jitter"
+    ]  # the jitter is the only difference; it does not fail the report
+    assert len(unchecked.checks) == len(report.checks)

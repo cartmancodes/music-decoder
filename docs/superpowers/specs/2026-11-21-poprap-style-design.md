@@ -283,6 +283,14 @@ unchanged.
     so the low-pass alone can't be relied on. If the MP3 still peaks
     within 0.1 dB of the ceiling or above it, the pop-rap path re-masters
     with a lower ceiling, at most 3 times. Boom-bap is unchanged.
+- **Beat jitter:** for pop-rap it is reported with no pass/fail.
+  - librosa's beat tracker can't follow half-time trap reliably. On
+    the same song its jitter jumped between about 5, 10 and 13 ms when
+    the filter cutoff or the tempo changed slightly, and it was 61 ms
+    on the drums and 808 alone.
+  - The drum-grid check already confirms that every kick and clap sits
+    exactly on the 16th grid.
+  - The tempo check stays pass/fail, and boom-bap still checks jitter.
 - **Synth-lead drum share:** the full-render test's floor for the synth
   lead is 35 %, measured at 39 %. The synth lead is mixed forward, as in
   take B. The guitar lead keeps 40–60 %.

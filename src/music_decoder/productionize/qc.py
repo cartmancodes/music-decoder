@@ -230,8 +230,11 @@ def run_qc(
     tail_s: float,
     ffmpeg: Path | None = None,
     drum_grid: Literal["8th", "16th"] = "8th",
+    check_beat_jitter: bool = True,
 ) -> QcReport:
-    """Every acceptance check for a finished master."""
+    """Every acceptance check for a finished master. With ``check_beat_jitter``
+    off the beat jitter is reported but not checked (the pop-rap style: a beat
+    tracker is unreliable on half-time trap, and the drum grid covers timing)."""
     checks: list[Check] = []
 
     def add(name: str, passed: bool | None, value: str, expected: str) -> None:
@@ -358,12 +361,20 @@ def run_qc(
         f"{tempo:.1f} BPM",
         f"{wanted:.1f} +-{cfg.tempo_tolerance_bpm} BPM",
     )
-    add(
-        "beat jitter",
-        jitter < cfg.beat_jitter_max_s,
-        f"{jitter * 1000:.1f} ms",
-        f"under {cfg.beat_jitter_max_s * 1000:.0f} ms",
-    )
+    if check_beat_jitter:
+        add(
+            "beat jitter",
+            jitter < cfg.beat_jitter_max_s,
+            f"{jitter * 1000:.1f} ms",
+            f"under {cfg.beat_jitter_max_s * 1000:.0f} ms",
+        )
+    else:
+        add(
+            "beat jitter",
+            None,
+            f"{jitter * 1000:.1f} ms",
+            "not checked: half-time trap (see drum grid)",
+        )
 
     beat = round(g.beat_s * sr)
     bar = round(g.bar_s * sr)
