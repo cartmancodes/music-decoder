@@ -10,6 +10,8 @@ from music_decoder.compose.arrangement import build_midi
 from music_decoder.productionize import Production, ProductionError, productionize
 from music_decoder.productionize.api import resolve_poprap_song, resolve_song
 from music_decoder.productionize.config import PopRapConfig, PopRapFormConfig, ProductionConfig
+from music_decoder.productionize.dsp import gain_to_db
+from music_decoder.productionize.master import ceiling_gain
 from music_decoder.productionize.poprap import PopRapSong
 from music_decoder.productionize.poprap_mix import POPRAP_STEMS
 from music_decoder.productionize.samples import SampleError
@@ -232,3 +234,73 @@ def test_boom_bap_metadata_has_style_and_no_lead(tmp_path):
     ]  # fmt: skip
     report = json.loads((tmp_path / "out" / "production.json").read_text())
     assert report["metadata"]["lead"] is None
+
+
+def _spy_master(monkeypatch):
+    from music_decoder.productionize import api
+
+    ceilings = []
+    real = api.master
+
+    def spy(mix, cfg, sr):
+        ceilings.append(cfg.ceiling_dbtp)
+        return real(mix, cfg, sr)
+
+    monkeypatch.setattr(api, "master", spy)
+    return api, ceilings
+
+
+@needs_ffmpeg
+def test_poprap_mp3_guard_remasters_with_a_lower_ceiling(composition_dir, tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+    measured = iter([-0.5, -1.4])  # hot, then passing
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", lambda mp3, cfg: next(measured))
+    result = productionize(
+        composition_dir, out_dir=tmp_path / "out", config=POPRAP, progression=PROGRESSION
+    )
+    margin = POPRAP.poprap.mp3_guard_margin_db
+    threshold = POPRAP.qc.mp3_true_peak_max_dbtp - margin
+    excess = -0.5 - threshold
+    assert len(ceilings) == 2
+    assert ceilings[0] == POPRAP.master.ceiling_dbtp
+    assert ceilings[1] == pytest.approx(ceilings[0] - (excess + margin), abs=1e-12)
+    assert result.metadata["mp3_guard_passes"] == 1
+    final = replace(POPRAP.master, ceiling_dbtp=ceilings[1])
+    assert result.master.true_peak_dbtp == pytest.approx(
+        gain_to_db(ceiling_gain(final)), abs=0.01
+    )  # the report is the second master's
+    report = json.loads((tmp_path / "out" / "production.json").read_text())
+    assert report["metadata"]["mp3_guard_passes"] == 1
+    assert report["master"]["true_peak_dbtp"] == pytest.approx(result.master.true_peak_dbtp)
+
+
+@needs_ffmpeg
+def test_poprap_mp3_guard_stops_after_its_attempts(composition_dir, tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", lambda mp3, cfg: -0.5)
+    result = productionize(
+        composition_dir,
+        out_dir=tmp_path / "out",
+        config=POPRAP,
+        progression=PROGRESSION,
+        check=False,
+    )
+    assert len(ceilings) == 1 + POPRAP.poprap.mp3_guard_attempts
+    assert result.metadata["mp3_guard_passes"] == POPRAP.poprap.mp3_guard_attempts
+
+
+@needs_ffmpeg
+def test_boom_bap_never_measures_or_remasters_the_mp3(tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+
+    def fail(mp3, cfg):
+        raise AssertionError("boom-bap must not run the MP3 guard")
+
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", fail)
+    song = tiny_song()
+    fake_store(tmp_path / "samples", song)
+    result = productionize(
+        song, out_dir=tmp_path / "out", samples_dir=tmp_path / "samples", check=False
+    )
+    assert len(ceilings) == 1
+    assert "mp3_guard_passes" not in result.metadata

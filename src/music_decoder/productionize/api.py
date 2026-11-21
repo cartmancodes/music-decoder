@@ -9,8 +9,10 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from music_decoder.productionize import dsp
 from music_decoder.productionize.config import (
     ComposerArrangeConfig,
+    MasterConfig,
     PopRapConfig,
     ProductionConfig,
 )
@@ -24,7 +26,7 @@ from music_decoder.productionize.master import (
 from music_decoder.productionize.mix import MixResult, render_mix
 from music_decoder.productionize.poprap import PopRapSong, poprap_song
 from music_decoder.productionize.poprap_mix import render_poprap_mix
-from music_decoder.productionize.qc import QcReport, run_qc
+from music_decoder.productionize.qc import QcReport, decode_mp3, run_qc
 from music_decoder.productionize.samples import PIANO_CREDIT, SampleStore
 from music_decoder.productionize.song import (
     ProductionError,
@@ -220,6 +222,7 @@ def _productionize_poprap(
         "credits": [],
         "style": "pop-rap",
         "lead": cfg.poprap.lead,
+        "mp3_guard_passes": 0,
     }
     return _master_and_report(
         song,
@@ -232,7 +235,14 @@ def _productionize_poprap(
         metadata=metadata,
         check=check,
         cb=cb,
+        mp3_guard=cfg.poprap,
     )
+
+
+def mp3_true_peak_dbtp(mp3: Path, master_cfg: MasterConfig) -> float:
+    """The MP3's true peak as ``run_qc`` measures it (decoded to float)."""
+    audio, _ = decode_mp3(mp3)
+    return dsp.gain_to_db(dsp.true_peak(audio, master_cfg.oversample))
 
 
 def _master_and_report(
@@ -247,9 +257,11 @@ def _master_and_report(
     metadata: dict[str, Any],
     check: bool,
     cb: ProgressCallback,
+    mp3_guard: PopRapConfig | None = None,
 ) -> Production:
     """Write the raw mix and stems, master, export, check and report. The part
-    of :func:`productionize` the two styles share."""
+    of :func:`productionize` the two styles share. ``mp3_guard`` (pop-rap only)
+    re-masters while the MP3's true peak is too close to the delivery ceiling."""
     sr = song.grid.sample_rate
     raw_mix_path = write_wav(out_dir / RAW_MIX, mix.mix, sr, subtype="FLOAT")
     stem_paths = {
@@ -257,16 +269,35 @@ def _master_and_report(
         for stem, audio in mix.stems.items()
     }
 
-    cb("master", 0.0)
-    mastered, report = master(mix.mix, cfg.master, sr)
-    cb("export", 0.0)
-    wav_path = write_wav(
-        out_dir / f"{name}.wav", with_lead_in(mastered, cfg.master, sr), sr, subtype="PCM_24"
-    )
     tags = {"title": song.title, "TBPM": str(round(song.grid.tempo_bpm)), "genre": cfg.master.genre}
     if song.key:
         tags["TKEY"] = song.key
-    mp3_path = encode_mp3(wav_path, out_dir / f"{name}.mp3", tags, cfg.master)
+
+    def master_and_export(master_cfg: MasterConfig) -> tuple[MasterReport, Path, Path]:
+        cb("master", 0.0)
+        mastered, rep = master(mix.mix, master_cfg, sr)
+        cb("export", 0.0)
+        wav = write_wav(
+            out_dir / f"{name}.wav", with_lead_in(mastered, master_cfg, sr), sr, subtype="PCM_24"
+        )
+        return rep, wav, encode_mp3(wav, out_dir / f"{name}.mp3", tags, master_cfg)
+
+    report, wav_path, mp3_path = master_and_export(cfg.master)
+    if mp3_guard is not None:
+        master_cfg = cfg.master
+        threshold = cfg.qc.mp3_true_peak_max_dbtp - mp3_guard.mp3_guard_margin_db
+        passes = 0
+        while passes < mp3_guard.mp3_guard_attempts:
+            excess = mp3_true_peak_dbtp(mp3_path, master_cfg) - threshold
+            if excess <= 0.0:
+                break
+            master_cfg = replace(
+                master_cfg,
+                ceiling_dbtp=master_cfg.ceiling_dbtp - (excess + mp3_guard.mp3_guard_margin_db),
+            )
+            report, wav_path, mp3_path = master_and_export(master_cfg)
+            passes += 1
+        metadata["mp3_guard_passes"] = passes
 
     qc = None
     if check:

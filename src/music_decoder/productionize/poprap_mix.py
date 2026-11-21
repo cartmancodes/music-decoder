@@ -222,6 +222,8 @@ def render_poprap_mix(
         "fx": m.fx_dbfs,
         "lead": m.lead_guitar_dbfs if cfg.lead == "guitar" else m.lead_synth_dbfs,
     }
+    for name in ("drums", "fx"):
+        dry[name] = dsp.butter(dry[name], "lowpass", m.bright_lowpass_hz, sr, order=4, stable=True)
     limited = {"drums", "808"}
     stems = {
         name: _level(dry[name], targets[name], m.silence, m.peak_ratio if name in limited else None)

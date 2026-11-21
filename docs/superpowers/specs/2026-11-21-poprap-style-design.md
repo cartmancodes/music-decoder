@@ -271,6 +271,22 @@ unchanged.
   step and the fade, but no air shelf. That matches the spike, which had
   neither.
 
+## Calls made during the build
+
+- **MP3 true peak:** the spike's chain left the MP3 over the −1.0 dBTP
+  delivery ceiling. The full render measured −0.91 with the guitar and
+  −0.28 with the synth. The WAV was fine at −1.93.
+  - **Low-pass:** a 4th-order 16 kHz low-pass on the drums and fx buses
+    brings both MP3s under the ceiling. It leaves the 808, pad and lead
+    untouched and was the measured option closest to the spike.
+  - **Guard:** MP3 overs move by 0.3–0.6 dB between near-identical mixes,
+    so the low-pass alone can't be relied on. If the MP3 still peaks
+    within 0.1 dB of the ceiling or above it, the pop-rap path re-masters
+    with a lower ceiling, at most 3 times. Boom-bap is unchanged.
+- **Synth-lead drum share:** the full-render test's floor for the synth
+  lead is 35 %, measured at 39 %. The synth lead is mixed forward, as in
+  take B. The guitar lead keeps 40–60 %.
+
 ## Left to the builder
 
 - Module layout:

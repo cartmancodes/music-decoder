@@ -853,6 +853,9 @@ class PopRapMixConfig:
     pluck_hall_send: float = 0.30
     fx_hall_send: float = 0.40
     sub_highpass_hz: float = 28.0
+    # 4th-order low-pass on the drums and fx buses: keeps the MP3 under its
+    # true-peak ceiling (the hats and crash are the energy it overshoots on).
+    bright_lowpass_hz: float = 16000.0
     silence: float = 1e-5
 
 
@@ -870,6 +873,10 @@ class PopRapConfig:
     guitar_lead: GuitarLeadConfig = GuitarLeadConfig()
     lead_bus: LeadBusConfig = LeadBusConfig()
     mix: PopRapMixConfig = PopRapMixConfig()
+    # MP3 guard: re-master with a lower ceiling while the MP3's true peak is
+    # within this many dB of the delivery ceiling (or above it).
+    mp3_guard_margin_db: float = 0.1
+    mp3_guard_attempts: int = 3
 
 
 # ---- The whole recipe ------------------------------------------------------

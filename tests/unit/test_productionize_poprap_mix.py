@@ -158,3 +158,25 @@ def test_lead_fits_buffer_lengths_that_round_down(tmp_path, lead):
     assert result.mix.shape == (n, 2)
     assert result.stems["lead"].shape == (n, 2)
     assert np.abs(result.stems["lead"]).max() > 0.0
+
+
+def _energy_above(x, hz):
+    spectrum = np.abs(np.fft.rfft(x.mean(axis=1))) ** 2
+    freqs = np.fft.rfftfreq(len(x), 1 / SR)
+    return float(spectrum[freqs > hz].sum())
+
+
+def test_drums_and_fx_are_rolled_off_above_the_bright_lowpass(tmp_path):
+    song = _song(tmp_path)
+    bright = replace(CFG, mix=replace(CFG.mix, bright_lowpass_hz=21_000.0))
+    (tmp_path / "bright").mkdir()
+    open_ = render_poprap_mix(song, bright, tmp_path / "bright")
+    rolled = render_poprap_mix(song, CFG, tmp_path)
+    assert CFG.mix.bright_lowpass_hz == 16_000.0
+    for name in ("drums", "fx"):
+        assert _energy_above(rolled.stems[name], 17_000) < 0.5 * _energy_above(
+            open_.stems[name], 17_000
+        )
+    # The other stems are untouched.
+    for name in ("808", "pad", "pluck", "lead"):
+        assert np.array_equal(rolled.stems[name], open_.stems[name])
