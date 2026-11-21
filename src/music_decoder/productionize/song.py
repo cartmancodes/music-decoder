@@ -16,6 +16,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pretty_midi
@@ -33,6 +34,7 @@ from music_decoder.productionize.config import (
     composer_sections,
 )
 from music_decoder.productionize.verse import (
+    BarHarmony,
     bar_harmonies,
     guide_lines,
     left_hand,
@@ -194,28 +196,52 @@ def _clamp_velocity(velocity: int) -> int:
     return max(1, min(127, velocity))
 
 
-def song_from_midi(
+def _bar_of(note: NoteEvent, beat_s: float, n_bars: int) -> int:
+    """The bar ``note`` starts in. MIDI ticks round note times by a millisecond
+    or two, so the bar line is snapped by 1/64 bar."""
+    bar = 4.0 * beat_s
+    return min(n_bars - 1, max(0, int((note.start_s + bar / 64.0) // bar)))
+
+
+@dataclass(frozen=True)
+class ComposerParts:
+    """What the composer wrote, read once and ready to lay out in any form."""
+
+    melody: tuple[NoteEvent, ...]  # sorted by onset, times within one pass
+    accompaniment: tuple[NoteEvent, ...]
+    beat_s: float
+    n_bars: int  # bars in one pass
+    chords: tuple[tuple[int, ...], ...]  # per bar: the accompaniment's pitches
+    root_pcs: tuple[int, ...]  # per bar
+    bar_roots: tuple[int, ...]  # per bar, folded into arrange.bass_low..bass_high
+    harmonies: tuple[BarHarmony, ...]  # per bar
+    voicings: tuple[tuple[int, ...], ...]  # per bar, voice-led right-hand voicings
+    home: BarHarmony  # the tonic chord of the key
+    home_voicing: tuple[int, ...]  # right-hand voicing of ``home``, led from the last bar
+
+    def bar_of(self, note: NoteEvent) -> int:
+        """The bar ``note`` starts in (with the 1/64-bar snap)."""
+        return _bar_of(note, self.beat_s, self.n_bars)
+
+
+def read_composer_parts(
     midi_path: Path,
     *,
     tempo_bpm: float | None = None,
     progression: Sequence[ChordSymbol] | None = None,
     scale: Scale | None = None,
-    title: str = "Composition (Instrumental)",
     key: str = "",
-    sections: tuple[SectionSpec, ...] | None = None,
     arrange: ComposerArrangeConfig | None = None,
-) -> Song:
-    """Lay a composer MIDI file (one pass over its progression) over the form.
+) -> ComposerParts:
+    """Read a composer MIDI file (one pass over its progression).
 
     The tempo comes from the file unless given. Each bar's bass root is the
     root of ``progression`` when given, else the lowest accompaniment note
     of the bar. ``scale`` (else the pitch classes the file uses) decides
-    which ninths a verse line may use. Without ``sections`` the form is the
-    composer form with the verse style of ``arrange``.
+    which ninths a verse line may use; ``scale`` or ``key`` (else the loop's
+    first bar) names the home chord.
     """
     cfg = arrange or ComposerArrangeConfig()
-    if sections is None:
-        sections = composer_sections(cfg.verse_style)
     pm = _load_midi(midi_path)
     by_name = {inst.name.lower(): inst for inst in pm.instruments if not inst.is_drum}
     pitched = [inst for inst in pm.instruments if not inst.is_drum]
@@ -238,17 +264,11 @@ def song_from_midi(
     if tempo_bpm <= 0:
         raise ProductionError(f"tempo must be positive, got {tempo_bpm}")
     beat = 60.0 / tempo_bpm
-    bar = 4.0 * beat
-    snap = bar / 64.0  # MIDI ticks round note times by a millisecond or two
-    n_bars = max(1, round(max(n.end_s for n in accompaniment) / bar))
-    grid = Grid(beat_s=beat, bars_per_section=n_bars)
-
-    def bar_of(note: NoteEvent) -> int:
-        return min(n_bars - 1, max(0, int((note.start_s + snap) // bar)))
+    n_bars = max(1, round(max(n.end_s for n in accompaniment) / (4.0 * beat)))
 
     chords: list[list[int]] = [[] for _ in range(n_bars)]
     for n in accompaniment:
-        chords[bar_of(n)].append(n.pitch)
+        chords[_bar_of(n, beat, n_bars)].append(n.pitch)
     chords = [sorted(set(c)) for c in chords]
     for i, chord in enumerate(chords):  # an empty bar keeps the previous chord
         if not chord:
@@ -267,7 +287,6 @@ def song_from_midi(
     if any(r > cfg.bass_high for r in bar_roots):
         raise ProductionError("bass range must span an octave (bass_high >= bass_low + 11)")
 
-    last_bar_start = (n_bars - 1) * bar - snap
     harmonies = bar_harmonies(
         chords,
         root_pcs,
@@ -276,6 +295,61 @@ def song_from_midi(
         all_pitches=[n.pitch for n in (*melody, *accompaniment)],
     )
     voicings = voice_led_voicings(harmonies, cfg)
+    # The song ends on its home chord (the loop's last chord is often IV or
+    # V), voiced like the verses and moving least from their last chord.
+    tonic_pc, minor = _tonic(scale, key, root_pcs[0])
+    home = tonic_harmony(harmonies, tonic_pc, minor=minor, scale_pcs=harmonies[0].scale)
+    return ComposerParts(
+        melody=tuple(sorted(melody, key=_onset_order)),
+        accompaniment=tuple(accompaniment),
+        beat_s=beat,
+        n_bars=n_bars,
+        chords=tuple(tuple(c) for c in chords),
+        root_pcs=tuple(root_pcs),
+        bar_roots=bar_roots,
+        harmonies=tuple(harmonies),
+        voicings=tuple(tuple(v) for v in voicings),
+        home=home,
+        home_voicing=tuple(resolve_voicing(home, voicings[-1], cfg)),
+    )
+
+
+def song_from_midi(
+    midi_path: Path,
+    *,
+    tempo_bpm: float | None = None,
+    progression: Sequence[ChordSymbol] | None = None,
+    scale: Scale | None = None,
+    title: str = "Composition (Instrumental)",
+    key: str = "",
+    sections: tuple[SectionSpec, ...] | None = None,
+    arrange: ComposerArrangeConfig | None = None,
+) -> Song:
+    """Lay a composer MIDI file (one pass over its progression) over the form.
+
+    See :func:`read_composer_parts` for how the file is read. Without
+    ``sections`` the form is the composer form with the verse style of
+    ``arrange``.
+    """
+    cfg = arrange or ComposerArrangeConfig()
+    if sections is None:
+        sections = composer_sections(cfg.verse_style)
+    parts = read_composer_parts(
+        midi_path,
+        tempo_bpm=tempo_bpm,
+        progression=progression,
+        scale=scale,
+        key=key,
+        arrange=cfg,
+    )
+    melody, accompaniment = list(parts.melody), list(parts.accompaniment)
+    n_bars, beat = parts.n_bars, parts.beat_s
+    bar = 4.0 * beat
+    chords = [list(c) for c in parts.chords]
+    bar_roots, harmonies, voicings = parts.bar_roots, list(parts.harmonies), list(parts.voicings)
+    bar_of = parts.bar_of
+    grid = Grid(beat_s=beat, bars_per_section=n_bars)
+    last_bar_start = (n_bars - 1) * bar - bar / 64.0
 
     def with_left_hand(rhs: Sequence[tuple[int, ...]]) -> list[list[int]]:
         return [sorted({*left_hand(h, cfg), *rh}) for h, rh in zip(harmonies, rhs, strict=True)]
@@ -381,11 +455,8 @@ def song_from_midi(
                     for p in chords[b][-cfg.strings_voices :]
                 )
 
-    # The song ends on its home chord (the loop's last chord is often IV or
-    # V), voiced like the verses and moving least from their last chord.
-    tonic_pc, minor = _tonic(scale, key, root_pcs[0])
-    home = tonic_harmony(harmonies, tonic_pc, minor=minor, scale_pcs=harmonies[0].scale)
-    final_chord = sorted({*left_hand(home, cfg), *resolve_voicing(home, voicings[-1], cfg)})
+    # The song ends on its home chord, voiced like the verses.
+    final_chord = sorted({*left_hand(parts.home, cfg), *parts.home_voicing})
     tail = len(sections) * grid.section_s
     piano.extend(
         _roll(
@@ -415,6 +486,21 @@ def song_from_midi(
     )
 
 
+def composition_kwargs(composition: Composition) -> dict[str, Any]:
+    """The tempo, progression, scale, title and key ``compose()`` recorded."""
+    meta = composition.metadata
+    labels = meta.get("progression") or []
+    scale = str(meta.get("scale", ""))
+    tempo = meta.get("tempo_bpm")
+    return {
+        "tempo_bpm": float(tempo) if tempo is not None else None,
+        "progression": [ChordSymbol.parse(str(label)) for label in labels] or None,
+        "scale": Scale.parse(scale) if scale else None,
+        "title": f"Composition in {scale.replace(':', ' ')}" if scale else "Composition",
+        "key": _key_label(scale) if scale else "",
+    }
+
+
 def song_from_composition(
     composition: Composition,
     *,
@@ -422,19 +508,8 @@ def song_from_composition(
     arrange: ComposerArrangeConfig | None = None,
 ) -> Song:
     """A :class:`Song` from what ``compose()`` returned (uses its metadata)."""
-    meta = composition.metadata
-    labels = meta.get("progression") or []
-    scale = str(meta.get("scale", ""))
-    tempo = meta.get("tempo_bpm")
     return song_from_midi(
-        composition.midi_path,
-        tempo_bpm=float(tempo) if tempo is not None else None,
-        progression=[ChordSymbol.parse(str(label)) for label in labels] or None,
-        scale=Scale.parse(scale) if scale else None,
-        title=f"Composition in {scale.replace(':', ' ')}" if scale else "Composition",
-        key=_key_label(scale) if scale else "",
-        sections=sections,
-        arrange=arrange,
+        composition.midi_path, **composition_kwargs(composition), sections=sections, arrange=arrange
     )
 
 
