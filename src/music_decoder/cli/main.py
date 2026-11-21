@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import click
+from click.core import ParameterSource
 
 from music_decoder.api import analyze
 from music_decoder.compose.api import compose_with_options
@@ -317,10 +318,31 @@ def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
     show_default=True,
     help="verse style for composer songs (see the usage guide)",
 )
-@click.option("--samples-dir", type=click.Path(file_okay=False), default=None)
+@click.option(
+    "--style",
+    type=click.Choice(["boom-bap", "pop-rap"]),
+    default="boom-bap",
+    show_default=True,
+    help="production style",
+)
+@click.option(
+    "--lead",
+    type=click.Choice(["guitar", "synth"]),
+    default="guitar",
+    show_default=True,
+    help="pop-rap lead sound",
+)
+@click.option(
+    "--samples-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="boom-bap sample folder (pop-rap needs no samples)",
+)
 @click.option("--no-qc", is_flag=True, default=False, help="skip the acceptance checks")
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
+@click.pass_context
 def cli_productionize(
+    ctx: click.Context,
     source: str | None,
     out: str,
     name: str,
@@ -330,6 +352,8 @@ def cli_productionize(
     percussion: tuple[str, ...],
     hisaab: bool,
     verse: str,
+    style: str,
+    lead: str,
     samples_dir: str | None,
     no_qc: bool,
     fmt: str,
@@ -339,9 +363,24 @@ def cli_productionize(
     SOURCE is a folder written by `compose` or its composition.mid.
     """
     if source is None and not hisaab:
-        raise click.UsageError("give a composition folder or MIDI file (or --hisaab)")
+        suffix = "" if style == "pop-rap" else " (or --hisaab)"
+        raise click.UsageError(f"give a composition folder or MIDI file{suffix}")
+    if style == "pop-rap":
+        verse_given = ctx.get_parameter_source("verse") is ParameterSource.COMMANDLINE
+        for given, option in (
+            (hisaab, "--hisaab"),
+            (percussion, "--percussion"),
+            (verse_given, "--verse"),
+        ):
+            if given:
+                raise click.UsageError(f"{option} is for the boom-bap style, not pop-rap")
     config = with_percussion(ProductionConfig(), _parse_percussion(percussion))
-    config = replace(config, arrange=replace(config.arrange, verse_style=verse))
+    config = replace(
+        config,
+        style=cast(Literal["boom-bap", "pop-rap"], style),
+        arrange=replace(config.arrange, verse_style=verse),
+        poprap=replace(config.poprap, lead=cast(Literal["guitar", "synth"], lead)),
+    )
 
     def progress(stage: str, fraction: float) -> None:
         click.echo(f"  {stage} ...", err=True)

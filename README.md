@@ -51,6 +51,9 @@ music-decoder compose \
 # Turn that composition into a mastered instrumental (WAV + MP3 + stems)
 music-decoder productionize ./out/<take-folder> --out ./release --name my_track
 
+# Or as an upbeat pop-rap instrumental: trap drums, 808, and your melody on electric guitar
+music-decoder productionize ./out/<take-folder> --style pop-rap --out ./release --name my_track
+
 # Launch the Streamlit UI
 music-decoder ui
 
@@ -85,6 +88,10 @@ from music_decoder.productionize import productionize
 
 release = productionize(comp, out_dir=Path("./release"), name="my_track")
 print(release.wav_path, release.mp3_path, release.qc.passed)
+
+from music_decoder.productionize import ProductionConfig, PopRapConfig
+poprap = ProductionConfig(style="pop-rap", poprap=PopRapConfig(lead="guitar"))
+release = productionize(comp, out_dir=Path("./release"), name="my_track", config=poprap)
 ```
 
 ## Development

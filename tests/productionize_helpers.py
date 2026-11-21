@@ -6,10 +6,12 @@ generated FLAC/WAV files with the real file names.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from music_decoder.productionize.config import Grid, ProductionConfig, SectionSpec
@@ -21,10 +23,16 @@ from music_decoder.productionize.samples import (
     piano_ref,
 )
 from music_decoder.productionize.song import NoteEvent, Song
+from music_decoder.synth import _resolve_soundfont_path
 
 SR = 44_100
 SOURCE_SR = 48_000
 LEAD_SILENCE_S = 0.005
+
+# Every pop-rap mix with a hook 2 plays the guitar (the lead, or the synth lead's
+# double), so its tests need FluidSynth and a soundfont.
+HAS_GUITAR = shutil.which("fluidsynth") is not None and _resolve_soundfont_path() is not None
+needs_guitar = pytest.mark.skipif(not HAS_GUITAR, reason="needs fluidsynth and a soundfont")
 
 
 def burst(seconds: float, sr: int, seed: int, channels: int) -> np.ndarray:

@@ -15,7 +15,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -24,13 +24,42 @@ from scipy import signal
 
 from music_decoder.ingest.ffmpeg import find_ffmpeg
 from music_decoder.productionize import dsp
-from music_decoder.productionize.config import MasterConfig, QcConfig
+from music_decoder.productionize.config import Grid, MasterConfig, QcConfig, QcReference
 from music_decoder.productionize.dsp import Audio
 from music_decoder.productionize.master import ceiling_gain, loudness
-from music_decoder.productionize.song import ProductionError, Song
+from music_decoder.productionize.song import ProductionError
 
 _TP_SLACK_DB = 0.01  # measurement noise on a peak that sits on the ceiling
 _FULL_SCALE = 1.0 - 2.0**-15
+
+
+class SectionLike(Protocol):
+    """What the checks read of a section."""
+
+    @property
+    def drums(self) -> str: ...
+
+
+class Timeline(Protocol):
+    """What the checks read of a song. Read-only properties, so the frozen
+    dataclasses ``Song`` and ``PopRapSong`` both satisfy it."""
+
+    @property
+    def grid(self) -> Grid: ...
+
+    @property
+    def sections(self) -> Sequence[SectionLike]: ...
+
+    @property
+    def reference(self) -> QcReference | None: ...
+
+    @property
+    def body_s(self) -> float: ...
+
+    @property
+    def verse_sections(self) -> tuple[int, ...]: ...
+
+    def section_span(self, index: int) -> tuple[int, int]: ...
 
 
 @dataclass(frozen=True)
@@ -191,7 +220,7 @@ def _between(value: float, bounds: tuple[float, float]) -> bool:
 
 
 def run_qc(
-    song: Song,
+    song: Timeline,
     wav_path: Path,
     mp3_path: Path | None,
     drum_onsets_s: Sequence[float],
@@ -200,8 +229,12 @@ def run_qc(
     *,
     tail_s: float,
     ffmpeg: Path | None = None,
+    drum_grid: Literal["8th", "16th"] = "8th",
+    check_beat_jitter: bool = True,
 ) -> QcReport:
-    """Every acceptance check for a finished master."""
+    """Every acceptance check for a finished master. With ``check_beat_jitter``
+    off the beat jitter is reported but not checked (the pop-rap style: a beat
+    tracker is unreliable on half-time trap, and the drum grid covers timing)."""
     checks: list[Check] = []
 
     def add(name: str, passed: bool | None, value: str, expected: str) -> None:
@@ -328,12 +361,20 @@ def run_qc(
         f"{tempo:.1f} BPM",
         f"{wanted:.1f} +-{cfg.tempo_tolerance_bpm} BPM",
     )
-    add(
-        "beat jitter",
-        jitter < cfg.beat_jitter_max_s,
-        f"{jitter * 1000:.1f} ms",
-        f"under {cfg.beat_jitter_max_s * 1000:.0f} ms",
-    )
+    if check_beat_jitter:
+        add(
+            "beat jitter",
+            jitter < cfg.beat_jitter_max_s,
+            f"{jitter * 1000:.1f} ms",
+            f"under {cfg.beat_jitter_max_s * 1000:.0f} ms",
+        )
+    else:
+        add(
+            "beat jitter",
+            None,
+            f"{jitter * 1000:.1f} ms",
+            "not checked: half-time trap (see drum grid)",
+        )
 
     beat = round(g.beat_s * sr)
     bar = round(g.bar_s * sr)
@@ -349,8 +390,9 @@ def run_qc(
         nxt = dsp.rms(x[end : end + beat]) / reference_bar
         last_shown.append(f"{last:.2f}")
         first_shown.append(f"{nxt:.2f}")
-        # Only where the groove carries on must the level carry on too.
-        if song.sections[i].drums in grooves and song.sections[i + 1].drums in grooves:
+        # Only where the groove carries on must the level carry on too. A drop bar is a
+        # break at the section's own end but carries the groove at its start.
+        if song.sections[i].drums in grooves and song.sections[i + 1].drums in (*grooves, "drop"):
             last_ok &= _between(last, cfg.last_beat_ratio)
             first_ok &= _between(nxt, cfg.first_beat_ratio)
     add(
@@ -385,12 +427,12 @@ def run_qc(
     else:
         add("octave bands, verses (dB)", None, shown, "no reference master")
 
-    eighth = g.beat_s / 2.0
-    stray = off_grid(drum_onsets_s, eighth, cfg.drum_grid_tolerance_s)
+    note_s, note = (g.step_s, "a 16th") if drum_grid == "16th" else (g.beat_s / 2.0, "an 8th")
+    stray = off_grid(drum_onsets_s, note_s, cfg.drum_grid_tolerance_s)
     add(
         "drum grid",
         not stray,
-        f"{len(drum_onsets_s) - len(stray)} of {len(drum_onsets_s)} hits on an 8th note",
+        f"{len(drum_onsets_s) - len(stray)} of {len(drum_onsets_s)} hits on {note} note",
         f"all, within +-{cfg.drum_grid_tolerance_s * 1000:.0f} ms",
     )
     return QcReport(tuple(checks))

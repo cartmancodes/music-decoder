@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -147,3 +148,56 @@ def test_verse_style_is_passed_in_the_config(tmp_path):
     assert p.call_args.kwargs["config"].arrange.verse_style == "build"
     r = CliRunner().invoke(main, ["productionize", "take", "--out", str(tmp_path), "--verse", "x"])
     assert r.exit_code != 0
+
+
+def test_productionize_style_and_lead_reach_the_config(tmp_path):
+    with mock.patch("music_decoder.cli.main.productionize") as p:
+        p.return_value = _production(tmp_path)
+        r = CliRunner().invoke(
+            main,
+            [
+                "productionize",
+                "take",
+                "--out",
+                str(tmp_path),
+                "--style",
+                "pop-rap",
+                "--lead",
+                "synth",
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        config = p.call_args.kwargs["config"]
+        assert (config.style, config.poprap.lead) == ("pop-rap", "synth")
+        r = CliRunner().invoke(main, ["productionize", "take", "--out", str(tmp_path)])
+        assert r.exit_code == 0, r.output
+        config = p.call_args.kwargs["config"]
+        assert (config.style, config.poprap.lead) == ("boom-bap", "guitar")
+
+
+def test_poprap_rejects_boom_bap_only_options(tmp_path):
+    base = ["productionize", "take", "--out", str(tmp_path), "--style", "pop-rap"]
+    with mock.patch("music_decoder.cli.main.productionize") as p:
+        p.return_value = _production(tmp_path)
+        for extra in (["--percussion", "shaker"], ["--hisaab"], ["--verse", "held"]):
+            r = CliRunner().invoke(main, [*base, *extra])
+            assert r.exit_code == 2 and "pop-rap" in r.output, (extra, r.output)
+        p.assert_not_called()
+        assert CliRunner().invoke(main, base).exit_code == 0
+
+
+def test_poprap_pretty_output_has_no_credit_line_without_credits(tmp_path):
+    production = replace(_production(tmp_path), metadata={"style": "pop-rap", "credits": []})
+    with mock.patch("music_decoder.cli.main.productionize", return_value=production):
+        r = CliRunner().invoke(
+            main, ["productionize", "take", "--out", str(tmp_path), "--style", "pop-rap"]
+        )
+    assert r.exit_code == 0, r.output
+    assert "Credit" not in r.output and "WAV:" in r.output
+
+
+def test_a_missing_source_only_suggests_hisaab_for_boom_bap(tmp_path):
+    for style, suggests in (("boom-bap", True), ("pop-rap", False)):
+        r = CliRunner().invoke(main, ["productionize", "--out", str(tmp_path), "--style", style])
+        assert r.exit_code == 2 and "give a composition folder" in r.output
+        assert ("--hisaab" in r.output) is suggests, (style, r.output)

@@ -96,6 +96,26 @@ def gain_for_level(x: Audio, target_dbfs: float, spans: Sequence[tuple[int, int]
 # ---- Filters and EQ --------------------------------------------------------
 
 
+_STABLE_SOS_DECIMALS = 12
+
+
+@lru_cache(maxsize=256)
+def _stable_sos(
+    order: int,
+    freq_hz: float | tuple[float, float],
+    kind: Literal["highpass", "lowpass", "bandpass"],
+    sr: int,
+) -> npt.NDArray[np.float64]:
+    """Butterworth sos rounded to 12 places, designed once per parameter set.
+
+    ``signal.butter`` can return a coefficient that differs by one ulp between
+    calls (it depends on memory layout). Rounding hides that noise; the cache
+    keeps one design per parameter set; callers must not modify it.
+    """
+    sos = signal.butter(order, freq_hz, btype=kind, fs=sr, output="sos")
+    return np.asarray(np.round(sos, _STABLE_SOS_DECIMALS), dtype=np.float64)
+
+
 def butter(
     x: Audio,
     kind: Literal["highpass", "lowpass", "bandpass"],
@@ -104,10 +124,18 @@ def butter(
     order: int = 2,
     *,
     zero_phase: bool = False,
+    stable: bool = False,
 ) -> Audio:
     """Butterworth filter along axis 0: causal, or forward-backward
-    (``zero_phase``) where the output must stay time-aligned with the input."""
-    sos = signal.butter(order, freq_hz, btype=kind, fs=sr, output="sos")
+    (``zero_phase``) where the output must stay time-aligned with the input.
+
+    ``stable`` makes the filter bit-reproducible between calls (see
+    :func:`_stable_sos`), for clips that must render identically per generator.
+    It is off by default, so existing output is unchanged."""
+    if stable:
+        sos = _stable_sos(order, freq_hz, kind, sr).copy()
+    else:
+        sos = signal.butter(order, freq_hz, btype=kind, fs=sr, output="sos")
     run = signal.sosfiltfilt if zero_phase else signal.sosfilt
     return np.asarray(run(sos, x, axis=0), dtype=np.float64)
 

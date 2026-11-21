@@ -155,6 +155,12 @@ It also checks its own work: loudness, peaks, timing of every drum hit,
 and whether the track still sounds right in mono. The checks catch
 technical faults; whether it sounds good is still for your ears.
 
+A second style, pop-rap, gives the same sketch a different record: trap
+drums, a sine 808 on the chord roots, a soft pad and pluck, and the melody
+on an electric guitar or a synth. Its instruments are synthesized in code,
+except the guitar, which plays the installed soundfont through FluidSynth;
+it goes through the same mastering and checks.
+
 ---
 
 ## How does it know how to do this?

@@ -17,12 +17,14 @@ from music_decoder.productionize.song import (
     NoteEvent,
     ProductionError,
     Song,
+    composition_kwargs,
     hisaab_song,
+    read_composer_parts,
     read_note_file,
     song_from_composition,
     song_from_midi,
 )
-from music_decoder.types import ChordSymbol, Composition, Scale
+from music_decoder.types import VALID_TONICS, ChordSymbol, Composition, Scale
 
 PROGRESSION = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
 
@@ -237,6 +239,33 @@ def test_song_from_composition_uses_its_metadata(composer_midi):
     assert song.title == "Composition in A minor"
     assert song.grid.beat_s == pytest.approx(60 / 92.0)
     assert song.bar_roots == (33, 29, 36, 31)
+
+
+def test_composer_parts_match_the_song(composer_midi):
+    parts = read_composer_parts(composer_midi, scale=Scale("A", "minor"))
+    assert parts.bar_roots == song_from_midi(composer_midi).bar_roots
+    assert len(parts.harmonies) == len(parts.voicings) == parts.n_bars == 4
+    assert parts.melody
+    assert [n.start_s for n in parts.melody] == sorted(n.start_s for n in parts.melody)
+    assert parts.home.root == VALID_TONICS.index("A")
+    assert all(0 <= parts.bar_of(n) < parts.n_bars for n in parts.melody)
+
+
+def test_composition_kwargs_parse_the_metadata(composer_midi):
+    composition = Composition(
+        midi_path=composer_midi,
+        wav_path=composer_midi.with_suffix(".wav"),
+        ascii_tab="",
+        melody_notes=(),
+        chord_voicings=(),
+        metadata={"scale": "A:minor", "progression": ["Am", "F", "C", "G"], "tempo_bpm": 92},
+    )
+    kwargs = composition_kwargs(composition)
+    assert kwargs["key"] == "Am"
+    assert kwargs["title"] == "Composition in A minor"
+    assert kwargs["tempo_bpm"] == 92.0
+    assert kwargs["scale"] == Scale("A", "minor")
+    assert [c.to_label() for c in kwargs["progression"]] == ["Am", "F", "C", "G"]
 
 
 def test_a_file_without_two_parts_is_rejected(tmp_path):

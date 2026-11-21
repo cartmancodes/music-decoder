@@ -1,5 +1,6 @@
 import json
 import shutil
+from dataclasses import replace
 
 import pytest
 import soundfile as sf
@@ -7,10 +8,15 @@ import soundfile as sf
 from music_decoder.compose.api import arrange
 from music_decoder.compose.arrangement import build_midi
 from music_decoder.productionize import Production, ProductionError, productionize
-from music_decoder.productionize.api import resolve_song
+from music_decoder.productionize.api import resolve_poprap_song, resolve_song
+from music_decoder.productionize.config import PopRapConfig, PopRapFormConfig, ProductionConfig
+from music_decoder.productionize.dsp import gain_to_db
+from music_decoder.productionize.master import ceiling_gain
+from music_decoder.productionize.poprap import PopRapSong
+from music_decoder.productionize.poprap_mix import POPRAP_STEMS
 from music_decoder.productionize.samples import SampleError
 from music_decoder.types import ChordSymbol, Composition, Scale
-from tests.productionize_helpers import SR, fake_store, tiny_song
+from tests.productionize_helpers import SR, fake_store, needs_guitar, tiny_song
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 PROGRESSION = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
@@ -135,3 +141,184 @@ def test_checks_can_be_skipped(tmp_path):
         song, out_dir=tmp_path / "out", samples_dir=tmp_path / "samples", check=False
     )
     assert result.qc is None and result.wav_path.name == "production.wav"
+
+
+SHORT_FORM = replace(PopRapFormConfig(), intro_bars=2, section_target_bars=8, outro_bars=1)
+POPRAP = ProductionConfig(
+    style="pop-rap", poprap=replace(PopRapConfig(lead="synth"), form=SHORT_FORM)
+)
+
+
+def _composition(folder):
+    return Composition(
+        midi_path=folder / "composition.mid",
+        wav_path=folder / "composition.wav",
+        ascii_tab="",
+        melody_notes=(),
+        chord_voicings=(),
+        metadata={"scale": "A:minor", "progression": ["Am", "F", "C", "G"], "tempo_bpm": 92.0},
+    )
+
+
+def test_resolve_poprap_song_accepts_a_folder_a_file_and_a_composition(composition_dir):
+    cfg = PopRapConfig()
+    from_dir = resolve_poprap_song(composition_dir, cfg=cfg)
+    from_file = resolve_poprap_song(str(composition_dir / "composition.mid"), cfg=cfg)
+    assert isinstance(from_dir, PopRapSong) and from_dir.parts == from_file.parts
+    from_composition = resolve_poprap_song(_composition(composition_dir), cfg=cfg)
+    assert from_composition.key == "Am" and from_composition.grid.tempo_bpm == pytest.approx(92.0)
+
+
+def test_resolve_poprap_song_applies_title_key_and_progression(composition_dir):
+    song = resolve_poprap_song(
+        composition_dir, cfg=PopRapConfig(), progression=PROGRESSION, title="Night Drive", key="Em"
+    )
+    assert (song.title, song.key) == ("Night Drive", "Em")
+    assert song.parts.bar_roots == (33, 29, 36, 31)
+
+
+def test_resolve_poprap_song_missing_source_is_a_clear_error(tmp_path):
+    with pytest.raises(ProductionError, match="no composer MIDI file"):
+        resolve_poprap_song(tmp_path, cfg=PopRapConfig())
+
+
+def test_poprap_rejects_a_ready_song(tmp_path):
+    with pytest.raises(ProductionError, match="pop-rap needs a composer file or composition"):
+        productionize(tiny_song(), out_dir=tmp_path / "out", config=POPRAP)
+    assert not (tmp_path / "out").exists()
+
+
+def test_poprap_progression_must_divide_the_bars(composition_dir, tmp_path):
+    three = PROGRESSION[:3]
+    with pytest.raises(ProductionError):
+        productionize(composition_dir, out_dir=tmp_path / "out", config=POPRAP, progression=three)
+
+
+def test_poprap_needs_fluidsynth_and_a_soundfont_before_it_writes_anything(
+    composition_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    out = tmp_path / "out"
+    with pytest.raises(ProductionError, match="fluidsynth"):
+        productionize(composition_dir, out_dir=out, config=POPRAP, progression=PROGRESSION)
+    assert not out.exists()
+    monkeypatch.undo()
+    monkeypatch.setattr("music_decoder.synth._resolve_soundfont_path", lambda: None)
+    with pytest.raises(ProductionError, match="soundfont"):
+        productionize(composition_dir, out_dir=out, config=POPRAP, progression=PROGRESSION)
+    assert not out.exists()
+
+
+@needs_ffmpeg
+@needs_guitar
+def test_poprap_production_writes_master_mp3_stems_and_report(composition_dir, tmp_path):
+    stages = []
+    result = productionize(
+        composition_dir,
+        out_dir=tmp_path / "out",
+        name="rap",
+        config=POPRAP,
+        progression=PROGRESSION,
+        progress=lambda stage, fraction: stages.append(stage),
+    )
+    assert result.wav_path.is_file() and result.mp3_path.is_file()
+    assert set(result.stem_paths) == set(POPRAP_STEMS)
+    assert result.stem_paths["808"].name == "stem_808.wav"
+    assert stages[-3:] == ["master", "export", "checks"]
+    assert result.metadata["style"] == "pop-rap" and result.metadata["lead"] == "synth"
+    assert result.metadata["verse_style"] is None
+    assert result.metadata["percussion"] == [] and result.metadata["credits"] == []
+    expected = result.metadata["duration_s"]
+    assert sf.info(str(result.wav_path)).duration == pytest.approx(expected, abs=1e-3)
+    assert result.qc is not None
+    assert {c.name: c for c in result.qc.checks}["drum grid"].passed
+    report = json.loads((tmp_path / "out" / "rap.json").read_text())
+    assert report["metadata"]["style"] == "pop-rap"
+
+
+@needs_ffmpeg
+def test_boom_bap_metadata_has_style_and_no_lead(tmp_path):
+    song = tiny_song()
+    fake_store(tmp_path / "samples", song)
+    result = productionize(
+        song, out_dir=tmp_path / "out", samples_dir=tmp_path / "samples", check=False
+    )
+    assert result.metadata["style"] == "boom-bap" and result.metadata["lead"] is None
+    assert list(result.metadata)[:9] == [
+        "title", "verse_style", "key", "tempo_bpm", "duration_s",
+        "sections", "notes", "percussion", "credits",
+    ]  # fmt: skip
+    report = json.loads((tmp_path / "out" / "production.json").read_text())
+    assert report["metadata"]["lead"] is None
+
+
+def _spy_master(monkeypatch):
+    from music_decoder.productionize import api
+
+    ceilings = []
+    real = api.master
+
+    def spy(mix, cfg, sr):
+        ceilings.append(cfg.ceiling_dbtp)
+        return real(mix, cfg, sr)
+
+    monkeypatch.setattr(api, "master", spy)
+    return api, ceilings
+
+
+@needs_ffmpeg
+@needs_guitar
+def test_poprap_mp3_guard_remasters_with_a_lower_ceiling(composition_dir, tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+    measured = iter([-0.5, -1.4])  # hot, then passing
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", lambda mp3, cfg: next(measured))
+    result = productionize(
+        composition_dir, out_dir=tmp_path / "out", config=POPRAP, progression=PROGRESSION
+    )
+    margin = POPRAP.poprap.mp3_guard_margin_db
+    threshold = POPRAP.qc.mp3_true_peak_max_dbtp - margin
+    excess = -0.5 - threshold
+    assert len(ceilings) == 2
+    assert ceilings[0] == POPRAP.master.ceiling_dbtp
+    assert ceilings[1] == pytest.approx(ceilings[0] - (excess + margin), abs=1e-12)
+    assert result.metadata["mp3_guard_passes"] == 1
+    final = replace(POPRAP.master, ceiling_dbtp=ceilings[1])
+    assert result.master.true_peak_dbtp == pytest.approx(
+        gain_to_db(ceiling_gain(final)), abs=0.01
+    )  # the report is the second master's
+    report = json.loads((tmp_path / "out" / "production.json").read_text())
+    assert report["metadata"]["mp3_guard_passes"] == 1
+    assert report["master"]["true_peak_dbtp"] == pytest.approx(result.master.true_peak_dbtp)
+
+
+@needs_ffmpeg
+@needs_guitar
+def test_poprap_mp3_guard_stops_after_its_attempts(composition_dir, tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", lambda mp3, cfg: -0.5)
+    result = productionize(
+        composition_dir,
+        out_dir=tmp_path / "out",
+        config=POPRAP,
+        progression=PROGRESSION,
+        check=False,
+    )
+    assert len(ceilings) == 1 + POPRAP.poprap.mp3_guard_attempts
+    assert result.metadata["mp3_guard_passes"] == POPRAP.poprap.mp3_guard_attempts
+
+
+@needs_ffmpeg
+def test_boom_bap_never_measures_or_remasters_the_mp3(tmp_path, monkeypatch):
+    api, ceilings = _spy_master(monkeypatch)
+
+    def fail(mp3, cfg):
+        raise AssertionError("boom-bap must not run the MP3 guard")
+
+    monkeypatch.setattr(api, "mp3_true_peak_dbtp", fail)
+    song = tiny_song()
+    fake_store(tmp_path / "samples", song)
+    result = productionize(
+        song, out_dir=tmp_path / "out", samples_dir=tmp_path / "samples", check=False
+    )
+    assert len(ceilings) == 1
+    assert "mp3_guard_passes" not in result.metadata

@@ -2046,6 +2046,24 @@ source (Composition | take folder | composer MIDI | Song)
   -> qc.py          acceptance checks on the WAV and the decoded MP3
 ```
 
+The `pop-rap` style (`ProductionConfig(style="pop-rap")`) takes a
+second path through the same package. `poprap.py` reads the composer
+file once (`read_composer_parts`, shared with the boom-bap song reader)
+and lays its pass over the pop-rap form as data: sections, drum hits, pad
+events and note lists. `poprap_mix.py` renders each of six stems (`drums`,
+`808`, `pad`, `pluck`, `fx`, `lead`) from that data, with the instruments
+synthesized in code (the guitar lead is the one exception: FluidSynth
+plays the installed soundfont). The mix then goes through the same
+`master.py` and `qc.py`; the checks that compare against a reference
+master report only values for a song without one. The two styles share
+the export step in `api.py`, and the boom-bap path is unchanged. For
+pop-rap, `poprap_mix.py` rolls the drums and fx off above 16 kHz (the
+bright low-pass); after the MP3 is encoded, `api.py` measures its true
+peak and, if it is too close to the ceiling, masters again with a lower
+one (at most 3 times, recorded as `mp3_guard_passes`); and `qc.py`
+reports the beat jitter without checking it, because a beat tracker is
+unreliable on half-time trap.
+
 ### 17.2 Modules
 
 | Module | Holds |
@@ -2059,6 +2077,8 @@ source (Composition | take folder | composer MIDI | Song)
 | `mix.py` | Bus levels (verse RMS), mono low end, air shelf, fade-out |
 | `master.py` | The master chain and export |
 | `qc.py` | Measurements and the pass/fail report |
+| `poprap.py` | The pop-rap song as data: form, drum hits, pad events, note lists |
+| `poprap_mix.py` | The pop-rap stems, their levels and the mix |
 | `api.py` | `productionize()` and `Production` |
 
 Levels are RMS over the verse sections. A `Song` without verses falls
@@ -2107,8 +2127,9 @@ back to its full-drum sections, then to all sections.
 `tests/unit/test_productionize_*.py` run offline on generated samples
 (`tests/productionize_helpers.py`), including one end-to-end render.
 `tests/integration/test_productionize_e2e.py` renders the reference
-song and a composer take with the real samples and requires every
-acceptance check to pass; it needs ffmpeg, fluidsynth and network on
-its first run (~180 MB of samples, ~2.7 GB of memory per render), so it
-is opt-in: `make test-production` (or `MUSIC_DECODER_PRODUCTION_E2E=1`).
-`make test` skips it.
+song and a composer take with the real samples, and a pop-rap song
+with each lead, and requires every acceptance check to pass (for pop-rap
+also the drums' and 808's energy shares in the hooks); it needs ffmpeg,
+fluidsynth and network on its first run (~180 MB of samples, ~2.7 GB of
+memory per render), so it is opt-in: `make test-production` (or
+`MUSIC_DECODER_PRODUCTION_E2E=1`). `make test` skips it.
