@@ -38,16 +38,46 @@ SYMBOLIC_WEIGHT = 0.5
 # The smallest audio scale (on the model's 1-10 scale): a smaller gap between
 # the candidates counts only in proportion (v5 ruling F4e).
 AUDIO_SPAN_FLOOR = 0.3
-# Fixed scales for the re-rank, measured on 30 reference prompts, ids 0-29 of
-# the sampler in the review-fixes plan (seeded numpy rng 90_000 + id: 55%
-# major, a progression template per mode, 2 or 4 bars per chord, tempo
-# 66-126 bpm, a tuning; the piece seed is 10_000 + id). For each, the top
-# RANK_AUDIO_TOP_K = 4 of 12 melody_engine="tune" fingerstyle candidates
-# were rendered with the soundfont and scored. Median span of x = (CE + PQ) / 2
-# is 0.148 (so max(span, 0.3) has median 0.3); median span of the symbolic
-# score is 0.995. AUDIO_SCALE = max(median(max(span_x, 0.3)), AUDIO_SPAN_FLOOR),
+# Fixed scales for the re-rank, measured on 30 reference prompts: for each,
+# the top RANK_AUDIO_TOP_K = 4 of 12 melody_engine="tune" fingerstyle
+# candidates (the piece seed below, humanize seed the same) were rendered with
+# the soundfont and scored. Median span of x = (CE + PQ) / 2 is 0.148 (so
+# max(span, 0.3) has median 0.3); median span of the symbolic score is 0.995.
+# AUDIO_SCALE = max(median(max(span_x, 0.3)), AUDIO_SPAN_FLOOR) and
 # SYMBOLIC_SCALE = median(span_s), each to 3 significant figures: the spans
-# the old per-shortlist min-max typically divided by.
+# the old per-shortlist min-max typically divided by. To re-measure, rebuild
+# these prompts and repeat. Reference prompts, one per line:
+# id scale     progression            bars tempo tuning     seed
+#  0 D:minor  Dm A# F C              4 110.0 Eb         10000
+#  1 C:major  C G F G                2 110.0 EADGBE     10001
+#  2 E:major  Emaj7 C#m7 F#m7 B7     2 126.0 EADGBE     10002
+#  3 A:minor  Am G F G               2  98.0 Eb         10003
+#  4 A:major  A E D E                4  86.0 EADGBE     10004
+#  5 B:major  G#m E B F#             2 108.0 EADGBE     10005
+#  6 D#:major D# Cm G# A# D# Cm Fm A# 2 118.0 EADGBE     10006
+#  7 B:minor  Bm Em F#7 Bm           2 118.0 EADGBE     10007
+#  8 G#:major G# D# Fm Cm C# G# C# D# 2  66.0 EADGBE     10008
+#  9 E:major  E C#m A B              2 104.0 EADGBE     10009
+# 10 E:minor  C D Em Em              2  68.0 EADGBE     10010
+# 11 E:minor  Em Am B7 Em            2 102.0 EADGBE     10011
+# 12 B:minor  Bm Em A D              2 114.0 EADGBE     10012
+# 13 C#:minor C#m E B F#m            4  98.0 EADGBE     10013
+# 14 B:major  B G#m E F# B G#m C#m F# 2 116.0 EADGBE     10014
+# 15 A#:minor A#m D#m G# C# F# D#m F7 A#m 2  78.0 EADGBE     10015
+# 16 D:minor  Dm7 Gm7 C Fmaj7        4 126.0 Eb         10016
+# 17 A#:minor A#m7 D#m7 G# C#maj7    2 100.0 EADGBE     10017
+# 18 C#:major C# G# A#m F#           2  88.0 EADGBE     10018
+# 19 D:minor  Dm C A# C              2  80.0 Drop_D     10019
+# 20 G#:minor G#m E B F# G#m E C#m D# 2  68.0 EADGBE     10020
+# 21 D:major  D A Bm F#m G D G A     2  76.0 EADGBE     10021
+# 22 F:major  F Dm Gm C              2 126.0 EADGBE     10022
+# 23 F:major  A# C Am Dm             2  82.0 EADGBE     10023
+# 24 B:major  B G#m E F# B G#m C#m F# 2  90.0 EADGBE     10024
+# 25 B:major  G#m E B F#             4  82.0 EADGBE     10025
+# 26 E:minor  Em G D Am              2  96.0 Eb         10026
+# 27 A:major  A C#m D E              4 104.0 D_standard 10027
+# 28 G:major  Cmaj7 D7 Bm7 Em7       4 122.0 EADGBE     10028
+# 29 G#:minor E F# G#m G#m           2  98.0 EADGBE     10029
 AUDIO_SCALE = 0.3
 SYMBOLIC_SCALE = 0.995
 # Audiobox Aesthetics reads 16 kHz mono in 10 s windows with a 10 s hop.

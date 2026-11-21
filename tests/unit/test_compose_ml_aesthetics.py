@@ -67,7 +67,7 @@ def test_rank_by_audio_blends_audio_and_symbolic(tmp_path):
     scorer = _FakeScorer(
         {w.name: _row(ce) for w, ce in zip(wavs, (5.0, 5.0, 8.0, 5.0), strict=True)}
     )
-    # x (5.5, 5.5, 7.0, 5.5) / 0.3 + 0.5 * s / 0.995: 20.8, 20.3, 24.8, 19.8
+    # x (5.5, 5.5, 7.0, 5.5) / 0.3 + 0.5 * s / 0.995: 20.8, 20.3, 24.8, 19.3
     assert rank_by_audio(arrs, wavs, scorer) == 2
 
 
@@ -139,7 +139,7 @@ def test_rank_by_audio_a_larger_symbolic_gap_keeps_the_symbolic_best(tmp_path):
     wavs = [tmp_path / f"{k}.wav" for k in range(3)]
     means = (6.0, 6.1, 5.0)
     scorer = _FakeScorer({w.name: _row(m, pq=m) for w, m in zip(wavs, means, strict=True)})
-    # z_audio (0.91, 1, 0), z_symbolic * 0.5 (0.5, 0.06, 0): 1.41, 1.06, 0
+    # x / 0.3 (20.0, 20.3, 16.7) + 0.5 * s / 0.995 (4.5, 0.5, 0): 24.5, 20.8, 16.7
     assert rank_by_audio(arrs, wavs, scorer) == 0
 
 
@@ -147,6 +147,7 @@ def test_rank_by_audio_symbolic_breaks_an_audio_tie(tmp_path):
     arrs = [replace(base_arr, score=s) for s in (2.0, 5.0, 3.0)]
     wavs = [tmp_path / f"{k}.wav" for k in range(3)]
     scorer = _FakeScorer({w.name: _row(5.0) for w in wavs})
+    # equal x: only 0.5 * s / 0.995 differs (1.0, 2.5, 1.5), so the best symbolic score wins
     assert rank_by_audio(arrs, wavs, scorer) == 1
 
 
