@@ -19,6 +19,7 @@ from music_decoder.logging_setup import get_logger
 from music_decoder.productionize import dsp
 from music_decoder.productionize.config import StringsConfig
 from music_decoder.productionize.dsp import Audio
+from music_decoder.productionize.instruments import fluid
 from music_decoder.productionize.samples import resample
 from music_decoder.productionize.song import ProductionError, Song
 
@@ -28,20 +29,12 @@ _log = get_logger("productionize.strings")
 def resolve_soundfont(cfg: StringsConfig) -> Path:
     """The configured soundfont, else the one the rest of the app uses."""
     preferred = Path(cfg.soundfont).expanduser()
-    if preferred.exists():
-        return preferred
-    from music_decoder.synth import _resolve_soundfont_path
-
-    fallback = _resolve_soundfont_path()
-    if fallback is None:
-        raise ProductionError(
-            f"no soundfont for the strings: {preferred} is missing and no other is installed "
-            "(apt install fluid-soundfont-gm, or run `music-decoder fetch-models`)"
+    found = fluid.find_soundfont(str(preferred), "strings")
+    if found != preferred:
+        _log.warning(
+            "strings_soundfont_fallback", extra={"wanted": str(preferred), "using": str(found)}
         )
-    _log.warning(
-        "strings_soundfont_fallback", extra={"wanted": str(preferred), "using": str(fallback)}
-    )
-    return fallback
+    return found
 
 
 def write_strings_midi(song: Song, cfg: StringsConfig, path: Path) -> Path:
@@ -59,23 +52,7 @@ def write_strings_midi(song: Song, cfg: StringsConfig, path: Path) -> Path:
 def fluidsynth_command(
     cfg: StringsConfig, soundfont: Path, midi: Path, wav: Path, sr: int
 ) -> list[str]:
-    return [
-        "fluidsynth",
-        "-ni",
-        "-q",
-        "-g",
-        str(cfg.fluidsynth_gain),
-        "-r",
-        str(sr),
-        "-o",
-        "synth.reverb.active=1",
-        "-o",
-        "synth.chorus.active=0",
-        "-F",
-        str(wav),
-        str(soundfont),
-        str(midi),
-    ]
+    return fluid.fluidsynth_command(cfg.fluidsynth_gain, soundfont, midi, wav, sr)
 
 
 def fade_in(song: Song, cfg: StringsConfig, n_samples: int) -> npt.NDArray[np.float64]:
