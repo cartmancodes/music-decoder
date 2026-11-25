@@ -734,8 +734,8 @@ engine), which drives both the rhythm plan and the pitch choices (v5 fingerstyle
 candidate k from `candidate_seeds(seed, N)`, which does not depend on
 `PYTHONHASHSEED`; the optional models add their own seeded CPU RNG, §5.3.2),
 so the same seed and options give the same music.
-`metadata["composer_version"]` (currently `7`) is bumped whenever the
-composer changes what a given seed produces. Versions 4, 5, 6 and 7 change only
+`metadata["composer_version"]` (currently `8`) is bumped whenever the
+composer changes what a given seed produces. Versions 4, 5, 6, 7 and 8 change only
 `style="fingerstyle"` (§5.3.1, §5.3.2, §5.3.3); strum and arpeggio output is
 unchanged from version 3 for the same inputs
 (`tests/unit/test_compose_frozen.py`). In version 5 the seed names the best of
@@ -747,7 +747,11 @@ except with `--rank-audio`: version 7 puts the audio re-rank on fixed scales
 (`aesthetics.AUDIO_SCALE`, and `SYMBOLIC_SCALE_RULES` for the rules engine),
 so the candidate it keeps can differ from version 5's per-shortlist min-max.
 Version 7 also scores the last bars of a tune pass that is not a whole number
-of 8-bar windows, which changes only the tune engine. Seeds from before version 2
+of 8-bar windows, which changes only the tune engine. Version 8 makes the
+phrase pick the tune engine's default (`melody_pick="phrase"`, 200
+candidates, ranked by the phrase model in `compose/phrase_model.py`; see
+`docs/usage.md`, "The phrase model"); `melody_pick="bands"` reproduces
+version 7's choice. Seeds from before version 2
 (the uniform quarter-note generator) give different melodies now, and so do
 version-2 seeds: version 3 changed the chord shapes in every tuning and the
 melody's leap rules. The melody

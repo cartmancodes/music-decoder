@@ -144,4 +144,4 @@ def test_sample_commands_are_deterministic(name: str, tmp_path: Path) -> None:
 
 def test_sample_metadata_reports_composer_version_7(tmp_path: Path) -> None:
     out = _run(SAMPLES["minor-10-B"], tmp_path)
-    assert out["metadata"]["composer_version"] == 7
+    assert out["metadata"]["composer_version"] == 8
