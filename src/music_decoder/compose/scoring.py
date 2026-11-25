@@ -52,10 +52,11 @@ import numpy as np
 from music_decoder.compose import metrics
 from music_decoder.compose.tune_metrics import band_distance, tune_features
 from music_decoder.compose.tune_stats import load_tune_stats
-from music_decoder.types import ChordSymbol, Scale, Tuning
+from music_decoder.types import ChordSymbol, Note, Scale, Tuning
 
 if TYPE_CHECKING:
     from music_decoder.compose.api import Arrangement
+    from music_decoder.compose.phrase_model import PhraseModel
 
 W_IDENTITY = 3.0
 W_ABOVE = 1.0
@@ -75,6 +76,12 @@ W_CORPUS = 2.0  # tune engine: the score falls by W_CORPUS per band width outsid
 
 # The fingerstyle melody generator: the v6 tune engine, or v5's rules engine.
 MelodyEngine = Literal["tune", "rules"]
+MelodyPick = Literal["bands", "phrase"]
+W_PHRASE = (
+    2.0  # --melody-pick phrase: the score falls by W_PHRASE per IQR from real tunes' surprise
+)
+PHRASE_OUT_OF_RANGE = 10.0  # the phrase distance of a melody the model cannot read
+PHRASE_WINDOW_BARS = 8
 
 RHYTHM_FULL_BITS = 2.0  # IOI entropy earning the whole rhythm term
 AMBITUS_FULL_SEMITONES = 14  # ambitus earning the whole range term
@@ -103,17 +110,28 @@ def score_arrangement(
     tuning: Tuning,
     scale: Scale | None = None,
     melody_engine: MelodyEngine = "rules",
+    melody_pick: MelodyPick = "bands",
+    phrase_dist: float | None = None,
 ) -> float:
     """The symbolic score of a fingerstyle arrangement (higher is better).
 
     ``melody_engine`` picks the melody terms: v5's for ``"rules"``, the
     distance from real melodies' bands for ``"tune"``, which needs ``scale``
-    (``ValueError`` without it).
+    (``ValueError`` without it). With ``melody_pick="phrase"`` (tune engine
+    only) the band term is replaced by ``-W_PHRASE x`` :func:`phrase_distance`;
+    a caller that has it already (from :func:`phrase_distances`) passes it as
+    ``phrase_dist``.
     """
+    if melody_pick not in ("bands", "phrase"):
+        raise ValueError(f"melody_pick must be 'bands' or 'phrase', got {melody_pick!r}")
+    if melody_pick == "phrase" and melody_engine != "tune":
+        raise ValueError('melody_pick="phrase" needs melody_engine="tune"')
     if melody_engine == "tune":
         if scale is None:
             raise ValueError('score_arrangement(melody_engine="tune") needs the scale')
-        return _tune_score(arr, progression, scale, bars_per_chord, tempo_bpm, tuning)
+        return _tune_score(
+            arr, progression, scale, bars_per_chord, tempo_bpm, tuning, melody_pick, phrase_dist
+        )
     melody, accompaniment = arr.melody, arr.accompaniment
     n_bars = len(progression) * bars_per_chord
     identity = metrics.bar_identity(accompaniment, progression, bars_per_chord, tempo_bpm)
@@ -145,18 +163,173 @@ def _tune_score(
     bars_per_chord: int,
     tempo_bpm: float,
     tuning: Tuning,
+    melody_pick: MelodyPick = "bands",
+    phrase_dist: float | None = None,
 ) -> float:
     """The ``"tune"`` engine's score: v5's part terms minus ``W_CORPUS`` times
-    the melody's band distance (v6 spec 5.4)."""
+    the melody's band distance (v6 spec 5.4), or minus ``W_PHRASE`` times its
+    phrase distance with ``melody_pick="phrase"``."""
     melody, accompaniment = arr.melody, arr.accompaniment
     identity = metrics.bar_identity(accompaniment, progression, bars_per_chord, tempo_bpm)
-    features = tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)
-    distance = band_distance(features, load_tune_stats().bands[scale.mode])
+    if melody_pick == "phrase":
+        if phrase_dist is None:
+            phrase_dist = phrase_distance(
+                melody,
+                scale=scale,
+                progression=progression,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+            )
+        melody_term = (-W_PHRASE, phrase_dist)
+    else:
+        features = tune_features(melody, scale, progression, bars_per_chord, tempo_bpm)
+        melody_term = (-W_CORPUS, band_distance(features, load_tune_stats().bands[scale.mode]))
     terms = (
         (W_IDENTITY, sum(identity) / len(identity)),
         (W_ABOVE, _or(metrics.melody_above_accompaniment_ratio(melody, accompaniment), 1.0)),
         (W_SHAPE_MOVES, _or(metrics.shape_moves(arr.bar_voicings, tuning), 0.0)),
         (W_FALLBACK, float(arr.final_fallback)),
-        (-W_CORPUS, distance),
+        melody_term,
     )
     return float(sum(weight * value for weight, value in terms))
+
+
+def _phrase_windows(n_bars: int) -> list[int]:
+    """First bars of the 8-bar windows: 0, 8, ... and one ending at the last bar."""
+    if n_bars <= PHRASE_WINDOW_BARS:
+        return [0]
+    starts = list(range(0, n_bars - PHRASE_WINDOW_BARS + 1, PHRASE_WINDOW_BARS))
+    if n_bars % PHRASE_WINDOW_BARS:
+        starts.append(n_bars - PHRASE_WINDOW_BARS)
+    return starts
+
+
+def phrase_surprises(
+    melodies: Sequence[Sequence[Note]],
+    *,
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    final_whole_note: bool = True,
+    model: PhraseModel | None = None,
+) -> list[float | None]:
+    """:func:`phrase_surprise` of each melody, the model run once over all windows."""
+    from music_decoder.compose import phrase_model
+    from music_decoder.compose.phrase_tokens import SLOTS_PER_BAR, Encoded, encode_piece
+
+    m = model or phrase_model.load_phrase_model()
+    n_bars = len(progression) * bars_per_chord
+    spans = [(b0, min(b0 + PHRASE_WINDOW_BARS, n_bars)) for b0 in _phrase_windows(n_bars)]
+    windows: list[Encoded] = []
+    readable: list[bool] = []
+    for melody in melodies:
+        enc = None
+        if melody:
+            enc = encode_piece(
+                melody,
+                scale=scale,
+                progression=progression,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+                middle=int(np.median([n.pitch for n in melody])),
+                pitch_lo=m.meta.pitch_lo,
+                pitch_hi=m.meta.pitch_hi,
+            )
+        readable.append(enc is not None and not enc.out_of_range_bars)
+        if readable[-1]:
+            assert enc is not None
+            for b0, b1 in spans:
+                sl = slice(b0 * SLOTS_PER_BAR, b1 * SLOTS_PER_BAR)
+                windows.append(
+                    Encoded(enc.tokens[sl], {k: v[sl] for k, v in enc.cond.items()}, frozenset())
+                )
+    bits = iter(m.slot_bits_many(windows))
+    out: list[float | None] = []
+    for ok in readable:
+        if not ok:
+            out.append(None)
+            continue
+        values = []
+        for b0, b1 in spans:
+            bars = next(bits).reshape(b1 - b0, SLOTS_PER_BAR).sum(1)
+            if final_whole_note and b1 == n_bars and len(bars) > 1:
+                bars = bars[:-1]
+            values.append(float(bars.mean()))
+        out.append(float(np.mean(values)))
+    return out
+
+
+def phrase_surprise(
+    melody: Sequence[Note],
+    *,
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    final_whole_note: bool = True,
+    model: PhraseModel | None = None,
+) -> float | None:
+    """S: the phrase model's mean bits per bar over cold 8-bar windows, the
+    final whole-note bar left out; ``None`` when a note is outside the model's
+    pitch range (or there are no notes). The pitch anchor is the tonic at or
+    below the melody's median pitch."""
+    return phrase_surprises(
+        [melody],
+        scale=scale,
+        progression=progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        final_whole_note=final_whole_note,
+        model=model,
+    )[0]
+
+
+def phrase_distances(
+    melodies: Sequence[Sequence[Note]],
+    *,
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    final_whole_note: bool = True,
+    model: PhraseModel | None = None,
+) -> list[float]:
+    """:func:`phrase_distance` of each melody, the model run once over all windows."""
+    from music_decoder.compose import phrase_model
+
+    m = model or phrase_model.load_phrase_model()
+    median, iqr = m.meta.surprise[scale.mode]
+    surprises = phrase_surprises(
+        melodies,
+        scale=scale,
+        progression=progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        final_whole_note=final_whole_note,
+        model=m,
+    )
+    return [PHRASE_OUT_OF_RANGE if s is None else abs(s - median) / iqr for s in surprises]
+
+
+def phrase_distance(
+    melody: Sequence[Note],
+    *,
+    scale: Scale,
+    progression: Sequence[ChordSymbol],
+    bars_per_chord: int,
+    tempo_bpm: float,
+    final_whole_note: bool = True,
+    model: PhraseModel | None = None,
+) -> float:
+    """``|S - median| / IQR`` against held-out real tunes of the scale's mode,
+    or ``PHRASE_OUT_OF_RANGE`` when :func:`phrase_surprise` is ``None``."""
+    return phrase_distances(
+        [melody],
+        scale=scale,
+        progression=progression,
+        bars_per_chord=bars_per_chord,
+        tempo_bpm=tempo_bpm,
+        final_whole_note=final_whole_note,
+        model=model,
+    )[0]

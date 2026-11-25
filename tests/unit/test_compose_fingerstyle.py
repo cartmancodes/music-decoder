@@ -363,6 +363,7 @@ def _fingerstyle(
     tuning=STANDARD_EADGBE,
     candidates=1,
     melody_engine="rules",
+    melody_pick="bands",
 ):
     progression = _chords(*labels)
     arr = arrange(
@@ -375,6 +376,7 @@ def _fingerstyle(
         seed=seed,
         candidates=candidates,
         melody_engine=melody_engine,
+        melody_pick=melody_pick,
     )
     return arr, progression
 
@@ -647,8 +649,10 @@ def test_compose_writes_the_fingerstyle_part_to_midi_and_tab(tmp_path):
             seed=4,
             out_dir=tmp_path,
         )
-    # compose()'s best of 12, with its engine (the tune engine since composer v6)
-    arr, _ = _fingerstyle("A", "minor", labels, 4, candidates=12, melody_engine="tune")
+    # compose()'s best of 200 by the phrase pick (composer v8), with the tune engine
+    arr, _ = _fingerstyle(
+        "A", "minor", labels, 4, candidates=200, melody_engine="tune", melody_pick="phrase"
+    )
     pm = pretty_midi.PrettyMIDI(str(result.midi_path))
     tracks = {i.name: i for i in pm.instruments}
     assert [i.name for i in pm.instruments] == ["melody", "accompaniment"]

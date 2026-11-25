@@ -35,7 +35,8 @@ from music_decoder.compose.melody import cadence_pc, generate_melody
 from music_decoder.compose.ml import MelodyProposer
 from music_decoder.compose.performance import humanize, let_ring, shape_dynamics
 from music_decoder.compose.scoring import MelodyEngine as MelodyEngine
-from music_decoder.compose.scoring import candidate_seeds, score_arrangement
+from music_decoder.compose.scoring import MelodyPick as MelodyPick
+from music_decoder.compose.scoring import candidate_seeds, phrase_distances, score_arrangement
 from music_decoder.compose.shapes import choose_bar_shapes, repair_identity
 from music_decoder.compose.tabtext import render_composition_tab, render_fingerstyle_tab
 from music_decoder.compose.tune import generate_tune
@@ -57,7 +58,7 @@ from music_decoder.types import (
 )
 
 # Bumped whenever the composer changes what a given seed produces.
-COMPOSER_VERSION = 7
+COMPOSER_VERSION = 8
 
 # MelodyEngine is re-exported from scoring, which defines it because api imports scoring.
 
@@ -78,6 +79,10 @@ COMPOSE_TAB_MAX_FRET = 22
 # How many of the best candidates by symbolic score the opt-in audio re-rank
 # renders and scores (v5 spec 5.4).
 RANK_AUDIO_TOP_K = 4
+DEFAULT_CANDIDATES = 12  # fingerstyle pieces compose_with_options arranges
+PHRASE_PICK_CANDIDATES = (
+    200  # the same with melody_pick="phrase" (the blind rounds of 2026-11-25/26)
+)
 
 
 @dataclass(frozen=True)
@@ -128,6 +133,13 @@ def _validate_candidates(candidates: int) -> None:
 def _validate_engine(melody_engine: str) -> None:
     if melody_engine not in get_args(MelodyEngine):
         raise ValueError(f"melody_engine must be 'tune' or 'rules', got {melody_engine!r}")
+
+
+def _validate_pick(melody_pick: str, melody_engine: str, style: str) -> None:
+    if melody_pick not in get_args(MelodyPick):
+        raise ValueError(f"melody_pick must be 'bands' or 'phrase', got {melody_pick!r}")
+    if style == "fingerstyle" and melody_pick == "phrase" and melody_engine != "tune":
+        raise ValueError("melody_pick='phrase' needs melody_engine='tune'")
 
 
 def _lowest_fret_position(pitch: int, tuning: Tuning) -> TabPosition | None:
@@ -337,6 +349,7 @@ def arrange_candidates(
     candidates: int = 1,
     melody_proposer: MelodyProposer | None = None,
     melody_engine: MelodyEngine = "rules",
+    melody_pick: MelodyPick = "bands",
 ) -> tuple[Arrangement, ...]:
     """Every candidate :func:`arrange` considers, best first.
 
@@ -349,13 +362,17 @@ def arrange_candidates(
     per-bar shapes, seeded with the base seed, is made once and is every
     candidate's ``pitch_prior`` (v5 spec 5.5). ``melody_engine`` picks the
     fingerstyle melody generator and the matching score (v6 spec 5.3, 5.4);
-    the default ``"rules"`` is v5's. Strum and arpeggio ignore ``candidates``,
-    ``melody_proposer`` and ``melody_engine`` and give their single
-    arrangement, its melody from the rules engine.
+    the default ``"rules"`` is v5's. ``melody_pick="phrase"`` (tune engine
+    only, else ``ValueError``) ranks by the phrase model's distance from real
+    tunes in place of the band distance (phrase-model spec 5.4). Strum and
+    arpeggio ignore ``candidates``, ``melody_proposer``, ``melody_engine`` and
+    ``melody_pick`` and give their single arrangement, its melody from the
+    rules engine.
     """
     _validate(scale, progression, bars_per_chord)
     _validate_candidates(candidates)
     _validate_engine(melody_engine)
+    _validate_pick(melody_pick, melody_engine, style)
     if style != "fingerstyle":
         return (
             _arrange_single(scale, progression, bars_per_chord, tempo_bpm, style, tuning, seed),
@@ -372,6 +389,17 @@ def arrange_candidates(
         )
         for s in candidate_seeds(base, candidates)
     ]
+    dists: list[float | None] = [None] * len(arrangements)
+    if melody_pick == "phrase":  # one batched model run over every candidate
+        dists = list(
+            phrase_distances(
+                [a.melody for a in arrangements],
+                scale=scale,
+                progression=progression,
+                bars_per_chord=bars_per_chord,
+                tempo_bpm=tempo_bpm,
+            )
+        )
     scores = [
         score_arrangement(
             a,
@@ -381,8 +409,10 @@ def arrange_candidates(
             tuning=tuning,
             scale=scale,
             melody_engine=melody_engine,
+            melody_pick=melody_pick,
+            phrase_dist=d,
         )
-        for a in arrangements
+        for a, d in zip(arrangements, dists, strict=True)
     ]
     order = sorted(range(candidates), key=lambda k: (-scores[k], k))  # ties: the lower k
     return tuple(
@@ -405,6 +435,7 @@ def arrange(
     candidates: int = 1,
     melody_proposer: MelodyProposer | None = None,
     melody_engine: MelodyEngine = "rules",
+    melody_pick: MelodyPick = "bands",
 ) -> Arrangement:
     """Pure core of compose(): voicings, melody, accompaniment and melody tab.
 
@@ -436,6 +467,7 @@ def arrange(
         candidates=candidates,
         melody_proposer=melody_proposer,
         melody_engine=melody_engine,
+        melody_pick=melody_pick,
     )[0]
 
 
@@ -575,6 +607,7 @@ def _rank_by_audio(
     humanize_seed: int,
     melody_proposer: MelodyProposer | None = None,
     melody_engine: MelodyEngine = "rules",
+    melody_pick: MelodyPick = "bands",
 ) -> tuple[Arrangement, dict[str, float]]:
     """The fingerstyle candidate the audio re-rank keeps, and its ``CE`` and
     ``PQ``: the top ``RANK_AUDIO_TOP_K`` by symbolic score are rendered to
@@ -593,6 +626,7 @@ def _rank_by_audio(
         candidates=candidates,
         melody_proposer=melody_proposer,
         melody_engine=melody_engine,
+        melody_pick=melody_pick,
     )[:RANK_AUDIO_TOP_K]
     with tempfile.TemporaryDirectory(prefix="music-decoder-rank-") as tmp:
         wavs = [Path(tmp) / f"candidate-{i}.wav" for i in range(len(top))]
@@ -627,8 +661,9 @@ def compose_with_options(
     sound: Literal["soundfont", "plucked"] = "soundfont",
     rank_audio: bool = False,
     melody_model: Literal["amt"] | None = None,
-    candidates: int = 12,
+    candidates: int | None = None,
     melody_engine: MelodyEngine = "tune",
+    melody_pick: MelodyPick | None = None,
 ) -> Composition:
     """compose() plus the choice of ``sound``, of the number of fingerstyle
     ``candidates`` and of the audio re-rank (v5 spec 5.4; strum and arpeggio
@@ -639,6 +674,16 @@ def compose_with_options(
     statistics of real tunes; ``"rules"`` is composer v5's, note for note.
     Strum and arpeggio always use the rules engine.
     ``metadata["melody_engine"]`` records the engine that made the melody.
+
+    ``melody_pick`` picks how the best fingerstyle candidate is chosen. With
+    ``None`` (the default) it is ``"phrase"`` for the tune engine (composer
+    version 8) and ``"bands"`` for the rules engine. ``"phrase"`` ranks by the
+    phrase model's distance from real tunes (tune engine only, else
+    ``ValueError``); ``"bands"`` is version 7's band distance. Strum and
+    arpeggio ignore it. ``candidates`` defaults to ``PHRASE_PICK_CANDIDATES``
+    (200) with the phrase pick, else 12. ``metadata["melody_pick"]`` records
+    the rule and ``metadata["phrase_model"]`` the weights hash (``None``
+    without the phrase model).
 
     ``metadata["seed_used"]`` is the seed the piece was made with: ``seed``,
     or the one drawn when ``seed`` is ``None``. Passing it back as ``seed``
@@ -669,11 +714,22 @@ def compose_with_options(
     (``None`` without the model).
     """
     _validate(scale, progression, bars_per_chord)  # before any model loads
-    _validate_candidates(candidates)
     _validate_engine(melody_engine)
+    if melody_pick is None:
+        melody_pick = "phrase" if melody_engine == "tune" else "bands"
+    _validate_pick(melody_pick, melody_engine, style)
+    melody_pick = melody_pick if style == "fingerstyle" else "bands"
+    if candidates is None:
+        candidates = PHRASE_PICK_CANDIDATES if melody_pick == "phrase" else DEFAULT_CANDIDATES
+    _validate_candidates(candidates)
     rank_audio = rank_audio and style == "fingerstyle"
     melody_model = melody_model if style == "fingerstyle" else None
     melody_engine = melody_engine if style == "fingerstyle" else "rules"
+    phrase_hash: str | None = None
+    if melody_pick == "phrase":
+        from music_decoder.compose import phrase_model
+
+        phrase_hash = phrase_model.load_phrase_model().weights_hash  # fails before any work
     seed_used = seed if seed is not None else int(np.random.default_rng().integers(2**31))
     proposer: MelodyProposer | None = None
     melody_model_seconds: float | None = None
@@ -698,6 +754,7 @@ def compose_with_options(
             humanize_seed=humanize_seed,
             melody_proposer=proposer,
             melody_engine=melody_engine,
+            melody_pick=melody_pick,
         )
     else:
         arrangement = arrange(
@@ -711,13 +768,16 @@ def compose_with_options(
             candidates=candidates,
             melody_proposer=proposer,
             melody_engine=melody_engine,
+            melody_pick=melody_pick,
         )
 
+    # The phrase pick enters the hash only when used, so default folders keep their names.
+    phrase_tag = f"|{melody_pick}|{phrase_hash}" if melody_pick == "phrase" else ""
     payload_hash = hashlib.sha1(
         (
             f"{scale}|{[c.to_label() for c in progression]}|{tempo_bpm}|{style}|{seed}"
             f"|{melody_engine}|{tuning.name}|{candidates}|{sound}|{bars_per_chord}"
-            f"|{rank_audio}|{melody_model}"
+            f"|{rank_audio}|{melody_model}{phrase_tag}"
         ).encode()
     ).hexdigest()[:8]
     ts = time.strftime("%Y%m%dT%H%M%S")
@@ -791,6 +851,8 @@ def compose_with_options(
         "melody_model": melody_model,
         "melody_model_seconds": melody_model_seconds,
         "melody_engine": melody_engine,
+        "melody_pick": melody_pick,
+        "phrase_model": phrase_hash,
     }
     (work / MANIFEST_NAME).write_text(
         json.dumps({"manifest_version": MANIFEST_VERSION, **metadata}, indent=2)

@@ -30,6 +30,7 @@ from click.core import ParameterSource
 from music_decoder.api import analyze
 from music_decoder.compose.api import compose_with_options
 from music_decoder.compose.ml import MLUnavailableError
+from music_decoder.compose.phrase_model import PhraseModelError
 from music_decoder.errors import MusicDecoderError
 from music_decoder.productionize import ProductionConfig, Song, hisaab_song, productionize
 from music_decoder.productionize.config import (
@@ -179,9 +180,11 @@ def cli_analyze(
 @click.option(
     "--candidates",
     type=int,
-    default=12,
-    show_default=True,
-    help="fingerstyle pieces to generate; the best by the symbolic score is kept",
+    default=None,
+    help=(
+        "fingerstyle pieces to generate; the best by the symbolic score is kept "
+        "[default: 200 with the phrase pick, else 12]"
+    ),
 )
 @click.option(
     "--rank-audio",
@@ -213,6 +216,16 @@ def cli_analyze(
         "tunes, rules is composer v5's"
     ),
 )
+@click.option(
+    "--melody-pick",
+    type=click.Choice(["bands", "phrase"]),
+    default=None,
+    help=(
+        "fingerstyle, tune engine: how the best candidate is chosen; phrase by a phrase "
+        "model trained on real melodies, bands by real tunes' statistics "
+        "(composer version 7) [default: phrase, or bands with --melody-engine rules]"
+    ),
+)
 @click.option("--out", type=click.Path(file_okay=False), required=True)
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
 def cli_compose(
@@ -224,16 +237,22 @@ def cli_compose(
     seed: int | None,
     tuning: str,
     sound: str,
-    candidates: int,
+    candidates: int | None,
     rank_audio: bool,
     melody_model: str,
     melody_engine: str,
+    melody_pick: str | None,
     out: str,
     fmt: str,
 ) -> None:
     """Generate a simple arrangement from a scale + chord progression."""
     if style != "fingerstyle":
-        for flag, on in (("--rank-audio", rank_audio), ("--melody-model", melody_model != "none")):
+        flags = (
+            ("--rank-audio", rank_audio),
+            ("--melody-model", melody_model != "none"),
+            ("--melody-pick", melody_pick == "phrase"),
+        )
+        for flag, on in flags:
             if on:
                 click.echo(f"note: {flag} is fingerstyle-only; ignored for {style}", err=True)
     try:
@@ -254,8 +273,9 @@ def cli_compose(
                 rank_audio=rank_audio,
                 melody_model=None if melody_model == "none" else "amt",
                 melody_engine=cast(Literal["tune", "rules"], melody_engine),
+                melody_pick=cast(Literal["bands", "phrase"] | None, melody_pick),
             )
-    except (MusicDecoderError, ValueError, MLUnavailableError) as e:
+    except (MusicDecoderError, ValueError, MLUnavailableError, PhraseModelError) as e:
         raise click.ClickException(str(e)) from e
 
     covered = result.metadata.get("melody_model_seconds")

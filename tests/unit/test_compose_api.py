@@ -118,11 +118,18 @@ def test_pinned_tab_weights_match_the_analysis_defaults():
 def test_compose_returns_the_arrangement_and_version(tmp_path):
     with mock.patch("music_decoder.compose.api.render_wav"):
         result = compose(scale=Scale("C", "major"), progression=_PROG, seed=1, out_dir=tmp_path)
-    # compose() uses the tune engine since composer v6.
-    arr = arrange(Scale("C", "major"), _PROG, seed=1, candidates=12, melody_engine="tune")
+    # compose() uses the tune engine (v6) and the phrase pick of 200 (v8).
+    arr = arrange(
+        Scale("C", "major"),
+        _PROG,
+        seed=1,
+        candidates=200,
+        melody_engine="tune",
+        melody_pick="phrase",
+    )
     assert result.melody_notes == arr.melody
     assert result.chord_voicings == arr.voicings
-    assert result.metadata["composer_version"] == COMPOSER_VERSION == 7
+    assert result.metadata["composer_version"] == COMPOSER_VERSION == 8
 
 
 def test_arrange_tabs_every_melody_note_in_a_playable_register():
@@ -370,7 +377,7 @@ def test_compose_writes_on_grid_midi_and_records_the_sound(tmp_path):
     pm = pretty_midi.PrettyMIDI(str(result.midi_path))
     starts = [n.start for i in pm.instruments for n in i.notes]
     assert metrics.onset_grid_ratio(metrics.stroke_heads(starts), 100.0, 2) == 1.0
-    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 7
+    assert result.metadata["sound"] == "soundfont" and result.metadata["composer_version"] == 8
     assert not list(result.midi_path.parent.glob("*performance*"))  # temp MIDI removed
 
 

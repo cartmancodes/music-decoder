@@ -65,8 +65,8 @@ def test_rules_engine_is_unchanged(rules_fixture):
 def test_arrange_defaults_to_rules_and_compose_to_tune(tmp_path, fake_wav):
     assert arrange(SCALE, PROG, seed=3) == arrange(SCALE, PROG, seed=3, melody_engine="rules")
     c = compose(SCALE, PROG, seed=3, out_dir=tmp_path / "a")
-    assert c.metadata["melody_engine"] == "tune" and c.metadata["composer_version"] == 7
-    assert COMPOSER_VERSION == 7
+    assert c.metadata["melody_engine"] == "tune" and c.metadata["composer_version"] == 8
+    assert COMPOSER_VERSION == 8
     r = compose_with_options(SCALE, PROG, seed=3, out_dir=tmp_path / "b", melody_engine="rules")
     assert r.metadata["melody_engine"] == "rules"
     assert [n.pitch for n in c.melody_notes] != [n.pitch for n in r.melody_notes]
@@ -87,7 +87,7 @@ def test_output_folder_hash_depends_on_the_melody_engine_and_other_options(tmp_p
 
 def test_compose_with_options_tune_is_arrange_with_tune(tmp_path, fake_wav):
     c = compose_with_options(SCALE, PROG, seed=3, out_dir=tmp_path, candidates=3)
-    arr = arrange(SCALE, PROG, seed=3, candidates=3, melody_engine="tune")
+    arr = arrange(SCALE, PROG, seed=3, candidates=3, melody_engine="tune", melody_pick="phrase")
     assert c.melody_notes == arr.melody
     assert c.metadata["chosen_candidate"] == arr.chosen_candidate
     assert c.metadata["score"] == arr.score

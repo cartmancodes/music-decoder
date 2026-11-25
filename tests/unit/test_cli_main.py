@@ -105,7 +105,8 @@ def test_cli_accepts_candidates(tmp_path):
     assert json.loads(r.output)["metadata"]["candidates"] == 3
 
 
-def test_cli_candidates_default_to_twelve(tmp_path):
+def test_cli_candidates_default_to_the_api_default(tmp_path):
+    # The CLI passes None; compose_with_options makes it 12 (200 with --melody-pick phrase).
     with mock.patch("music_decoder.cli.main.compose_with_options") as c:
         c.return_value = mock.Mock(
             midi_path=tmp_path / "a.mid",
@@ -118,7 +119,7 @@ def test_cli_candidates_default_to_twelve(tmp_path):
         r = CliRunner().invoke(
             main, ["compose", "--scale", "C:major", "--progression", "C G", "--out", str(tmp_path)]
         )
-    assert r.exit_code == 0 and c.call_args.kwargs["candidates"] == 12
+    assert r.exit_code == 0 and c.call_args.kwargs["candidates"] is None
 
 
 def test_compose_invalid_scale():

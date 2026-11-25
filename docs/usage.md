@@ -253,7 +253,8 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
                        [--tuning ...] [--sound soundfont | plucked]
                        [--candidates N] [--rank-audio]
                        [--melody-model none | amt]
-                       [--melody-engine tune | rules] --out DIR
+                       [--melody-engine tune | rules]
+                       [--melody-pick bands | phrase] --out DIR
                        [--format pretty | json]
 ```
 
@@ -281,8 +282,9 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   WAV changes: the MIDI and the tab are the same for both.
 - `--candidates N` — `fingerstyle` only (the other styles ignore it). The
   composer writes N pieces and keeps the one with the best score from the
-  tool's own measures of a good tune. Default `12`; `1` gives a single
-  piece. Must be ≥ 1.
+  tool's own measures of a good tune. Default `200` with the phrase pick
+  (the default), `12` with `--melody-pick bands` or `--melody-engine rules`;
+  `1` gives a single piece. Must be ≥ 1.
 - `--rank-audio` — `fingerstyle` only. Instead of trusting the score
   alone, render the best 4 candidates and let Audiobox Aesthetics (a
   pretrained model that rates how enjoyable and how well produced a clip
@@ -311,6 +313,19 @@ music-decoder compose --scale TONIC:MODE --progression "CHORDS..."
   a seed from version 5 still gives its old melody. `strum` and `arpeggio` always use the rules
   engine and ignore the option without a message. It works together with
   `--melody-model amt`, `--candidates` and `--rank-audio`.
+- `--melody-pick bands | phrase` — `fingerstyle` with the `tune` engine.
+  How the best candidate is chosen. `phrase` (the default since composer
+  version 8) keeps the one a small model trained on real pop melodies finds
+  about as predictable as a real tune: neither more surprising nor more
+  obvious (see [the phrase model](#the-phrase-model)). With `phrase` the
+  composer writes 200 candidates unless you give `--candidates`. `bands`
+  (version 7's rule) keeps the one whose melody sits most inside the ranges
+  of real tunes, from 12 candidates. In two blind listening rounds
+  (2026-11-25 and 26, 8 rated pieces per option) `phrase` averaged 6.5 out of
+  10 against 5.4 for `bands`. With `--melody-engine rules` the default is
+  `bands`, and asking for `phrase` is refused with an error; with `strum` or
+  `arpeggio` the option is ignored, with a note on stderr if you gave
+  `phrase`.
 - `--out` (required) — directory where the per-take folder is created.
 - `--format pretty | json`.
 
@@ -326,8 +341,9 @@ music-decoder compose \
   --out ./out
 ```
 
-Expected pretty output (paths will differ; the notes are what the tune
-engine of composer version 6 writes for this seed on the shipped statistics):
+Expected pretty output (paths will differ; the notes are what composer
+version 8 writes for this seed: the tune engine's best of 200 by the phrase
+pick, on the shipped statistics and phrase model):
 
 ```text
 MIDI:    out/20260508T142510-7c4a3b21/composition.mid
@@ -335,9 +351,9 @@ WAV:     out/20260508T142510-7c4a3b21/composition.wav
 ASCII tab:
 Fingerstyle
    Cmaj7             Am7               Dm7               G7
-e|-0---------------|-----0-----------|-0---------------|-----------------|
-B|---0---3-1---1---|-3-----1---------|---3-----------0-|-----------------|
-G|---------------2-|---0-----2---0-2-|---5-5-5-5---5---|-0---------------|
+e|---------0-0-0---|---------0-0-0---|-0---------------|-3---------------|
+B|-1---1---------0-|-1---1---------1-|-----------------|-3---------------|
+G|-------0---------|-------0---------|-------5-------5-|-0---------------|
 D|-----2-------2---|-----2-------2---|-----3-------3---|-3---------------|
 A|-3-------3-------|-0-------0-------|-5-------5-------|-2---------------|
 E|-----------------|-----------------|-----------------|-3---------------|
@@ -402,7 +418,7 @@ The v5 and v6 options, on a fingerstyle piece (the second and third need the
 music-decoder compose --scale C:major --progression "C G Am F" --bars 2 \
   --seed 601 --sound plucked --out ./out
 
-# keep the best of 12 (the default) by the symbolic score, then let the
+# keep the best of 200 (the default) by the symbolic score, then let the
 # audio model choose among the best 4
 music-decoder compose --scale A:minor --progression "Am Dm E7 Am" --bars 2 \
   --seed 602 --rank-audio --out ./out
@@ -418,13 +434,20 @@ music-decoder compose --scale C:major --progression "C G Am F" \
 # composer version 5's hand-written melody instead of the tune engine
 music-decoder compose --scale C:major --progression "C G Am F" --bars 2 \
   --seed 601 --melody-engine rules --out ./out
+
+# composer version 7's choice: the best of 12 by the band score
+music-decoder compose --scale E:major --progression "E B C#m G#m A E A B" \
+  --bars 2 --tempo 110 --seed 26001 --melody-pick bands --out ./out
 ```
 
 Measured on an Apple M4 (CPU), an 8-bar fingerstyle piece takes about 1–2
 seconds with the defaults, 2–4 seconds with `--sound plucked`, 6–8 seconds
 with `--rank-audio` (it renders and scores 4 candidates) and 24–29 seconds
-with `--melody-model amt` (the model is loaded on every call). Only the
-chosen candidate's MIDI, WAV and tab are kept.
+with `--melody-model amt` (the model is loaded on every call).
+Those times are for `--melody-pick bands`. The default phrase pick takes about
+2–7 seconds for a 16-bar piece (writing 200 candidates takes about 3 of them
+and the model about 2), plus about 1 second to load the model. Only the chosen candidate's MIDI, WAV and tab
+are kept.
 
 ### `productionize` — master a composition for release
 
@@ -715,8 +738,9 @@ print(result.wav_path)    # ./out/20260508T...-.../composition.wav
 print(result.ascii_tab)
 ```
 
-`compose()`'s signature is frozen. In composer version 6 it keeps the best of
-12 fingerstyle candidates, with the tune engine writing each melody. To choose
+`compose()`'s signature is frozen. In composer version 8 it keeps the best of
+200 fingerstyle candidates by the phrase pick, with the tune engine writing
+each melody. To choose
 the sound, the number of candidates, the melody engine or the optional models,
 call `compose_with_options()` from
 `music_decoder.compose.api` (it is not exported from the package):
@@ -729,16 +753,23 @@ result = compose_with_options(
     [ChordSymbol.parse(c) for c in ("C", "G", "Am", "F")],
     bars_per_chord=2, seed=601, out_dir=Path("./out"),
     sound="plucked",          # or "soundfont" (default)
-    candidates=12,            # fingerstyle pieces to write; the best is kept
+    candidates=None,          # pieces to write (None: 200, or 12 with bands)
     rank_audio=False,         # True needs the `ml` extra and the weights
     melody_model=None,        # "amt" needs the `ml` extra and the weights
     melody_engine="tune",     # or "rules": composer v5's melody, note for note
+    melody_pick=None,         # "phrase" (tune engine) or "bands"; None picks by engine
 )
 ```
 
 Asking for `rank_audio` or `melody_model="amt"` without the extra or the
 weights raises `music_decoder.compose.ml.MLUnavailableError`. Any other
 `melody_engine` raises `ValueError`; for `strum` and `arpeggio` it is ignored.
+`candidates` defaults to `None`: 200 with the phrase pick, else 12.
+`melody_pick="phrase"` with `melody_engine="rules"` raises `ValueError`; for
+`strum` and `arpeggio` it is ignored. A missing or unreadable weights file
+raises `music_decoder.compose.phrase_model.PhraseModelError`, naming the
+file; without `melody_pick="phrase"` the file is never read and torch is
+never imported.
 `compose_with_options()` defaults to `"tune"`, but the lower-level
 `arrange()` and `arrange_candidates()` default to `"rules"` (and to fewer
 candidates), so code that calls them directly is unchanged.
@@ -1112,18 +1143,20 @@ same conventions:
     "seed": 42,
     "seed_used": 42,
     "tuning": "EADGBE",
-    "composer_version": 7,
+    "composer_version": 8,
     "sound": "soundfont",
-    "candidates": 12,
-    "chosen_candidate": 9,
-    "score": 1.86,
+    "candidates": 200,
+    "chosen_candidate": 25,
+    "score": 3.63,
     "final_fallback": false,
     "identity_misses": [],
     "rank_audio": false,
     "audio_scores": null,
     "melody_model": null,
     "melody_model_seconds": null,
-    "melody_engine": "tune"
+    "melody_engine": "tune",
+    "melody_pick": "phrase",
+    "phrase_model": "9070f033c2b2"
   }
 }
 ```
@@ -1150,6 +1183,14 @@ sum, but the melody terms are replaced by a penalty for lying outside the
 ranges of real tunes (see
 [what the tune engine does](#what-the-tune-engine-does-composer-version-6)),
 so compare scores only within one engine.
+
+The metadata keys added in version 8: `melody_pick` (`"phrase"` or
+`"bands"`; always `"bands"` for strum, arpeggio and the rules engine) and
+`phrase_model` (the first 12 hex digits of the weights file's sha256 when
+`melody_pick` is `"phrase"`, else `null`). With `"phrase"` the `score` uses
+the phrase distance in place of the band distance, so compare it only with
+other `"phrase"` scores. A `--melody-pick bands` run keeps version 7's take
+folder name.
 
 In `chord_voicings[i].positions`, `fret = -1` means the string is
 muted (not played).
@@ -1669,6 +1710,43 @@ a given seed. After a rebuild, run `pytest tests/unit/test_compose_tune_gates.py
 it checks the engine against the new bands (see
 [the technical doc](architecture-technical.md#533-composer-v6-the-tune-engine)).
 
+#### The phrase model
+
+`--melody-pick phrase` uses a small network (a causal transformer of 1.28
+million weights) trained on the melodies of POP909 (the same MIT-licensed,
+cleaned release as above) to read whole phrases. It sees each melody as one
+slot per sixteenth note, each slot either "no new note" or a new note at a
+pitch relative to the key. Alongside, it sees the chord, the next chord,
+where the bar sits in its phrase, whether the phrase restates an earlier one,
+and the tempo. Reading up to 32 bars back, it needs 24% fewer bits to
+predict unseen real songs than the same network reading one bar at a time.
+
+For a candidate it measures the bits per bar the model needs to predict the
+melody, averaged over 8-bar windows (the final whole note left out). Real
+tunes need about 14–15 bits per bar (median 14.9 in major and 14.2 in minor,
+on songs the model never saw). The tune engine's melodies usually need more,
+about 17–23. The pick prefers the candidate nearest the real median, by
+`2.0` points of score per interquartile range away from it. A melody with a
+note outside the model's range (from an octave below to an eleventh above
+the key's tonic just under the melody's middle pitch) counts as 10 ranges away.
+
+The weights ship as `src/music_decoder/compose/data/phrase_model.npz`
+(3.05 MB; numpy arrays in half precision, read without pickle, beside a
+record of its sources, licence, data split, settings and measured numbers).
+They need `torch`, which is installed with the package. To retrain them
+(about 13 minutes on an Apple-silicon GPU, longer on the CPU):
+
+```bash
+python scripts/train_phrase_model.py ~/.music-decoder/datasets/pop909-hsa/POP909 \
+  [--out src/music_decoder/compose/data/phrase_model.npz] [--steps 1500]
+```
+
+Songs are split 80/10/10 into training, validation and held-out with a
+fixed seed (909); every "real tune" number above comes from the held-out
+songs. On the same machine, retraining reproduces the shipped numbers (held-out
+14.92 bits per bar). A retrained file has a new hash, so it can change which
+candidate is picked for a seed.
+
 ### Seed reproducibility
 
 `--seed N` makes `compose()` fully deterministic. Same `(scale,
@@ -1686,7 +1764,7 @@ guarantee its random streams across releases). Useful for:
   MIDI, tab and WAV.
 
 Seeds are reproducible within one composer version, which is recorded
-in `metadata.composer_version` (currently `7`). Version 2 (November
+in `metadata.composer_version` (currently `8`). Version 2 (November
 2026) replaced the uniform quarter-note generator with phrase-planned
 melodies, so a seed saved from an older version now gives a different
 (more musical) take. Version 3 (November 2026) plays a faithful,
@@ -1711,10 +1789,14 @@ engine's scoring and the audio re-rank: the tune score now counts the last
 bars of a pass that is not a whole number of 8-bar windows, and the
 `--rank-audio` re-rank uses fixed scales, so a candidate's total no longer
 depends on which others made the shortlist. A seed saved from version 6 can
-therefore pick a different candidate. `strum` and `arpeggio` are still
+therefore pick a different candidate. Version 8 (November 2026) changes only
+the `fingerstyle` choice of candidate with the tune engine: it writes 200
+and keeps the one the phrase model finds closest to real tunes, so a seed
+saved from version 7 gives a different piece. To get the version 7 piece
+back for a seed, pass `--melody-pick bands`. `strum` and `arpeggio` are still
 unchanged from version 3.
-`--candidates`, `--rank-audio`, `--melody-model` and `--melody-engine`
-change which piece a seed gives; `--sound` and the audio
+`--candidates`, `--rank-audio`, `--melody-model`, `--melody-engine` and
+`--melody-pick` change which piece a seed gives; `--sound` and the audio
 micro-timing change only the WAV. The same seed with the same options is
 reproducible with or without the models. Compose
 output does not depend on `config/hyperparameters.yaml` or
