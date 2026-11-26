@@ -77,7 +77,7 @@ def test_composer_output_is_release_ready(tmp_path):
     assert result.qc.passed, "\n" + result.qc.format()
 
 
-@pytest.mark.parametrize("lead", ["guitar", "synth"])
+@pytest.mark.parametrize("lead", ["guitar", "synth", "piano"])
 def test_poprap_render_passes_every_check(tmp_path, lead):
     progression = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
     arr = arrange(Scale("A", "minor"), progression, tempo_bpm=120.0, seed=7)

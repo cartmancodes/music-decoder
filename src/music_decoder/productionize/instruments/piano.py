@@ -7,6 +7,7 @@ damping (a repeated key cuts its previous note).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -15,7 +16,7 @@ import numpy.typing as npt
 from music_decoder.productionize import dsp
 from music_decoder.productionize.config import PianoConfig
 from music_decoder.productionize.dsp import Audio
-from music_decoder.productionize.samples import SampleStore, piano_ref, resample
+from music_decoder.productionize.samples import SampleRef, SampleStore, piano_ref, resample
 from music_decoder.productionize.song import NoteEvent, Song
 
 # Extra audio read past a note's length: the silence before a sample's onset.
@@ -51,9 +52,19 @@ def nearest_sample(pitch: int, cfg: PianoConfig) -> tuple[int, int]:
 
 def plan_voices(song: Song, cfg: PianoConfig) -> list[Voice]:
     """Pedal and re-strike rules applied to the song's piano notes."""
-    bar = song.grid.bar_s
-    tail_start = song.tail_start_s - cfg.bar_snap_s
-    notes: list[NoteEvent] = sorted(song.piano, key=lambda n: (n.start_s, n.pitch))
+    return plan_note_voices(
+        song.piano, bar_s=song.grid.bar_s, tail_start_s=song.tail_start_s, cfg=cfg
+    )
+
+
+def plan_note_voices(
+    notes_in: Sequence[NoteEvent], *, bar_s: float, tail_start_s: float, cfg: PianoConfig
+) -> list[Voice]:
+    """Pedal and re-strike rules applied to ``notes_in`` on bars of ``bar_s``;
+    notes from ``tail_start_s`` on ring for their length and release slowly."""
+    bar = bar_s
+    tail_start = tail_start_s - cfg.bar_snap_s
+    notes: list[NoteEvent] = sorted(notes_in, key=lambda n: (n.start_s, n.pitch))
     holds: list[tuple[float, float]] = []  # (hold end, tau) per note
     for note in notes:
         if note.start_s >= tail_start:
@@ -120,9 +131,44 @@ def _envelope(voice: Voice, cfg: PianoConfig, length: int, sr: int) -> npt.NDArr
 
 def render_piano(song: Song, cfg: PianoConfig, store: SampleStore, n_samples: int) -> Audio:
     """The dry piano after EQ, compression and soft limit (unlevelled)."""
-    sr = song.grid.sample_rate
+    return render_piano_notes(
+        song.piano,
+        bar_s=song.grid.bar_s,
+        tail_start_s=song.tail_start_s,
+        level_spans=[song.section_span(i) for i in song.verse_sections],
+        sr=song.grid.sample_rate,
+        cfg=cfg,
+        store=store,
+        n_samples=n_samples,
+    )
+
+
+def piano_note_refs(
+    notes: Sequence[NoteEvent], *, bar_s: float, tail_start_s: float, cfg: PianoConfig
+) -> set[SampleRef]:
+    """The samples :func:`render_piano_notes` loads for ``notes``."""
+    voices = plan_note_voices(notes, bar_s=bar_s, tail_start_s=tail_start_s, cfg=cfg)
+    return {piano_ref(v.sample_pitch, v.layer) for v in voices}
+
+
+def render_piano_notes(
+    notes: Sequence[NoteEvent],
+    *,
+    bar_s: float,
+    tail_start_s: float,
+    level_spans: Sequence[tuple[int, int]],
+    sr: int,
+    cfg: PianoConfig,
+    store: SampleStore,
+    n_samples: int,
+) -> Audio:
+    """``notes`` on the piano after EQ, compression and soft limit (unlevelled).
+
+    The compressor's threshold is relative to the RMS over ``level_spans``
+    (sample spans): the verses for boom-bap, the lead's sections for pop-rap.
+    """
     out = np.zeros((n_samples, 2))
-    voices = plan_voices(song, cfg)
+    voices = plan_note_voices(notes, bar_s=bar_s, tail_start_s=tail_start_s, cfg=cfg)
     if not voices:
         return out
     store.ensure({piano_ref(v.sample_pitch, v.layer) for v in voices})
@@ -147,8 +193,7 @@ def render_piano(song: Song, cfg: PianoConfig, store: SampleStore, n_samples: in
     out = np.stack([mid + side, mid - side], axis=1)
     out = dsp.apply_eq(dsp.butter(out, "highpass", cfg.highpass_hz, sr), cfg.eq, sr)
 
-    verses = [song.section_span(i) for i in song.verse_sections]
-    threshold = cfg.compressor.rms_multiple * dsp.rms_over(out, verses)
+    threshold = cfg.compressor.rms_multiple * dsp.rms_over(out, level_spans)
     out = dsp.compress(out, threshold, cfg.compressor, sr)
     peak = dsp.percentile_peak(out, cfg.limit_percentile)
     return dsp.soft_limit(out, cfg.limit_headroom * peak)

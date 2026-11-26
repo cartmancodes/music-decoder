@@ -144,3 +144,65 @@ def test_reverb_feed_is_band_limited():
     quiet = np.sqrt(np.mean(reverb_feed(low, song, CFG)[SR:] ** 2))
     loud = np.sqrt(np.mean(reverb_feed(mid, song, CFG)[SR:] ** 2))
     assert 20 * np.log10(quiet / loud) < -20.0
+
+
+# ---- The note-level core the pop-rap piano lead plays through ----------------
+
+
+def test_plan_voices_matches_plan_note_voices():
+    from music_decoder.productionize.instruments.piano import plan_note_voices
+
+    song = tiny_song()
+    assert plan_voices(song, CFG) == plan_note_voices(
+        song.piano, bar_s=song.grid.bar_s, tail_start_s=song.tail_start_s, cfg=CFG
+    )
+
+
+def test_render_piano_is_unchanged_by_the_split(tmp_path):
+    from music_decoder.productionize.instruments.piano import render_piano_notes
+
+    song = tiny_song()
+    store = fake_store(tmp_path, song)
+    n = int((song.tail_start_s + 4.0) * SR)
+    verses = [song.section_span(i) for i in song.verse_sections]
+    whole = render_piano(song, CFG, store, n)
+    core = render_piano_notes(
+        song.piano,
+        bar_s=song.grid.bar_s,
+        tail_start_s=song.tail_start_s,
+        level_spans=verses,
+        sr=song.grid.sample_rate,
+        cfg=CFG,
+        store=store,
+        n_samples=n,
+    )
+    assert np.array_equal(whole, core)
+
+
+def test_render_piano_notes_with_no_notes_is_silent(tmp_path):
+    from music_decoder.productionize.instruments.piano import render_piano_notes
+    from music_decoder.productionize.samples import SampleStore
+
+    out = render_piano_notes(
+        [],
+        bar_s=2.0,
+        tail_start_s=8.0,
+        level_spans=[(0, 1000)],
+        sr=SR,
+        cfg=CFG,
+        store=SampleStore(tmp_path, download=False),
+        n_samples=1000,
+    )
+    assert out.shape == (1000, 2) and not out.any()
+
+
+def test_piano_note_refs_are_the_samples_the_render_loads(tmp_path):
+    from music_decoder.productionize.instruments.piano import piano_note_refs
+    from music_decoder.productionize.samples import piano_ref
+
+    song = tiny_song()
+    want = {piano_ref(v.sample_pitch, v.layer) for v in plan_voices(song, CFG)}
+    assert (
+        piano_note_refs(song.piano, bar_s=song.grid.bar_s, tail_start_s=song.tail_start_s, cfg=CFG)
+        == want
+    )

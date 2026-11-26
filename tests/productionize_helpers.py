@@ -118,3 +118,26 @@ def tiny_song(*, strings: bool = False) -> Song:
         piano=tuple(piano),
         strings=string_notes,
     )
+
+
+def fake_lead_store(root: Path, song) -> SampleStore:  # song: PopRapSong
+    """An offline store holding the piano samples a pop-rap song's piano lead plays."""
+    from music_decoder.productionize.config import PianoConfig
+    from music_decoder.productionize.instruments.piano import piano_note_refs
+    from music_decoder.productionize.poprap import lead_notes
+
+    main, _ = lead_notes(song)
+    refs = piano_note_refs(main, bar_s=song.grid.bar_s, tail_start_s=song.body_s, cfg=PianoConfig())
+    for ref in refs:
+        pitch, layer = _piano_pitch_layer(ref)
+        if not (root / ref.path).exists():
+            write_piano_sample(root, pitch, layer)
+    return SampleStore(root, download=False)
+
+
+def _piano_pitch_layer(ref: SampleRef) -> tuple[int, int]:
+    for pitch in range(21, 109):
+        for layer in range(1, 17):
+            if piano_ref(pitch, layer).path == ref.path:
+                return pitch, layer
+    raise AssertionError(f"not a piano sample: {ref.path}")

@@ -24,6 +24,7 @@ from music_decoder.productionize.config import (
 )
 from music_decoder.productionize.dsp import Audio
 from music_decoder.productionize.instruments import synths, trap
+from music_decoder.productionize.instruments.piano import render_piano_notes
 from music_decoder.productionize.mix import MixResult, fade_out, mono_low_end
 from music_decoder.productionize.poprap import (
     PopRapSong,
@@ -32,7 +33,8 @@ from music_decoder.productionize.poprap import (
     pad_events,
     pluck_notes,
 )
-from music_decoder.productionize.song import NoteEvent
+from music_decoder.productionize.samples import SampleStore
+from music_decoder.productionize.song import NoteEvent, ProductionError
 from music_decoder.progress import NullProgress, ProgressCallback
 
 POPRAP_STEMS = ("drums", "808", "pad", "pluck", "fx", "lead")
@@ -152,14 +154,71 @@ def _lead(
     return _fit(clip, n)
 
 
-def _render_lead(song: PopRapSong, cfg: PopRapConfig, n: int, work_dir: Path) -> Audio:
+# The hook-2 double of each lead: the other one of guitar and synth, and for the
+# piano a second piano (the user wanted the double kept, but on piano).
+_DOUBLE = {"guitar": "synth", "synth": "guitar", "piano": "piano"}
+
+
+def _piano_lead(
+    notes: list[NoteEvent], n: int, song: PopRapSong, cfg: PopRapConfig, store: SampleStore
+) -> Audio:
+    """The melody on the boom-bap piano, levelled against the sections with a lead."""
+    spans = [song.section_span(i) for i, s in enumerate(song.sections) if s.lead != "none"]
+    clip = render_piano_notes(
+        notes,
+        bar_s=song.grid.bar_s,
+        tail_start_s=song.body_s,
+        level_spans=spans,
+        sr=song.grid.sample_rate,
+        cfg=cfg.piano_lead,
+        store=store,
+        n_samples=n,
+    )
+    return _fit(clip, n)
+
+
+def _piano_double(
+    notes: list[NoteEvent], n: int, song: PopRapSong, cfg: PopRapConfig, store: SampleStore
+) -> Audio:
+    """The hook-2 double on a second piano, mono: each note rings for its own length
+    (no pedal), as the guitar double plays it, then releases with the piano's tail."""
+    if not notes:
+        return np.zeros(n)
+    spans = [song.section_span(i) for i, s in enumerate(song.sections) if s.lead != "none"]
+    clip = render_piano_notes(
+        notes,
+        bar_s=song.grid.bar_s,
+        tail_start_s=0.0,  # every note is a "tail" note: held to its end, no pedal
+        level_spans=spans,
+        sr=song.grid.sample_rate,
+        cfg=cfg.piano_lead,
+        store=store,
+        n_samples=n,
+    )
+    return _fit(clip.mean(axis=1), n)
+
+
+def _render_lead(
+    song: PopRapSong, cfg: PopRapConfig, n: int, work_dir: Path, store: SampleStore | None = None
+) -> Audio:
     """The main lead, the hook-2 double, then the ping-pong delay and the plate."""
     sr, bus = song.grid.sample_rate, cfg.lead_bus
     main, double = lead_notes(song)
-    other = "guitar" if cfg.lead == "synth" else "synth"
-    lead = dsp.constant_power_pan(_lead(cfg.lead, main, n, song, cfg, work_dir), 0.0)
+    other = _DOUBLE[cfg.lead]
+    if cfg.lead == "piano":
+        if store is None:
+            raise ProductionError("the piano lead needs a sample store")
+        # Summed to mono and centred like the other leads: a wide piano under the
+        # ping-pong delay pulls the mix below the stereo-correlation floor.
+        lead = dsp.constant_power_pan(_piano_lead(main, n, song, cfg, store).mean(axis=1), 0.0)
+    else:
+        lead = dsp.constant_power_pan(_lead(cfg.lead, main, n, song, cfg, work_dir), 0.0)
     if double:
-        doubled = _lead(other, double, n, song, cfg, work_dir)
+        if other == "piano":
+            assert store is not None  # checked above for the piano lead
+            doubled = _piano_double(double, n, song, cfg, store)
+        else:
+            doubled = _lead(other, double, n, song, cfg, work_dir)
         lead += bus.double_gain * dsp.constant_power_pan(doubled, bus.double_pan)
     d = int(bus.delay_beats * song.grid.beat_s * sr)
     echo = np.zeros_like(lead)
@@ -188,8 +247,12 @@ def render_poprap_mix(
     cfg: PopRapConfig,
     work_dir: Path,
     progress: ProgressCallback | None = None,
+    store: SampleStore | None = None,
 ) -> MixResult:
-    """Render every bus, level it, and sum to the pre-master mix."""
+    """Render every bus, level it, and sum to the pre-master mix.
+
+    ``store`` holds the piano samples; only the piano lead needs it.
+    """
     cb: ProgressCallback = progress if progress is not None else NullProgress()
     sr = song.grid.sample_rate
     n = poprap_length(song, cfg.form)
@@ -202,7 +265,7 @@ def render_poprap_mix(
         buses.audio[name] *= duck[:, None]
 
     cb("lead", 0.0)
-    lead = _render_lead(song, cfg, n, work_dir)
+    lead = _render_lead(song, cfg, n, work_dir, store)
 
     cb("mix", 0.0)
     m, a = cfg.mix, buses.audio
@@ -220,13 +283,19 @@ def render_poprap_mix(
         "pad": m.pad_dbfs,
         "pluck": m.pluck_dbfs,
         "fx": m.fx_dbfs,
-        "lead": m.lead_guitar_dbfs if cfg.lead == "guitar" else m.lead_synth_dbfs,
+        "lead": {
+            "guitar": m.lead_guitar_dbfs,
+            "synth": m.lead_synth_dbfs,
+            "piano": m.lead_piano_dbfs,
+        }[cfg.lead],
     }
     for name in ("drums", "fx"):
         dry[name] = dsp.butter(dry[name], "lowpass", m.bright_lowpass_hz, sr, order=4, stable=True)
-    limited = {"drums", "808"}
+    peak_ratios = {"drums": m.peak_ratio, "808": m.peak_ratio}
+    if cfg.lead == "piano":
+        peak_ratios["lead"] = m.lead_piano_peak_ratio
     stems = {
-        name: _level(dry[name], targets[name], m.silence, m.peak_ratio if name in limited else None)
+        name: _level(dry[name], targets[name], m.silence, peak_ratios.get(name))
         for name in POPRAP_STEMS
     }
     total = sum(stems.values(), np.zeros((n, 2)))

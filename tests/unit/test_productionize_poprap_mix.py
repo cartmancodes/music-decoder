@@ -13,7 +13,7 @@ from music_decoder.productionize.poprap_mix import (
     render_poprap_mix,
 )
 from music_decoder.types import ChordSymbol, Scale
-from tests.productionize_helpers import needs_guitar
+from tests.productionize_helpers import fake_lead_store, needs_guitar
 
 PROGRESSION = [ChordSymbol.parse(c) for c in ("Am", "F", "C", "G")]
 SHORT_FORM = replace(PopRapFormConfig(), intro_bars=2, section_target_bars=8, outro_bars=1)
@@ -140,14 +140,15 @@ def _bad_length_form(song):
 
 @pytest.mark.parametrize(
     "lead",
-    ["synth", "guitar"],
+    ["synth", "guitar", "piano"],
 )
 def test_lead_fits_buffer_lengths_that_round_down(tmp_path, lead):
     song = _song(tmp_path, replace(CFG, lead=lead))
     form, n = _bad_length_form(song)
     assert int((n / SR) * SR) != n
     cfg = replace(CFG, lead=lead, form=form)
-    result = render_poprap_mix(song, cfg, tmp_path)
+    store = fake_lead_store(tmp_path / "samples", song) if lead == "piano" else None
+    result = render_poprap_mix(song, cfg, tmp_path, store=store)
     assert result.mix.shape == (n, 2)
     assert result.stems["lead"].shape == (n, 2)
     assert np.abs(result.stems["lead"]).max() > 0.0
@@ -173,3 +174,116 @@ def test_drums_and_fx_are_rolled_off_above_the_bright_lowpass(tmp_path):
     # The other stems are untouched.
     for name in ("808", "pad", "pluck", "lead"):
         assert np.array_equal(rolled.stems[name], open_.stems[name])
+
+
+# ---- The piano lead ------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def piano_and_guitar(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("poprap_piano")
+    song = _song(tmp)
+    store = fake_lead_store(tmp / "samples", song)
+    piano = render_poprap_mix(song, replace(CFG, lead="piano"), tmp, store=store)
+    guitar = render_poprap_mix(song, replace(CFG, lead="guitar"), tmp)
+    return song, piano, guitar
+
+
+def _rms(x):
+    return float(np.sqrt(np.mean(x**2))) if len(x) else 0.0
+
+
+def test_piano_lead_plays_the_melody_where_the_guitar_does(piano_and_guitar):
+    song, piano, guitar = piano_and_guitar
+    for i, section in enumerate(song.sections):
+        a, b = song.section_span(i)
+        sounding = {
+            k: _rms(r.stems["lead"][a:b]) > 1e-4 for k, r in (("piano", piano), ("guitar", guitar))
+        }
+        assert sounding["piano"] == sounding["guitar"], section.name
+    hooks = [song.section_span(i) for i, s in enumerate(song.sections) if s.role == "hook"]
+    (verse,) = [song.section_span(i) for i, s in enumerate(song.sections) if s.role == "verse"]
+    hook_energy = sum(_energy(piano.stems["lead"], span) for span in hooks)
+    # The verse holds only the last hook-1 note's release and the delay's echo.
+    first_bar = (verse[0] + song.grid.samples(song.grid.bar_s), verse[1])
+    assert _energy(piano.stems["lead"], first_bar) < 1e-6 * hook_energy
+    for name in ("drums", "808", "pad", "pluck", "fx"):
+        assert np.array_equal(piano.stems[name], guitar.stems[name]), name
+
+
+def test_piano_lead_levels_at_minus_17(piano_and_guitar):
+    from music_decoder.productionize.config import PopRapMixConfig
+
+    _, piano, _ = piano_and_guitar
+    assert PopRapMixConfig().lead_piano_dbfs == -17.0
+    lead = piano.stems["lead"]
+    audible = lead[np.abs(lead).sum(axis=1) > CFG.mix.silence]
+    assert 20 * np.log10(_rms(audible)) == pytest.approx(-17.0, abs=0.5)
+
+
+def test_piano_lead_needs_a_store(tmp_path):
+    from music_decoder.productionize.song import ProductionError
+
+    song = _song(tmp_path)
+    with pytest.raises(ProductionError, match="sample store"):
+        render_poprap_mix(song, replace(CFG, lead="piano"), tmp_path)
+
+
+def test_piano_lead_peaks_are_held_to_its_peak_ratio(tmp_path):
+    """The piano's hammer transients are soft-limited like the drums, so the master's
+    limiter does not have to take them (it cost a real render its loudness target)."""
+    song = _song(tmp_path)
+    store = fake_lead_store(tmp_path / "samples", song)
+    cfg = replace(CFG, lead="piano", mix=replace(CFG.mix, lead_piano_peak_ratio=1.5))
+    lead = render_poprap_mix(song, cfg, tmp_path, store=store).stems["lead"]
+    target = 10 ** (cfg.mix.lead_piano_dbfs / 20)
+    assert np.abs(lead).max() <= 1.5 * target * 1.0001
+    assert PopRapConfig().mix.lead_piano_peak_ratio == 4.0
+
+
+def test_piano_lead_never_plays_the_guitar(tmp_path, monkeypatch):
+    """The user asked for piano only: no guitar double under the piano lead."""
+    from music_decoder.productionize.instruments import synths
+
+    def no_guitar(*args, **kwargs):
+        raise AssertionError("the piano lead played the guitar")
+
+    monkeypatch.setattr(synths, "guitar_lead", no_guitar)
+    song = _song(tmp_path)
+    store = fake_lead_store(tmp_path / "samples", song)
+    lead = render_poprap_mix(song, replace(CFG, lead="piano"), tmp_path, store=store).stems["lead"]
+    assert np.abs(lead).max() > 0.0
+
+
+def test_piano_lead_is_centred_like_the_other_leads(tmp_path):
+    """A wide piano plus the ping-pong delay pulled a real mix under the stereo
+    correlation floor, so the piano is summed to mono and centred, like the others."""
+    song = _song(tmp_path)
+    store = fake_lead_store(tmp_path / "samples", song)
+    # No double: the hook-2 piano double is panned like the guitar's, on purpose.
+    dry_bus = replace(
+        CFG.lead_bus, delay_first=0.0, delay_second=0.0, plate_send=0.0, double_gain=0.0
+    )
+    cfg = replace(CFG, lead="piano", lead_bus=dry_bus)
+    lead = render_poprap_mix(song, cfg, tmp_path, store=store).stems["lead"]
+    assert np.abs(lead).max() > 0.0
+    assert np.allclose(lead[:, 0], lead[:, 1])
+
+
+def test_piano_lead_doubles_hook_2_on_a_second_piano(tmp_path):
+    """The user wanted the guitar's hook-2 part kept, on piano: hook 2 gets louder
+    against hook 1 when the double plays, and still no guitar is involved."""
+    song = _song(tmp_path)
+    store = fake_lead_store(tmp_path / "samples", song)
+    hooks = [song.section_span(i) for i, s in enumerate(song.sections) if s.role == "hook"]
+
+    def hook2_over_hook1(double_gain):
+        bus = replace(
+            CFG.lead_bus, double_gain=double_gain, delay_first=0.0, delay_second=0.0, plate_send=0.0
+        )
+        lead = render_poprap_mix(
+            song, replace(CFG, lead="piano", lead_bus=bus), tmp_path, store=store
+        ).stems["lead"]
+        return _energy(lead, hooks[1]) / _energy(lead, hooks[0])
+
+    assert hook2_over_hook1(0.35) > 1.2 * hook2_over_hook1(0.0)

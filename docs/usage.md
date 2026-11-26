@@ -458,7 +458,7 @@ music-decoder productionize SOURCE --out DIR [--name NAME]
                              [--percussion NAME[@SECTIONS]]...
                              [--verse held | guide-line | skeleton | build]
                              [--style boom-bap | pop-rap]
-                             [--lead guitar | synth]
+                             [--lead guitar | synth | piano]
                              [--samples-dir DIR] [--no-qc]
                              [--format pretty | json]
 ```
@@ -498,10 +498,11 @@ ceiling, and checked.
 - `--style` — `boom-bap` (default, described here) or `pop-rap`, an
   upbeat trap-drum instrumental (see [Pop-rap style](#pop-rap-style)).
 - `--lead` — the pop-rap lead sound: `guitar` (default, an electric
-  guitar) or `synth`. Ignored by boom-bap.
+  guitar), `synth`, or `piano` (the boom-bap sampled grand). Ignored by
+  boom-bap.
 - `--samples-dir` — where samples are kept (default
-  `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`). Pop-rap uses no
-  samples and ignores it.
+  `<data_dir>/samples`, or `MUSIC_DECODER_SAMPLES_DIR`). Pop-rap uses
+  samples only for the piano lead.
 - `--no-qc` — skip the acceptance checks.
 
 The composition is one pass over its chord progression. The production
@@ -951,7 +952,8 @@ folder rather than overwriting. `--out` from the CLI is the parent
 `--style pop-rap` renders the same composition as an upbeat pop-rap
 instrumental instead: half-time trap drums, a sine 808 on each bar's root,
 a soft saw pad, a plucked copy of the accompaniment, and your melody as the
-lead. Nothing is sampled except the guitar, so it needs no download.
+lead. With the guitar or synth lead nothing is downloaded; the piano lead
+plays the boom-bap piano samples and fetches any that are missing first.
 The hats and fx are rolled off above 16 kHz, so the MP3 stays under its
 true-peak ceiling. Beat jitter is reported but not checked for pop-rap,
 because the beat tracker is unreliable on half-time trap; the drum-grid
@@ -981,7 +983,9 @@ of passes closest to 16 bars (at least one pass): 16 bars for a 4- or
 | Outro | 4 | melody's first 4 bars | none | yes | — |
 | Final chord | 2 bars held | — | — | home chord on the pad | — |
 
-The quiet double in hook 2 is the other lead sound.
+The quiet double in hook 2 is the other lead sound: the synth under a
+guitar lead, the guitar under a synth lead, and a second piano under a piano
+lead.
 
 - **Stems:** `stem_<name>.wav` for `drums`, `808`, `pad`, `pluck`, `fx`
   and `lead` (float, without the lead-in).
@@ -991,10 +995,19 @@ The quiet double in hook 2 is the other lead sound.
 - **Boom-bap only:** `--percussion`, `--verse` and `--hisaab` are usage
   errors with `--style pop-rap`.
 - **Lead sound:** the guitar is played from the installed soundfont by
-  FluidSynth. Both leads need FluidSynth and the soundfont, because the
-  synth lead's hook-2 double is the guitar. It checks for both before it
+  FluidSynth. The guitar and synth leads both need FluidSynth and the
+  soundfont, because the synth lead's hook-2 double is the guitar. It checks for both before it
   writes anything. The synth is mixed louder than the guitar (-16.5 against -18
   dBFS RMS), so it sits more forward in the mix.
+- **Piano lead:** `--lead piano` plays the melody on the same sampled grand
+  piano as boom-bap, with its pedal (a note rings to the end of its bar) and
+  re-strike rules, at -17 dBFS RMS. Its hook-2 double is a second piano at the
+  melody's pitch that holds each note for its written length (no pedal), so the
+  piano lead needs no FluidSynth. Like the other leads it is summed to mono and centred, its
+  compressor works against the sections that have a lead, and its hammer peaks are soft-limited at 4x
+  its RMS so the master stays on its loudness target. Missing piano
+  samples are fetched (or, offline, reported) before anything is written,
+  and the report credits the Salamander piano.
 - **Source:** it needs composer notes (a melody and an accompaniment), so
   it takes a take folder or `composition.mid`, not a ready song.
 

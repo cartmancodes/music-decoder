@@ -17,6 +17,7 @@ from music_decoder.productionize.config import (
     ProductionConfig,
 )
 from music_decoder.productionize.instruments import synths
+from music_decoder.productionize.instruments.piano import piano_note_refs
 from music_decoder.productionize.master import (
     MasterReport,
     encode_mp3,
@@ -25,7 +26,7 @@ from music_decoder.productionize.master import (
     write_wav,
 )
 from music_decoder.productionize.mix import MixResult, render_mix
-from music_decoder.productionize.poprap import PopRapSong, poprap_song
+from music_decoder.productionize.poprap import PopRapSong, lead_notes, poprap_song
 from music_decoder.productionize.poprap_mix import render_poprap_mix
 from music_decoder.productionize.qc import QcReport, decode_mp3, run_qc
 from music_decoder.productionize.samples import PIANO_CREDIT, SampleStore
@@ -162,7 +163,8 @@ def productionize(
     ``config.style`` picks the sound. Boom-bap (the default) renders real
     drums, bass, sampled piano and strings from a composer source or a ready
     :class:`Song`. Pop-rap renders trap drums, an 808, a pad, a pluck and a
-    lead from a composer source only, and needs no samples.
+    lead from a composer source only; it needs ``samples_dir`` only for the
+    piano lead.
 
     ``source`` is what ``compose()`` returned, a composition folder, a
     composer MIDI file, or (boom-bap only) a ready :class:`Song`.
@@ -186,6 +188,7 @@ def productionize(
             key=key,
             check=check,
             cb=cb,
+            samples_dir=samples_dir,
         )
 
     song = resolve_song(source, progression=progression, title=title, key=key, arrange=cfg.arrange)
@@ -232,15 +235,28 @@ def _productionize_poprap(
     key: str | None,
     check: bool,
     cb: ProgressCallback,
+    samples_dir: Path | None = None,
 ) -> Production:
     song = resolve_poprap_song(
         source, cfg=cfg.poprap, progression=progression, title=title, key=key
     )
-    # Both leads need the guitar (the synth lead's hook-2 double), so look before writing.
-    synths.require_guitar(cfg.poprap.guitar_lead)
+    # The guitar and synth leads need the guitar (the lead, or the synth's hook-2
+    # double), so look before writing. The piano lead plays alone.
+    if cfg.poprap.lead != "piano":
+        synths.require_guitar(cfg.poprap.guitar_lead)
+    store = None
+    if cfg.poprap.lead == "piano":
+        # Fetch (or, offline, fail on) the piano samples before writing anything.
+        store = SampleStore(samples_dir)
+        main, _ = lead_notes(song)
+        store.ensure(
+            piano_note_refs(
+                main, bar_s=song.grid.bar_s, tail_start_s=song.body_s, cfg=cfg.poprap.piano_lead
+            )
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="productionize-") as tmp:
-        mix = render_poprap_mix(song, cfg.poprap, Path(tmp), cb)
+        mix = render_poprap_mix(song, cfg.poprap, Path(tmp), cb, store=store)
     tail_s = cfg.poprap.form.tail_s
     metadata: dict[str, Any] = {
         "title": song.title,
@@ -251,7 +267,7 @@ def _productionize_poprap(
         "sections": [s.name for s in song.sections],
         "notes": song.source,
         "percussion": [],
-        "credits": [],
+        "credits": [PIANO_CREDIT] if cfg.poprap.lead == "piano" else [],
         "style": "pop-rap",
         "lead": cfg.poprap.lead,
         "mp3_guard_passes": 0,
