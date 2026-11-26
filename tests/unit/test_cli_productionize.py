@@ -173,6 +173,11 @@ def test_productionize_style_and_lead_reach_the_config(tmp_path):
         assert r.exit_code == 0, r.output
         config = p.call_args.kwargs["config"]
         assert (config.style, config.poprap.lead) == ("boom-bap", "guitar")
+        base = ["productionize", "take", "--out", str(tmp_path), "--style", "pop-rap"]
+        r = CliRunner().invoke(main, [*base, "--lead", "piano", "--samples-dir", str(tmp_path)])
+        assert r.exit_code == 0, r.output
+        assert p.call_args.kwargs["config"].poprap.lead == "piano"
+        assert p.call_args.kwargs["samples_dir"] == tmp_path
 
 
 def test_poprap_rejects_boom_bap_only_options(tmp_path):

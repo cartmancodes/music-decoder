@@ -37,6 +37,7 @@ from music_decoder.productionize.config import (
     PERCUSSION_OPTIONS,
     VERSE_STYLES,
     PercussionLayer,
+    PopRapLead,
     with_percussion,
 )
 from music_decoder.productionize.samples import (
@@ -327,7 +328,7 @@ def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
 )
 @click.option(
     "--lead",
-    type=click.Choice(["guitar", "synth"]),
+    type=click.Choice(["guitar", "synth", "piano"]),
     default="guitar",
     show_default=True,
     help="pop-rap lead sound",
@@ -336,7 +337,7 @@ def _parse_percussion(specs: tuple[str, ...]) -> tuple[PercussionLayer, ...]:
     "--samples-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="boom-bap sample folder (pop-rap needs no samples)",
+    help="sample folder (boom-bap, and the pop-rap piano lead)",
 )
 @click.option("--no-qc", is_flag=True, default=False, help="skip the acceptance checks")
 @click.option("--format", "fmt", type=click.Choice(["pretty", "json"]), default="pretty")
@@ -379,7 +380,7 @@ def cli_productionize(
         config,
         style=cast(Literal["boom-bap", "pop-rap"], style),
         arrange=replace(config.arrange, verse_style=verse),
-        poprap=replace(config.poprap, lead=cast(Literal["guitar", "synth"], lead)),
+        poprap=replace(config.poprap, lead=cast(PopRapLead, lead)),
     )
 
     def progress(stage: str, fraction: float) -> None:

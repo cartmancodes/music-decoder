@@ -425,3 +425,68 @@ def test_manifest_progression_that_does_not_divide_the_bars_is_an_error(take, tm
     with pytest.raises(ProductionError):
         productionize(folder, out_dir=out)
     assert not out.exists()
+
+
+# ---- The pop-rap piano lead ----------------------------------------------------
+
+POPRAP_PIANO = replace(POPRAP, poprap=replace(POPRAP.poprap, lead="piano"))
+
+
+@needs_ffmpeg
+@needs_guitar
+def test_poprap_piano_metadata_credits_the_piano(composition_dir, tmp_path):
+    from music_decoder.productionize.samples import PIANO_CREDIT
+    from tests.productionize_helpers import fake_lead_store
+
+    song = resolve_poprap_song(composition_dir, cfg=POPRAP_PIANO.poprap, progression=PROGRESSION)
+    fake_lead_store(tmp_path / "samples", song)
+    result = productionize(
+        composition_dir,
+        out_dir=tmp_path / "out",
+        config=POPRAP_PIANO,
+        progression=PROGRESSION,
+        samples_dir=tmp_path / "samples",
+        check=False,
+    )
+    assert result.metadata["lead"] == "piano"
+    assert result.metadata["credits"] == [PIANO_CREDIT]
+
+
+def test_poprap_piano_missing_samples_fail_before_writing(composition_dir, tmp_path, monkeypatch):
+    from music_decoder.productionize import api
+    from music_decoder.productionize.samples import SampleStore
+
+    monkeypatch.setattr(api, "SampleStore", lambda root=None: SampleStore(root, download=False))
+    out = tmp_path / "out"
+    with pytest.raises(SampleError, match="missing"):
+        productionize(
+            composition_dir,
+            out_dir=out,
+            config=POPRAP_PIANO,
+            progression=PROGRESSION,
+            samples_dir=tmp_path / "empty",
+        )
+    assert not out.exists()
+
+
+@needs_ffmpeg
+def test_poprap_piano_needs_no_guitar(composition_dir, tmp_path, monkeypatch):
+    """Piano only, no guitar double, so no FluidSynth or soundfont check."""
+    from music_decoder.productionize.instruments import synths
+    from tests.productionize_helpers import fake_lead_store
+
+    def missing(cfg):
+        raise ProductionError("fluidsynth is not installed")
+
+    monkeypatch.setattr(synths, "require_guitar", missing)
+    song = resolve_poprap_song(composition_dir, cfg=POPRAP_PIANO.poprap, progression=PROGRESSION)
+    fake_lead_store(tmp_path / "samples", song)
+    result = productionize(
+        composition_dir,
+        out_dir=tmp_path / "out",
+        config=POPRAP_PIANO,
+        progression=PROGRESSION,
+        samples_dir=tmp_path / "samples",
+        check=False,
+    )
+    assert result.wav_path.is_file()

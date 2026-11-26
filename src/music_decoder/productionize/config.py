@@ -25,7 +25,7 @@ ChordVoicing = Literal["shapes", "voice_led"]
 VerseMelody = Literal["full", "skeleton", "guide_line"]
 EqKind = Literal["peak", "low_shelf", "high_shelf"]
 ProductionStyle = Literal["boom-bap", "pop-rap"]
-PopRapLead = Literal["guitar", "synth"]
+PopRapLead = Literal["guitar", "synth", "piano"]
 
 
 # ---- Grid and form ---------------------------------------------------------
@@ -847,6 +847,10 @@ class PopRapMixConfig:
     fx_dbfs: float = -30.0
     lead_guitar_dbfs: float = -18.0
     lead_synth_dbfs: float = -16.5
+    lead_piano_dbfs: float = -17.0
+    # The piano lead's hammer transients, soft-limited at this multiple of its RMS
+    # (the guitar's natural peaks sit near 4.7x), so the master's limiter need not.
+    lead_piano_peak_ratio: float = 4.0
     peak_ratio: float = 2.6  # drums and 808 soft-limited at this multiple of their RMS
     drums_plate_send: float = 0.12
     pad_hall_send: float = 0.35
@@ -871,6 +875,8 @@ class PopRapConfig:
     pluck: PluckConfig = PluckConfig()
     synth_lead: SynthLeadConfig = SynthLeadConfig()
     guitar_lead: GuitarLeadConfig = GuitarLeadConfig()
+    # The piano lead: the boom-bap sampled grand, with the same pedal rules.
+    piano_lead: PianoConfig = PianoConfig()
     lead_bus: LeadBusConfig = LeadBusConfig()
     mix: PopRapMixConfig = PopRapMixConfig()
     # MP3 guard: re-master with a lower ceiling while the MP3's true peak is
